@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OnBid Public Asset Doc Agent MVP</title>
+    <link rel="stylesheet" href="./styles.css?v=20260705-ai-priority-v3">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">KAMCO Startup TechBlaze MVP</p>
+        <h1>OnBid Public Asset Doc Agent</h1>
+      </div>
+      <div class="header-status">
+        <span>온비드 URL 분석</span>
+        <strong>실증 MVP</strong>
+      </div>
+    </header>
+
+    <main>
+      <nav class="view-tabs" aria-label="MVP 화면 전환">
+        <button class="tab is-active" data-view="input">공고 가져오기</button>
+        <button class="tab" data-view="report">준비 보드</button>
+        <button class="tab" data-view="watchlist">관심 공고</button>
+      </nav>
+
+      <section class="notice-band">
+        <strong>고지</strong>
+        <span>온비드 공개 페이지를 읽어 준비 체크리스트로 바꾸는 MVP입니다. 입찰 여부·법률 판단·수익성 판단은 제공하지 않으며 원문과 담당기관 확인을 우선합니다.</span>
+      </section>
+
+      <section id="view-input" class="view is-visible" aria-labelledby="input-title">
+        <div class="two-col">
+          <section class="panel">
+            <div class="section-title">
+              <p class="eyebrow">Step 1</p>
+              <h2 id="input-title">공고 가져오기</h2>
+            </div>
+            <label for="notice-url">온비드 공고/물건 URL</label>
+            <textarea id="notice-url" rows="4"></textarea>
+            <p class="field-help">온비드에서 보고 있던 공고/물건 URL을 붙여넣으면 공개 페이지를 읽어 준비 보드로 변환합니다. short URL도 최종 상세 URL로 따라갑니다.</p>
+
+            <div class="field-row">
+              <div>
+                <label for="user-type">사용자 유형</label>
+                <select id="user-type">
+                  <option value="sole">개인사업자</option>
+                  <option value="person">개인</option>
+                  <option value="corp">법인</option>
+                  <option value="founder">예비창업자</option>
+                </select>
+              </div>
+              <div>
+                <label for="asset-focus">내 검토 목적</label>
+                <select id="asset-focus">
+                  <option value="lease">임대/대부 공고 검토</option>
+                  <option value="sale">매각/공매 공고 검토</option>
+                  <option value="startup">창업 공간 탐색</option>
+                </select>
+              </div>
+            </div>
+
+            <section id="notice-fit" class="fit-panel" aria-live="polite"></section>
+            <section id="analysis-preview" class="analysis-preview" aria-live="polite"></section>
+
+            <div class="actions">
+              <button id="load-sample" class="secondary">샘플 불러오기</button>
+              <button id="analyze" class="primary">공고 분석</button>
+              <button id="prepare" class="primary" type="button" disabled>준비 보드 만들기</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <p class="eyebrow">Analysis Pipeline</p>
+              <h2>처리 단계</h2>
+            </div>
+            <ol id="pipeline" class="pipeline"></ol>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-report" class="view" aria-labelledby="report-title">
+        <section class="panel">
+          <div class="section-title">
+            <p class="eyebrow">Step 2</p>
+            <h2 id="report-title">내 준비 보드</h2>
+          </div>
+          <div id="report-hero" class="report-hero"></div>
+          <div id="board-coach" class="board-coach"></div>
+          <div class="board-status" id="board-status" aria-live="polite"></div>
+          <div class="board-layout">
+            <section class="task-panel" aria-labelledby="task-title">
+              <div class="panel-heading">
+                <div>
+                  <h3 id="task-title">다음 액션</h3>
+                  <p>체크하면 진행률과 다음 우선순위가 바뀝니다.</p>
+                </div>
+                <button id="reset-tasks" class="secondary small-button" type="button">초기화</button>
+              </div>
+              <div id="task-list" class="task-list"></div>
+            </section>
+            <aside class="context-panel" aria-labelledby="context-title">
+              <h3 id="context-title">공고 요약</h3>
+              <div id="quick-facts" class="fact-list"></div>
+              <div class="quick-actions">
+                <a id="source-url-link" class="secondary action-link" href="https://www.onbid.co.kr/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController/mvmnPbancDtl.do?cltrPrptDivCd=10&cltrScrnGrpCd=0&onbidCltrno=1413572&onbidPbancNo=887390&pbctCdtnNo=5988631&pbctNo=10032196" target="_blank" rel="noreferrer">온비드 원문 열기</a>
+                <button class="secondary" type="button" data-jump="watchlist">관심 공고 보기</button>
+                <button class="secondary" type="button" data-copy-summary>검토 메모 복사</button>
+              </div>
+              <p id="copy-feedback" class="copy-feedback" aria-live="polite"></p>
+            </aside>
+          </div>
+          <div class="support-grid">
+            <details class="support-panel">
+              <summary>마감·비용 요약</summary>
+              <div id="deadline-cost-list" class="compact-list"></div>
+            </details>
+            <details class="support-panel">
+              <summary>담당기관에 물어볼 문장 모음</summary>
+              <div id="question-list" class="compact-list"></div>
+            </details>
+            <details class="support-panel">
+              <summary>근거와 안전 경계</summary>
+              <div id="source-notes" class="source-notes"></div>
+            </details>
+          </div>
+        </section>
+      </section>
+
+      <section id="view-watchlist" class="view" aria-labelledby="watchlist-title">
+        <section class="panel">
+          <div class="section-title">
+            <p class="eyebrow">Step 3</p>
+            <h2 id="watchlist-title">관심 공고</h2>
+          </div>
+          <div class="watch-summary" id="watch-summary"></div>
+          <div class="watch-board" id="watchlist-table"></div>
+          <div class="source-panel">
+            <h3>공고함의 역할</h3>
+            <p>일회성 문서 저장 대신 여러 공고의 준비 상태를 남겨 두고, 다음에 확인해야 할 일을 이어서 보는 화면입니다. 실제 서비스에서는 사용자 계정에 저장되어 알림과 공고 비교로 확장됩니다.</p>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js?v=20260705-ai-priority-v3"></script>
+  </body>
+</html>

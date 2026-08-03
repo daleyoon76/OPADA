@@ -1,0 +1,11 @@
+{
+  "name": "hometest-op",
+  "private": true,
+  "description": "KAMCO Startup TechBlaze - OnBid Public Asset Doc Agent",
+  "scripts": {
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}
