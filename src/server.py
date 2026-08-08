@@ -28,6 +28,11 @@ PUBLIC_DATA_ENDPOINTS = {
     "notice_detail": "http://apis.data.go.kr/B010003/OnbidPbancDtlnfSrvc2/getPbancDtlInf2",
     "notice_bid_detail": "http://apis.data.go.kr/B010003/OnbidPbancBidDtlSrvc2/getPbancBidInf2",
 }
+# 온비드 물건/공고 상세 컨트롤러는 이 파라미터 없이 열면 온비드 자체가 500을 반환한다.
+DETAIL_CONTROLLER_REQUIRED_PARAM = {
+    "CltrDtlController/mvmnCltrDtl.do": "onbidCltrno",
+    "PbancDtlInqController/mvmnPbancDtl.do": "onbidPbancNo",
+}
 
 
 def clean_text(value: str | None) -> str:
@@ -119,6 +124,12 @@ def validate_onbid_url(raw_url: str) -> str:
     host = (parsed.hostname or "").lower()
     if host != "onbid.co.kr" and not host.endswith(".onbid.co.kr"):
         raise ValueError("현재 MVP는 onbid.co.kr URL만 분석합니다.")
+    for suffix, required_param in DETAIL_CONTROLLER_REQUIRED_PARAM.items():
+        if parsed.path.endswith(suffix) and not urllib.parse.parse_qs(parsed.query).get(required_param):
+            raise ValueError(
+                "이 링크에는 물건을 특정하는 정보가 없습니다. 온비드 화면 주소창 URL이 아니라, "
+                "물건상세/공고상세 화면 오른쪽 위 '공유하기' 버튼을 눌러 'URL 복사'로 가져온 링크를 붙여넣어 주세요."
+            )
     return raw_url
 
 

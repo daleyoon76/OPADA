@@ -423,7 +423,7 @@ const focusLabels = {
 
 let currentView = "input";
 let currentStage = 0;
-let analysisTimer = null;
+let analysisRequestId = 0;
 let analysisError = null;
 let analyzedInputValue = "";
 let boardGenerated = false;
@@ -729,6 +729,9 @@ function saveTaskState(state) {
 }
 
 function resetTaskState() {
+  if (!window.confirm("진행 상황을 초기화할까요?")) {
+    return;
+  }
   window.localStorage.removeItem(taskStorageKey);
   renderReport();
   renderWatchlist();
@@ -820,20 +823,48 @@ function getFitMessage() {
   };
 }
 
-function renderNoticeFit() {
+function renderAnalysisResult() {
+  const panel = byId("analysis-result");
   const fit = getFitMessage();
   const typeBadge = fit.type === "match" ? "safe" : "warn";
-  byId("notice-fit").className = `fit-panel ${fit.type}`;
-  byId("notice-fit").innerHTML = `
+  panel.className = `fit-panel ${fit.type}`;
+
+  if (fit.inputBlocked) {
+    panel.innerHTML = `
+      <div class="fit-top">
+        ${badge(fit.type === "mismatch" ? "불일치" : "확인 필요", typeBadge)}
+        <strong>${fit.title}</strong>
+      </div>
+      <p>${fit.body}</p>
+      <p class="small-text">${fit.action}</p>
+    `;
+    return;
+  }
+
+  const publicData = sampleNotice.analysisMeta?.publicData;
+  const coach = sampleNotice.aiCoach;
+  const links = sampleNotice.relatedUrls || {};
+
+  panel.innerHTML = `
     <div class="fit-top">
       ${badge(fit.type === "mismatch" ? "불일치" : fit.type === "check" ? "확인 필요" : "일치", typeBadge)}
       <strong>${fit.title}</strong>
     </div>
-    <dl class="fit-facts">
-      <div><dt>입력 공고 판정</dt><dd>${fit.inputBlocked ? "분석 대상 아님" : `${sampleNotice.assetType} / ${sampleNotice.dispositionLabel}`}</dd></div>
-      <div><dt>내 검토 목적</dt><dd>${focusLabels[getSelectedFocus()]}</dd></div>
-    </dl>
+    <p class="small-text">${sampleNotice.pageType || "온비드 페이지"}${publicData ? ` · ${publicDataLabel(publicData)}` : ""}</p>
     <p>${fit.body}</p>
+    <div class="preview-grid">
+      <div><b>공고/물건명</b><strong>${sampleNotice.title}</strong></div>
+      <div><b>유형</b><strong>${sampleNotice.assetType} / ${sampleNotice.dispositionLabel}</strong></div>
+      <div><b>입찰기간</b><strong>${sampleNotice.bidPeriod || sampleNotice.bidDeadline || "원문 확인"}</strong></div>
+      <div><b>가격/보증금</b><strong>${sampleNotice.minimumBidPrice || sampleNotice.bidDeposit || "원문 확인"}</strong></div>
+    </div>
+    <div class="linked-pages">
+      <b>온비드 연결</b>
+      <a href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">현재 분석 페이지</a>
+      ${links.noticeDetail ? `<a href="${links.noticeDetail}" target="_blank" rel="noreferrer">공고보기</a>` : ""}
+      ${links.itemDetail ? `<a href="${links.itemDetail}" target="_blank" rel="noreferrer">물건상세</a>` : ""}
+    </div>
+    ${renderAiReadySummary(coach)}
     <p class="small-text">${fit.action}</p>
   `;
 }
@@ -917,10 +948,6 @@ function publicDataLabel(publicData) {
   return labels[publicData?.status] || "원문 분석";
 }
 
-function publicDataBadgeType(publicData) {
-  return publicData?.status === "connected" || publicData?.status === "partial" ? "safe" : "safe";
-}
-
 function publicDataSourceNote(publicData) {
   if (!publicData) {
     return "";
@@ -931,56 +958,13 @@ function publicDataSourceNote(publicData) {
   return "보조 데이터: 현재 화면은 온비드 공개 원문에서 추출한 값으로 정리했습니다.";
 }
 
-function renderAnalysisPreview() {
-  const preview = byId("analysis-preview");
-  const inputWarning = getInputWarning();
-  const stale = !inputWarning && !analysisError && !isAnalyzedInputCurrent();
-  const publicData = sampleNotice.analysisMeta?.publicData;
-  const coach = sampleNotice.aiCoach;
-  const links = sampleNotice.relatedUrls || {};
-
-  if (inputWarning || analysisError || stale) {
-    preview.className = "analysis-preview is-empty";
-    preview.innerHTML = `
-      <div class="preview-top">
-        <span>${badge("분석 대기", "warn")}</span>
-        <strong>공고 분석 결과가 아직 없습니다.</strong>
-      </div>
-      <p>${analysisError || inputWarning?.body || "URL을 분석하면 여기에서 유효성, 공고/물건 연결, AI 우선 확인 준비 상태를 먼저 확인할 수 있습니다."}</p>
-    `;
-    return;
-  }
-
-  preview.className = "analysis-preview is-ready";
-  preview.innerHTML = `
-    <div class="preview-top">
-      <span>${badge("분석 완료", "safe")}${badge(sampleNotice.pageType || "온비드 페이지", "safe")}${
-        publicData ? badge(publicDataLabel(publicData), publicDataBadgeType(publicData)) : ""
-      }</span>
-      <strong>이 URL은 준비 보드로 만들 수 있습니다.</strong>
-    </div>
-    <div class="preview-grid">
-      <div><b>공고/물건명</b><strong>${sampleNotice.title}</strong></div>
-      <div><b>유형</b><strong>${sampleNotice.assetType} / ${sampleNotice.dispositionLabel}</strong></div>
-      <div><b>입찰기간</b><strong>${sampleNotice.bidPeriod || sampleNotice.bidDeadline || "원문 확인"}</strong></div>
-      <div><b>가격/보증금</b><strong>${sampleNotice.minimumBidPrice || sampleNotice.bidDeposit || "원문 확인"}</strong></div>
-    </div>
-    <div class="linked-pages">
-      <b>온비드 연결</b>
-      <a href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">현재 분석 페이지</a>
-      ${links.noticeDetail ? `<a href="${links.noticeDetail}" target="_blank" rel="noreferrer">공고보기</a>` : ""}
-      ${links.itemDetail ? `<a href="${links.itemDetail}" target="_blank" rel="noreferrer">물건상세</a>` : ""}
-    </div>
-    ${renderAiReadySummary(coach)}
-  `;
-}
-
 function renderActionState() {
   const ready = isAnalysisReady();
+  const isCaution = ready && getFitMessage().type === "mismatch";
   const prepareButton = byId("prepare");
   if (prepareButton) {
     prepareButton.disabled = !ready;
-    prepareButton.className = ready ? "primary" : "secondary";
+    prepareButton.className = !ready ? "secondary" : isCaution ? "primary is-caution" : "primary";
     prepareButton.textContent = ready ? "준비 보드 만들기" : "분석 후 만들기";
   }
   const analyzeButton = byId("analyze");
@@ -1015,13 +999,12 @@ function renderReport() {
     }
     byId("report-hero").innerHTML = `
       <h3>${blockingMessage.title}</h3>
-      <p>${badge("분석 필요", "warn")}${badge("원문 우선", "warn")}</p>
+      <p>${badge("분석 필요", "warn")} <span class="small-text">원문 우선</span></p>
       <p>${blockingMessage.body}</p>
       <p class="small-text">온비드 공고/물건 URL을 입력하고 공고 분석을 다시 실행하세요.</p>
     `;
 
     byId("board-status").innerHTML = [
-      ["자동 분석", "실행하지 않음"],
       ["다음 액션", "온비드 URL 입력 후 공고 분석"],
       ["진행률", "분석 대기"],
     ]
@@ -1067,9 +1050,10 @@ function renderReport() {
   byId("report-hero").innerHTML = `
     <h3>${sampleNotice.title}</h3>
     <p>${sampleNotice.assetType} ${sampleNotice.dispositionLabel} / ${userTypeLabels[userType]} / ${focusLabels[getSelectedFocus()]}</p>
-    <p>${badge(sampleNotice.mode || "온비드 분석", "safe")}${
-      publicData ? badge(publicDataLabel(publicData), publicDataBadgeType(publicData)) : ""
-    }${badge(fit.type === "mismatch" ? "목적 불일치" : "목적 확인", fit.type === "match" ? "safe" : "warn")}${badge("원문 우선", "warn")}</p>
+    <p class="small-text">${sampleNotice.mode || "온비드 분석"}${
+      publicData ? ` · ${publicDataLabel(publicData)}` : ""
+    } · 원문 우선</p>
+    <p>${badge(fit.type === "mismatch" ? "목적 불일치" : "목적 확인", fit.type === "match" ? "safe" : "warn")}</p>
     <p>${fit.body}</p>
   `;
 
@@ -1079,7 +1063,6 @@ function renderReport() {
     : "";
 
   byId("board-status").innerHTML = [
-    ["자동 분석", `${sampleNotice.assetType} / ${sampleNotice.dispositionLabel}`],
     [aiAssignments.size ? "AI 우선 액션" : "다음 액션", firstAiMatch?.check?.title || firstAiTask?.title || taskSummary.nextTask?.title || "원문 확인"],
     ["진행률", formatProgress(taskSummary)],
   ]
@@ -1130,7 +1113,7 @@ function renderReport() {
         <strong>체크리스트를 자동 생성하지 못했습니다.</strong>
         <p class="small-text">온비드 원문을 열어 입찰기간, 제출서류, 가격/보증금, 담당기관을 먼저 확인하세요.</p>
         <div class="task-meta">
-          ${badge("원문 우선", "warn")}
+          <span class="small-text">원문 우선</span>
           <a class="text-action" href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">온비드 원문</a>
         </div>
       </article>`;
@@ -1208,6 +1191,7 @@ function renderWatchlist() {
       sourceUrl: item.sourceUrl || "https://www.onbid.co.kr/",
       favorite: true,
       dynamic: false,
+      sample: true,
     })).filter((item) => !favoriteKeys.has(`${item.title || item.notice}|${item.type}`)),
   ];
 
@@ -1253,7 +1237,7 @@ function watchItemHtml(item, options = {}) {
   return `<article class="watch-item">
     ${favoriteButton}
     <div>
-      <strong>${item.title || item.notice}</strong>
+      <strong>${item.title || item.notice}${item.sample ? ` ${badge("예시", "warn")}` : ""}</strong>
       <span>${item.notice}</span>
       <span>${item.type}</span>
     </div>
@@ -1267,8 +1251,7 @@ function watchItemHtml(item, options = {}) {
 
 function renderAll() {
   renderPipeline();
-  renderNoticeFit();
-  renderAnalysisPreview();
+  renderAnalysisResult();
   renderReport();
   renderWatchlist();
   renderActionState();
@@ -1294,14 +1277,17 @@ function getSummaryText() {
 async function copySummary() {
   const feedback = byId("copy-feedback");
   if (getInputWarning() || analysisError || !isAnalyzedInputCurrent()) {
+    feedback.className = "copy-feedback is-warn";
     feedback.textContent = "현재 입력값은 분석되지 않았기 때문에 검토 메모를 만들지 않았습니다.";
     return;
   }
   const text = getSummaryText();
   try {
     await navigator.clipboard.writeText(text);
+    feedback.className = "copy-feedback is-success";
     feedback.textContent = "검토 메모를 클립보드에 복사했습니다.";
   } catch {
+    feedback.className = "copy-feedback is-warn";
     feedback.textContent = "브라우저 권한 때문에 자동 복사는 실패했습니다. 원문과 질문은 준비 보드에서 확인할 수 있습니다.";
   }
 }
@@ -1314,15 +1300,15 @@ function replaceNotice(nextNotice) {
 }
 
 async function runAnalysis() {
-  if (analysisTimer) return;
   const inputWarning = getInputWarning();
   if (inputWarning) {
     analysisError = null;
     currentStage = 0;
     renderAll();
-    byId("notice-fit").scrollIntoView({ block: "center", behavior: "smooth" });
+    byId("analysis-result").scrollIntoView({ block: "center", behavior: "smooth" });
     return;
   }
+  const requestId = ++analysisRequestId;
   const analyzeButton = byId("analyze");
   analyzeButton.disabled = true;
   analyzeButton.textContent = "분석 중";
@@ -1336,6 +1322,7 @@ async function runAnalysis() {
     renderPipeline();
     const response = await fetch(`/api/analyze?url=${encodeURIComponent(getNoticeInput())}`);
     const payload = await response.json();
+    if (requestId !== analysisRequestId) return;
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || "온비드 페이지 분석에 실패했습니다.");
     }
@@ -1345,16 +1332,19 @@ async function runAnalysis() {
     window.localStorage.removeItem(taskStorageKey);
     saveRecentNotice();
     renderAll();
-    byId("analysis-preview").scrollIntoView({ block: "center", behavior: "smooth" });
+    byId("analysis-result").scrollIntoView({ block: "center", behavior: "smooth" });
   } catch (error) {
+    if (requestId !== analysisRequestId) return;
     analysisError = error.message || "온비드 페이지 분석에 실패했습니다.";
     boardGenerated = false;
     currentStage = 0;
     renderAll();
-    byId("notice-fit").scrollIntoView({ block: "center", behavior: "smooth" });
+    byId("analysis-result").scrollIntoView({ block: "center", behavior: "smooth" });
   } finally {
-    analyzeButton.disabled = false;
-    renderActionState();
+    if (requestId === analysisRequestId) {
+      analyzeButton.disabled = false;
+      renderActionState();
+    }
   }
 }
 
@@ -1368,12 +1358,9 @@ function init() {
   });
 
   byId("load-sample").addEventListener("click", () => {
-    if (analysisTimer) {
-      window.clearInterval(analysisTimer);
-      analysisTimer = null;
-      byId("analyze").disabled = false;
-      byId("analyze").textContent = "공고 분석";
-    }
+    analysisRequestId += 1;
+    byId("analyze").disabled = false;
+    byId("analyze").textContent = "공고 분석";
     replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
     byId("notice-url").value = sampleNotice.sourceUrl;
     analyzedInputValue = "";
@@ -1412,6 +1399,7 @@ function init() {
     saveTaskState(state);
     renderReport();
     renderWatchlist();
+    document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)?.focus();
   });
 
   document.addEventListener("click", (event) => {
@@ -1423,7 +1411,9 @@ function init() {
     if (!target) {
       const favoriteTarget = event.target.closest("[data-favorite-id]");
       if (favoriteTarget) {
-        toggleFavoriteNotice(favoriteTarget.dataset.favoriteId);
+        const favoriteId = favoriteTarget.dataset.favoriteId;
+        toggleFavoriteNotice(favoriteId);
+        document.querySelector(`[data-favorite-id="${CSS.escape(favoriteId)}"]`)?.focus();
       }
       return;
     }
