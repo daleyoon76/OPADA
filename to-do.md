@@ -30,5 +30,5 @@
 - [x] `Hometest_op` 첫 git 커밋 (`Initial commit: OnBid 공공자산 공고 해석/준비 보조 MVP` 존재 확인)
 - [ ] 원격 레포 생성 여부 결정
 - [ ] `supporting-programs`의 원본 `07_KAMCO_Startup_TechBlaze` 폴더 정리 여부 결정 (중복 방지)
-- [ ] `npm install` 후 `tests/public-data-status.spec.js` 실행 확인 (package.json/playwright.config.js는 세팅됨, 미설치 상태)
+- [ ] `tests/public-data-status.spec.js` 실행 확인 — `npm install`은 완료 상태(@playwright/test 1.62.1, 브라우저 캐시 존재, `package-lock.json` 2026-08-30 커밋). 스위트 실행은 아직 미확인
 - [ ] (선택) 린터·테스트 러너 안정화 후 `.husky/pre-commit` 훅 추가
