@@ -8,14 +8,14 @@
 - [ ] 산출물을 `docs/60_본선준비/10_발표자료/`에 저장
 
 ## P0-2. MVP 라이브 시연 가능 상태 확보
-- [ ] 현재 작업 기기에서 `python src/server.py` 기동 확인
-- [ ] 임대/대부 1건, 매각/공매 1건 실제 URL로 분석 → 준비 보드 → AI 우선 체크리스트까지 통과 확인
-- [ ] AI 호출 경로(`GEMINI_API_KEY`/`GOOGLE_API_KEY` 또는 gcloud Vertex 토큰) 현재 기기에서 인증 가능 여부 확인
-- [ ] 확인 결과를 응답 값과 함께 기록
+- [x] 현재 작업 기기(macOS)에서 `python src/server.py` 기동 확인 (2026-09-01, `GET /` → HTTP 200)
+- [ ] 🔴 임대/대부 1건, 매각/공매 1건 실제 URL로 분석 → 준비 보드 → AI 우선 체크리스트까지 통과 확인 — **9/3 데모 최우선 블로커**. 매각/공매 1건은 분석 자체는 성공했으나 입찰기간이 2026-07-08 17:00 종료(2026-09-01 기준 55일 경과)로 시연 부적합. 임대/대부는 URL 미확보
+- [x] AI 호출 경로 인증 가능 여부 확인 (2026-09-01) — `GEMINI_API_KEY`/`GOOGLE_API_KEY` 미설정이나 gcloud Vertex 토큰 경로로 `gemini-2.5-flash-lite` 정상 응답(`llmStatus: connected`) 확인
+- [ ] 확인 결과를 응답 값과 함께 기록 — 위 항목 완료 후 재기록 필요
 
 ## P0-3. 시연용 샘플 공고 URL 갱신
-- [ ] 기존 샘플 URL 2건(핸드오프 기록) 만료 여부 확인
-- [ ] 결선 시점 진행 중인 임대/대부 1건, 매각/공매 1건 URL 확보
+- [x] 기존 샘플 URL 만료 여부 확인 (2026-09-01) — e2e 테스트용 URL(`shortcut.do?code=q8ddH9CdE4E7`)로 재확인, 입찰기간 2026-07-08 17:00 종료로 만료 확정
+- [ ] 🔴 결선 시점 진행 중인 임대/대부 1건, 매각/공매 1건 URL 확보 — 다음 세션 최우선 착수 항목
 - [ ] 새 URL로 분석 결과(공고번호, 물건번호, 유형, 입찰기간, 담당기관, AI 상태) 기록
 
 ## P0-4. 멘토링 안내 메일 수신 및 일정 확보
@@ -31,5 +31,5 @@
 - [x] `Hometest_op` 첫 git 커밋 (`Initial commit: OnBid 공공자산 공고 해석/준비 보조 MVP` 존재 확인)
 - [ ] 원격 레포 생성 여부 결정
 - [ ] `supporting-programs`의 원본 `07_KAMCO_Startup_TechBlaze` 폴더 정리 여부 결정 (중복 방지)
-- [ ] `tests/public-data-status.spec.js` 실행 확인 — `npm install`은 완료 상태(@playwright/test 1.62.1, 브라우저 캐시 존재, `package-lock.json` 2026-08-30 커밋). 스위트 실행은 아직 미확인
+- [ ] 🔴 `tests/public-data-status.spec.js` 실행 결과 — 2026-09-01 `npx playwright test` 실행, **1건 중 1건 실패**. `#report-hero`가 API 상태 문구(`API 키 없음|오류|보조 없음|권한 대기|일부|연결`)를 포함하지 않음. 08-08 UI 개편 이후 테스트 미갱신인지, 실제 회귀인지 원인 미조사 — 다음 세션에서 조사 필요
 - [ ] (선택) 린터·테스트 러너 안정화 후 `.husky/pre-commit` 훅 추가
