@@ -938,9 +938,11 @@ def build_notice(raw_url: str) -> dict[str, object]:
         or "온비드 공고/물건"
     )
 
+    # 온비드 좌측 내비게이션에도 "재산유형" 라벨이 있어 values_after_label이 메뉴 문구를
+    # 먼저 집는다. 상세 페이지 hidden input이 정확하므로 그쪽을 먼저 본다.
     asset_type = (
-        values_after_label(text, "재산유형")
-        or inputs.get("scrnCltrPrptDivNm")
+        inputs.get("scrnCltrPrptDivNm")
+        or values_after_label(text, "재산유형")
         or inputs.get("ctgrFullNm")
         or api_value(api_entries, "prptDvsnNm", "prptDivNm", "cltrPrptDivNm", "ctgrFullNm", "cltrPrptDvsnNm")
         or "재산유형 확인"
