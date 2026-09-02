@@ -38,5 +38,10 @@
 - [x] `Hometest_op` 첫 git 커밋 (`Initial commit: OnBid 공공자산 공고 해석/준비 보조 MVP` 존재 확인)
 - [ ] 원격 레포 생성 여부 결정
 - [ ] `supporting-programs`의 원본 `07_KAMCO_Startup_TechBlaze` 폴더 정리 여부 결정 (중복 방지)
-- [ ] 🔴 `tests/public-data-status.spec.js` 실행 결과 — 2026-09-01 `npx playwright test` 실행, **1건 중 1건 실패**. `#report-hero`가 API 상태 문구(`API 키 없음|오류|보조 없음|권한 대기|일부|연결`)를 포함하지 않음. 08-08 UI 개편 이후 테스트 미갱신인지, 실제 회귀인지 원인 미조사 — 다음 세션에서 조사 필요
+- [x] `tests/public-data-status.spec.js` 실패 원인 조사 (2026-09-02) — **테스트 노후화이며 기능 회귀가 아님**
+  - 실패 지점은 12행 한 곳이고, 8~11행(물건명·금액 단언)은 통과한다. 옛 샘플 URL은 302로 여전히 열리고 분석도 성공한다.
+  - 원인 1: API 상태 문구가 `#report-hero`에서 `#source-notes`로 옮겨졌다.
+  - 원인 2: 문구 자체가 `API ...`에서 `보조 데이터: ...`로 바뀌었다. 17행이 기대하는 `공공데이터 API:`는 `src/` 어디에도 없다.
+  - 원인 3: `ONBID_API_SERVICE_KEY`가 미설정이라 `publicDataSourceNote`가 연결 상태 문구를 만들지 않는다.
+- [ ] 위 테스트 수정 방침 결정 — 인증키 없이는 수정본을 검증할 수 없어 이번 세션에서는 단언을 고치지 않았다. 키를 넣고 고칠지, 키 없는 환경용으로 조건부 단언으로 바꿀지 동원님 판단 필요
 - [ ] (선택) 린터·테스트 러너 안정화 후 `.husky/pre-commit` 훅 추가
