@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -896,6 +897,34 @@ def build_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     return rule_based
 
 
+def bid_deadline_passed(bid_period: str, bid_deadline: str) -> tuple[bool, str]:
+    """입찰 마감일시가 분석 시각 기준으로 지났는지 순수 날짜 비교로 판정한다.
+
+    입찰 여부·법률·수익성 판단은 하지 않는다. 마감 시각(입찰기간의 종료값 또는
+    bid_deadline)을 파싱해 현재 시각과 비교만 한다. 파싱이 불확실하면 (False, "")를
+    반환해 오탐(진행 중 공고에 경고)을 피한다.
+    """
+    end_raw = ""
+    if bid_period and "~" in bid_period:
+        end_raw = bid_period.split("~")[-1].strip()
+    if not end_raw:
+        end_raw = (bid_deadline or "").strip()
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?", end_raw)
+    if not match:
+        return False, ""
+    year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    hour = int(match.group(4)) if match.group(4) else 23
+    minute = int(match.group(5)) if match.group(5) else 59
+    try:
+        end_dt = datetime(year, month, day, hour, minute)
+    except ValueError:
+        return False, ""
+    if end_dt < datetime.now():
+        stamp = match.group(0)
+        return True, stamp
+    return False, ""
+
+
 def build_notice(raw_url: str) -> dict[str, object]:
     final_url, text = fetch_onbid(raw_url)
     inputs = hidden_inputs(text)
@@ -1034,7 +1063,18 @@ def build_notice(raw_url: str) -> dict[str, object]:
         price_candidates.append({"title": "비용 후보", "value": "공고 원문 확인", "note": "보증금, 대부료, 납부 방식은 원문 기준 확인"})
 
     notice["costs"] = price_candidates
-    notice["alerts"] = [
+    deadline_passed, deadline_stamp = bid_deadline_passed(bid_period, bid_deadline)
+    notice["alerts"] = []
+    if deadline_passed:
+        notice["alerts"].append(
+            {
+                "title": "입찰 마감 지남",
+                "value": f"{deadline_stamp} 마감",
+                "note": "분석 시각 기준 입찰 마감일시가 지났습니다. 진행 여부는 온비드 원문과 담당기관에서 확인하십시오.",
+                "status": "warn",
+            }
+        )
+    notice["alerts"].extend([
         {
             "title": "입찰기간",
             "value": bid_period or bid_deadline or "원문 기준 확인",
@@ -1047,7 +1087,7 @@ def build_notice(raw_url: str) -> dict[str, object]:
             "note": "공동/대리입찰 여부와 제출방법에 따라 준비 시간이 달라집니다.",
             "status": "check",
         },
-    ]
+    ])
     notice["risks"] = [
         {
             "title": "공고 유형 착오",
