@@ -47,6 +47,7 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
     ("B4", "비용 항목", "원문값만·세율 미계산", "세율 삽입", "Y"),
     ("B5", "공고문 목차", "번호 제목/서술문·파일명", "필터 삭제", "Y"),
     ("B6", "용어 안내", "재산유형·처분방식 뜻", "사전 비우기", "Y"),
+    ("B7", "코치 직접제출 배선", "A형 실형태(서류 1건↑ + 항목 method 없음 + 표 직접제출)", "표 보조 근거 삭제 · 항목 가드 삭제", "Y"),
 )
 
 
@@ -420,6 +421,36 @@ def test_generic_table_is_not_success() -> None:
         )["unresolvedChecks"]
     ]
     check("B1 배선 양성 — 직접제출", any("직접제출 서류" in title for title in submit_titles), str(submit_titles))
+
+    # B7 배선 양성(표 보조 근거) — 표본 01~08(A형)의 실제 형태다.
+    # 서류는 8건 뽑혔는데 항목 단위 `method` 는 전건 비어 있고, 온비드 표에만 「직접제출」이 있다.
+    # 이 형태를 재는 검사가 없어서 2차 반영의 회귀(정당한 안내 3건 소실)가 초록으로 통과했다.
+    a_type = server.build_doc_checklist(
+        server.split_sections(NUMBERED_CONDITION_NOTICE + GENERIC_DOCS_TABLE), "압류재산", []
+    )
+    # 도달 증거 — 이 픽스처가 실제로 「항목 0건」도 「항목에 method 있음」도 아니어야
+    # 아래 단언이 표 보조 근거 경로를 잰다. 셋 다 무너지면 단언은 영구 초록이 된다.
+    check("B7 도달 증거 — 서류 1건 이상", len(a_type["items"]) >= 1, str(len(a_type["items"])))
+    check("B7 도달 증거 — 항목 method 전건 없음", not any(item["method"] for item in a_type["items"]), str([item["method"] for item in a_type["items"]]))
+    check("B7 도달 증거 — 표에는 제출방법 있음", any(row["method"] for row in a_type["tableRows"]), str(a_type["tableRows"]))
+    a_titles = [
+        item["title"]
+        for item in server.local_ai_coach(
+            {"assetType": "압류재산", "dispositionLabel": "매각", "docChecklist": a_type},
+            [str(item["name"]) for item in a_type["items"]],
+        )["unresolvedChecks"]
+    ]
+    check("B7 배선 양성 — 서류 1건 이상 + 표 직접제출", any("직접제출 서류" in title for title in a_titles), str(a_titles))
+    # B7 음성 대조 — 같은 표를 그대로 두고 항목만 0건으로 만들면 False 여야 한다.
+    # 「표에 제출방법이 있다」만으로는 절대 켜지지 않는다는 뜻이다.
+    a_type_empty = {**a_type, "items": []}
+    empty_titles = [
+        item["title"]
+        for item in server.local_ai_coach(
+            {"assetType": "압류재산", "dispositionLabel": "매각", "docChecklist": a_type_empty}, []
+        )["unresolvedChecks"]
+    ]
+    check("B7 배선 음성 — 서류 0건이면 표가 있어도 안 뜬다", all("직접제출 서류" not in title for title in empty_titles), str(empty_titles))
 
     # 배선: 체크리스트 항목이 실제로 있을 때는 조건 축을 근거로 공동/대리 항목이 붙는다.
     real = server.build_doc_checklist(server.split_sections(NUMBERED_CONDITION_NOTICE), "압류재산", [])

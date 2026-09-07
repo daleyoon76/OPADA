@@ -1086,13 +1086,17 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     condition_keys = {key for item in checklist_items for key in item.get("conditionKeys", [])}
     docs_summary = " / ".join(docs[:2]) if docs else "제출서류 표 확인"
     is_sale = "매각" in disposition or "공매" in disposition or "압류" in asset_type
-    # 근거는 `docChecklist["items"]` 뿐이다. 온비드 제출서류 표(`tableRows`)의 제출방법 칸을
-    # 근거로 삼으면, 서류를 한 건도 못 뽑아 「못 뽑았습니다」를 띄운 공고에서 바로 다음 줄이
-    # 「직접제출 서류」의 존재를 전제한다.
-    # 귀속 주의 — 이 위험은 `[추론]` 이다. 표본 23건에서 그 조합(`is_sale=True` + 서류 0건)은
-    # 관측되지 않았다. 서류 0건이면서 표에 제출방법이 있던 6건은 전부 `is_sale=False` 라
-    # 이 분기에 도달하지 않는다 — 닫은 것은 계산 경로일 뿐 화면에 뜬 적이 없다.
-    has_direct_submit = any(item.get("method") for item in checklist_items)
+    # 근거는 항목의 제출방법이 우선이고, 온비드 제출서류 표(`tableRows`)의 제출방법 칸은
+    # **서류를 1건 이상 뽑았을 때에 한해** 보조 근거로 인정한다.
+    # 서류 0건일 때 표를 근거로 삼으면, 「못 뽑았습니다」를 띄운 바로 다음 줄이
+    # 「직접제출 서류」의 존재를 전제한다 — `bool(checklist_items)` 가드가 그 경로를 막는다.
+    # 표본 23건 실측 `[관측]`: 항목만 = 2/23 · 이 중간안 = 10/23 · 무가드 = 16/23.
+    # 화면 노출 기준(`is_sale=True` 3건)으로는 위양성 0/0/0 · 정당한 안내 0/3/3 이라,
+    # 이 가드는 위양성을 늘리지 않으면서 압류재산 3건의 안내를 되살린다.
+    has_direct_submit = any(item.get("method") for item in checklist_items) or (
+        bool(checklist_items)
+        and any(row.get("method") for row in checklist.get("tableRows", []))
+    )
     has_proxy_or_joint = bool({"proxy", "joint"} & condition_keys)
     has_docs = bool(docs)
 
