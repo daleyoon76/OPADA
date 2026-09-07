@@ -1177,6 +1177,114 @@ a:hover {
   font-size: 12px;
 }
 
+.doc-source-notice {
+  margin-top: 10px;
+  border-left: 3px solid var(--line);
+  background: #fbfcfb;
+  padding: 9px 11px;
+}
+
+.doc-source-notice strong {
+  margin-left: 6px;
+}
+
+.doc-source-notice p {
+  margin: 5px 0 0;
+}
+
+.deadline-line {
+  margin: 8px 0 0;
+}
+
+.doc-panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  margin-bottom: 14px;
+  padding: 13px 14px;
+}
+
+.doc-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.doc-panel > p {
+  color: var(--muted);
+  margin: 7px 0 0;
+}
+
+.doc-group {
+  border-top: 1px solid var(--line);
+  margin-top: 11px;
+  padding-top: 9px;
+}
+
+.doc-group h4 {
+  font-size: 14px;
+  margin: 0 0 7px;
+}
+
+.doc-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.doc-group li {
+  border-left: 2px solid var(--soft-green);
+  margin-bottom: 8px;
+  padding-left: 9px;
+}
+
+.doc-group li strong {
+  display: block;
+}
+
+.doc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.doc-chip {
+  background: var(--soft-blue);
+  border-radius: 3px;
+  color: var(--blue);
+  font-size: 12px;
+  padding: 1px 6px;
+}
+
+.doc-howto {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.doc-notes {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.doc-reference {
+  border-top: 1px dashed var(--line);
+  margin-top: 9px;
+  padding-top: 7px;
+}
+
+.attachment-row {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
 @media (max-width: 900px) {
   .app-header,
   .print-head {

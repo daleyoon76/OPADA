@@ -856,8 +856,10 @@ function renderAnalysisResult() {
       <div><b>공고/물건명</b><strong>${sampleNotice.title}</strong></div>
       <div><b>유형</b><strong>${sampleNotice.assetType} / ${sampleNotice.dispositionLabel}</strong></div>
       <div><b>입찰기간</b><strong>${sampleNotice.bidPeriod || sampleNotice.bidDeadline || "원문 확인"}</strong></div>
-      <div><b>가격/보증금</b><strong>${sampleNotice.minimumBidPrice || sampleNotice.bidDeposit || "원문 확인"}</strong></div>
+      <div><b>최저입찰가격</b><strong>${sampleNotice.minimumBidPrice || "원문 확인"}</strong></div>
     </div>
+    <p class="deadline-line">${countdownBadge()}</p>
+    ${renderDocSourceNotice()}
     <div class="linked-pages">
       <b>온비드 연결</b>
       <a href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">현재 분석 페이지</a>
@@ -933,6 +935,157 @@ function renderTaskAiNudge(aiMatch) {
     </div>
     <p>${check.action || check.reason || "이 항목을 먼저 확인하세요."}</p>
   </div>`;
+}
+
+const docSourceBadge = {
+  A: "본문에서 찾을 수 있음",
+  B: "첨부를 봐야 함",
+  C: "원문에 없을 수 있음",
+  unknown: "위치 미상",
+};
+
+const docChecklistStatusBadge = {
+  extracted: ["추출됨", "safe"],
+  attachment_only: ["본문 미기재", "warn"],
+  not_in_notice: ["원문에 없음", "warn"],
+  not_found: ["추출 실패", "warn"],
+};
+
+function docExtraChips(item) {
+  return [
+    item.stage,
+    item.copy,
+    item.count,
+    item.validity && `유효기간 ${item.validity}`,
+    item.method && `제출 ${item.method}`,
+    item.due && `기한 ${item.due}`,
+  ]
+    .filter(Boolean)
+    .map((chip) => `<span class="doc-chip">${chip}</span>`)
+    .join("");
+}
+
+function renderDocSourceNotice() {
+  const checklist = sampleNotice.docChecklist;
+  const profile = checklist?.profile;
+  if (!profile) return "";
+  return `<section class="doc-source-notice">
+    ${badge(docSourceBadge[profile.code] || docSourceBadge.unknown, profile.code === "A" ? "safe" : "warn")}
+    <strong>${profile.label}</strong>
+    <p class="small-text">${profile.detail}</p>
+  </section>`;
+}
+
+function renderDocChecklist() {
+  const host = byId("doc-checklist");
+  if (!host) return;
+  const checklist = sampleNotice.docChecklist;
+  if (!checklist) {
+    host.innerHTML = "";
+    return;
+  }
+  const profile = checklist.profile || {};
+  const [statusLabel, statusType] = docChecklistStatusBadge[checklist.status] || ["확인 필요", "warn"];
+  const groups = Array.isArray(checklist.groups) ? checklist.groups : [];
+
+  const groupsHtml = groups
+    .map(
+      (group) => `<section class="doc-group">
+        <h4>${group.condition}</h4>
+        <ul>
+          ${group.items
+            .map(
+              (item) => `<li>
+                <strong>${item.name}</strong>
+                <span class="doc-chips">${docExtraChips(item)}</span>
+                ${
+                  item.howto
+                    ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
+                    : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
+                }
+                <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
+              </li>`,
+            )
+            .join("")}
+        </ul>
+      </section>`,
+    )
+    .join("");
+
+  host.innerHTML = `<section class="doc-panel">
+    <div class="doc-head">
+      ${badge(docSourceBadge[profile.code] || docSourceBadge.unknown, profile.code === "A" ? "safe" : "warn")}
+      ${badge(statusLabel, statusType)}
+      <strong>${checklist.headline}</strong>
+    </div>
+    <p>${profile.label || ""}</p>
+    <p class="small-text">${profile.detail || ""}</p>
+    ${groupsHtml || `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`}
+    ${
+      checklist.tableRows?.length
+        ? `<details class="doc-table">
+            <summary>온비드 제출서류 표 원본 (${checklist.tableRows.length}행)</summary>
+            ${checklist.tableRows
+              .map(
+                (row) => `<p class="small-text">${row.category} / ${row.name}${row.generic ? " (구분명 그대로)" : ""} / ${row.due} / ${row.method}</p>`,
+              )
+              .join("")}
+          </details>`
+        : ""
+    }
+    <ul class="doc-notes">${(checklist.notes || []).map((note) => `<li>${note}</li>`).join("")}</ul>
+    <p class="small-text doc-reference">${checklist.reference || ""}</p>
+  </section>`;
+}
+
+function renderAttachments() {
+  const host = byId("attachment-list");
+  if (!host) return;
+  const docs = Array.isArray(sampleNotice.relatedDocs) ? sampleNotice.relatedDocs : [];
+  host.innerHTML = docs.length
+    ? docs
+      .map(
+        (doc) => `<div class="compact-row attachment-row">
+          <strong>${typeof doc === "string" ? doc : doc.name}</strong>
+          ${typeof doc === "string" || !doc.downloadUrl ? "" : `<a class="text-action" href="${doc.downloadUrl}" target="_blank" rel="noreferrer">내려받기</a>`}
+        </div>`,
+      )
+      .join("")
+    : `<p class="small-text">이 공고에는 첨부파일이 없습니다.</p>`;
+}
+
+function renderNoticeOutline() {
+  const host = byId("notice-outline");
+  if (!host) return;
+  const outline = Array.isArray(sampleNotice.noticeOutline) ? sampleNotice.noticeOutline : [];
+  host.innerHTML = outline.length
+    ? `${outline
+      .map(
+        (entry) => `<details class="compact-row">
+          <summary><span>항목</span><strong>${entry.title}</strong></summary>
+          <p>${entry.body || "본문에 이어지는 설명이 없습니다."}</p>
+        </details>`,
+      )
+      .join("")}<p class="small-text">온비드 화면의 공고문 절만 항목으로 나눈 것입니다. 첨부 공고문(PDF·HWP) 내부는 아직 항목으로 나누지 않습니다.</p>`
+    : `<p class="small-text">공고문 절에서 항목 구분을 찾지 못했습니다. 첨부 공고문을 확인하십시오.</p>`;
+}
+
+function renderGlossary() {
+  const host = byId("glossary-list");
+  if (!host) return;
+  const entries = Array.isArray(sampleNotice.glossary) ? sampleNotice.glossary : [];
+  host.innerHTML = entries.length
+    ? `${entries
+      .map((entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p></div>`)
+      .join("")}<p class="small-text">화면의 재산유형·처분방식은 온비드 표기를 그대로 쓰고, 뜻만 여기에서 안내합니다.</p>`
+    : `<p class="small-text">이 공고의 표기에 해당하는 용어 안내가 없습니다. 온비드 원문 표기를 그대로 확인하십시오.</p>`;
+}
+
+function countdownBadge() {
+  const countdown = sampleNotice.countdown;
+  if (!countdown?.label) return "";
+  const type = countdown.state === "urgent" || countdown.state === "closed" ? "warn" : "safe";
+  return `${badge(countdown.label, type)} <span class="small-text">${countdown.deadline} 마감 · 알림 발송은 하지 않습니다</span>`;
 }
 
 function publicDataLabel(publicData) {
@@ -1039,6 +1192,10 @@ function renderReport() {
     byId("question-list").innerHTML = "";
     byId("source-notes").innerHTML = "";
     byId("board-coach").innerHTML = "";
+    byId("doc-checklist").innerHTML = "";
+    byId("attachment-list").innerHTML = "";
+    byId("notice-outline").innerHTML = "";
+    byId("glossary-list").innerHTML = "";
     return;
   }
 
@@ -1053,7 +1210,7 @@ function renderReport() {
     <p class="small-text">${sampleNotice.mode || "온비드 분석"}${
       publicData ? ` · ${publicDataLabel(publicData)}` : ""
     } · 원문 우선</p>
-    <p>${badge(fit.type === "mismatch" ? "목적 불일치" : "목적 확인", fit.type === "match" ? "safe" : "warn")}</p>
+    <p>${badge(fit.type === "mismatch" ? "목적 불일치" : "목적 확인", fit.type === "match" ? "safe" : "warn")} ${countdownBadge()}</p>
     <p>${fit.body}</p>
   `;
 
@@ -1061,6 +1218,11 @@ function renderReport() {
   byId("board-coach").innerHTML = coach
     ? renderCoachPanel(coach, { board: true })
     : "";
+
+  renderDocChecklist();
+  renderAttachments();
+  renderNoticeOutline();
+  renderGlossary();
 
   byId("board-status").innerHTML = [
     [aiAssignments.size ? "AI 우선 액션" : "다음 액션", firstAiMatch?.check?.title || firstAiTask?.title || taskSummary.nextTask?.title || "원문 확인"],
@@ -1122,7 +1284,7 @@ function renderReport() {
     ["공고번호", sampleNotice.noticeId],
     ["공고기관", sampleNotice.agency],
     ["입찰방식", sampleNotice.bidMethod],
-    ["가격/보증금", sampleNotice.minimumBidPrice || sampleNotice.bidDeposit || "원문 확인"],
+    ["최저입찰가격", sampleNotice.minimumBidPrice || "원문 확인"],
   ]
     .map(
       ([label, value]) => `<div class="fact-row">

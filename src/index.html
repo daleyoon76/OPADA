@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>OnBid Public Asset Doc Agent MVP</title>
-    <link rel="stylesheet" href="./styles.css?v=20260808-star-differentiate">
+    <link rel="stylesheet" href="./styles.css?v=20260907-doc-checklist">
   </head>
   <body>
     <header class="app-header">
@@ -92,6 +92,7 @@
           <div id="report-hero" class="report-hero"></div>
           <div id="board-coach" class="board-coach"></div>
           <div class="board-status" id="board-status" aria-live="polite"></div>
+          <div id="doc-checklist" class="doc-checklist"></div>
           <div class="board-layout">
             <section class="task-panel" aria-labelledby="task-title">
               <div class="panel-heading">
@@ -115,6 +116,18 @@
             </aside>
           </div>
           <div class="support-grid">
+            <details class="support-panel">
+              <summary>공고 첨부파일</summary>
+              <div id="attachment-list" class="compact-list"></div>
+            </details>
+            <details class="support-panel">
+              <summary>공고문 항목 보기</summary>
+              <div id="notice-outline" class="compact-list"></div>
+            </details>
+            <details class="support-panel">
+              <summary>용어 안내</summary>
+              <div id="glossary-list" class="compact-list"></div>
+            </details>
             <details class="support-panel">
               <summary>마감·비용 요약</summary>
               <div id="deadline-cost-list" class="compact-list"></div>
@@ -147,6 +160,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260808-star-differentiate"></script>
+    <script src="./app.js?v=20260907-doc-checklist"></script>
   </body>
 </html>
