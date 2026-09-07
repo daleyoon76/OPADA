@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -21,8 +22,9 @@ import server  # noqa: E402
 
 SAMPLE_DIR = Path(os.environ.get("ONBID_SAMPLE_HTML_DIR", "/tmp/onbid-survey/html"))
 
-# 표본조사 문서 §2의 재산유형 배분. 파일에는 재산유형이 hidden input으로 없어서
-# (공고상세는 `scrnCltrPrptDivNm` 를 주지 않는다) 표본 번호로 고정한다.
+# 재산유형은 표본조사가 목록 API에서 받아 `samples.json` 에 남긴 `prptDvsnNm` 이 정본이다.
+# 공고상세 HTML에는 `scrnCltrPrptDivNm` 이 없어 페이지에서 다시 읽을 수 없다.
+# 아래 표는 그 파일이 없을 때 쓰는 사본이며, 2026-09-08 실측으로 23/23 일치를 확인했다.
 SAMPLE_ASSET_TYPE = {
     1: "압류재산", 2: "압류재산", 3: "압류재산",
     4: "국유재산", 5: "국유재산", 6: "국유재산", 7: "국유재산", 8: "국유재산",
@@ -32,8 +34,24 @@ SAMPLE_ASSET_TYPE = {
     20: "기타일반재산", 21: "기타일반재산", 22: "기타일반재산", 23: "기타일반재산",
 }
 # 표본조사 §2 원문의 유형 배분: 압류 3 · 국유 5 · 공유 6 · 기타일반 6 · 파산 2 · 수탁 1.
-# 위 표에서 수탁 1건은 20번이며, 서류 위치 판정은 기타일반과 같은 B형이다.
 SAMPLE_ASSET_TYPE[20] = "수탁재산"
+
+
+def load_asset_types() -> tuple[dict[int, str], str]:
+    """`samples.json` 이 있으면 그 값을 쓰고, 없으면 사본 표를 쓴다."""
+    path = SAMPLE_DIR.parent / "samples.json"
+    if not path.exists():
+        return SAMPLE_ASSET_TYPE, "사본 표(samples.json 없음)"
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return SAMPLE_ASSET_TYPE, "사본 표(samples.json 읽기 실패)"
+    observed = {int(row["idx"]): str(row["prptDvsnNm"]) for row in rows if row.get("prptDvsnNm")}
+    if not observed:
+        return SAMPLE_ASSET_TYPE, "사본 표(prptDvsnNm 없음)"
+    mismatch = [idx for idx, value in observed.items() if SAMPLE_ASSET_TYPE.get(idx) != value]
+    note = "samples.json 관측값" + (f" · 사본 표와 불일치 {len(mismatch)}건: {mismatch}" if mismatch else " · 사본 표와 일치")
+    return observed, note
 
 
 def main() -> int:
@@ -42,6 +60,8 @@ def main() -> int:
         print("ONBID_SAMPLE_HTML_DIR 로 경로를 지정하십시오. 측정을 건너뜁니다.")
         return 2
 
+    asset_types, asset_note = load_asset_types()
+    print(f"재산유형 출처: {asset_note}")
     by_profile: dict[str, list[int]] = {}
     rows = []
     for index in range(1, 24):
@@ -51,7 +71,7 @@ def main() -> int:
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
         sections = server.split_sections(text)
-        asset_type = SAMPLE_ASSET_TYPE[index]
+        asset_type = asset_types[index]
         attachments = server.extract_related_docs(text)
         checklist = server.build_doc_checklist(sections, asset_type, attachments)
         items = checklist["items"]
