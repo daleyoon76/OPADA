@@ -24,8 +24,8 @@ PLAYED: tuple[tuple[str, str], ...] = (
     ("fetch_onbid()", "실제 HTTP 대신 이 파일의 픽스처 HTML을 넣는다"),
     (
         "build_notice()",
-        "전체 조립 대신 build_doc_checklist·build_tasks·local_ai_coach 를 직접 부른다. "
-        "진짜 배선은 tests/measure_sample_23.py(표본 23건)와 로컬 서버 실호출로 확인한다",
+        "대부분의 축은 전체 조립 대신 build_doc_checklist·build_tasks·local_ai_coach 를 직접 부른다. "
+        "단 B11 축은 build_notice 를 실제로 부르며 그때는 fetch_onbid·public_data_service_key 둘만 연기한다",
     ),
     ("화면 렌더", "이 파일은 화면을 연기하지 않는다. 화면 축은 tests/screen.spec.js 다"),
 )
@@ -51,6 +51,8 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
     ("B8", "입찰방법 값 추출", "공동/대리 값 분리 · 값 없음 · 툴팁만", "절 전체 훑기 · 창 경계 삭제", "Y"),
     ("B9", "공동입찰 축 배선", "화면 값 `or` 확장 · 기존 근거 보존", "or → 덮어쓰기 · 화면 값 무시", "Y"),
     ("B10", "명도책임 사실", "매수인 부담 · 없으면 빈 값 · 조건 축 아님", "조건 축에 물리기", "Y"),
+    ("B11", "build_notice 배선", "공동/대리 값 갈림 · 값 뒤집기 · 절 없음", "빈 값 고정 · 대리입찰 값 탑재", "Y"),
+    ("B11-1", "코치 action 문구", "서류 0건 → 목록 전제 없음 · 서류 근거 → 옛 문장", "분기 삭제(한 문장으로 합치기)", "Y"),
 )
 
 
@@ -190,6 +192,14 @@ BID_METHOD_SPLIT = section(
 BID_METHOD_NO_VALUE = section(
     "입찰방법",
     bid_method_item("공동입찰", "")
+    + bid_method_item("대리입찰", ICO_VALUE.format("가능")),
+)
+
+# B11 음성 대조용. 두 라벨의 값을 서로 바꾼 것 — 표본 22 의 형태다.
+# `build_notice` 가 「대리입찰」 값을 실어 나르면 여기서 「가능」이 나와 붉어진다.
+BID_METHOD_SPLIT_REVERSED = section(
+    "입찰방법",
+    bid_method_item("공동입찰", ICO_VALUE.format("불가능"))
     + bid_method_item("대리입찰", ICO_VALUE.format("가능")),
 )
 
@@ -728,6 +738,104 @@ def test_joint_axis_wiring() -> None:
 
 
 # ---------------------------------------------------------------------------
+# B11-1. 코치 action 문구 — 서류 0건 경로가 없는 목록을 전제하지 않는가
+# reason 만 갈라 놓고 action 을 옛 문장으로 두면 「남길 목록」이 화면에 없다.
+# ---------------------------------------------------------------------------
+LIST_PRESUMING_VERB = "필요한 서류만 남깁니다"
+
+
+def test_joint_action_wording() -> None:
+    empty = server.build_doc_checklist(server.split_sections(GENERIC_DOCS_TABLE), "파산자산", [])
+    doc_based = server.build_doc_checklist(server.split_sections(NUMBERED_CONDITION_NOTICE), "압류재산", [])
+    doc_names = [str(item["name"]) for item in doc_based["items"]]
+    # 도달 증거 — 두 경로가 실제로 같은 항목을 만들어 냈어야 비교가 성립한다.
+    screen_only = joint_check({"jointBidAllowed": "가능"}, empty, [])
+    with_docs = joint_check({"jointBidAllowed": "가능"}, doc_based, doc_names)
+    check("B11-1 도달 증거 — 서류 0건 경로에도 항목이 뜬다", bool(screen_only), str(screen_only))
+    check("B11-1 도달 증거 — 서류 근거 경로에도 항목이 뜬다", bool(with_docs), str(with_docs))
+    # 🔴 양성(음의 단정) — 서류 0건이면 목록 전제 동사를 쓰지 않는다.
+    check(
+        "B11-1 서류 0건 action 이 목록을 전제하지 않음",
+        LIST_PRESUMING_VERB not in str(screen_only.get("action", "")),
+        str(screen_only.get("action")),
+    )
+    check(
+        "B11-1 서류 0건 action 이 원문 확인으로 돌린다",
+        "원문" in str(screen_only.get("action", "")),
+        str(screen_only.get("action")),
+    )
+    # 음성 대조 — 서류를 뽑은 경로의 옛 문장은 그대로여야 한다. 두 경로를 한 문장으로
+    # 합치는 변이(분기 삭제)는 여기서 붉어진다.
+    check(
+        "B11-1 음성 대조 — 서류 근거 경로는 옛 문장 유지",
+        LIST_PRESUMING_VERB in str(with_docs.get("action", "")),
+        str(with_docs.get("action")),
+    )
+    check(
+        "B11-1 음성 대조 — 두 경로의 action 이 실제로 다르다",
+        screen_only.get("action") != with_docs.get("action"),
+        str(screen_only.get("action")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# B11. `build_notice` 호출부 배선 — `jointBidAllowed` 가 「공동입찰」 값을 싣는가
+# 이 게이트는 build_notice 를 PLAYED 로 두지만, 이 축만은 실제로 부른다.
+# 대신 연기하는 것은 네트워크 두 개뿐이다 — fetch_onbid, public_data_service_key.
+# ---------------------------------------------------------------------------
+FAKE_NOTICE_URL = "https://www.onbid.co.kr/op/ppa/pbcpubannc/publicAnnounceDetail.do"
+
+
+def notice_from_html(html: str) -> dict:
+    """`build_notice` 를 오프라인으로 부른다. 네트워크 두 곳만 대신 연기한다."""
+    saved_fetch, saved_key = server.fetch_onbid, server.public_data_service_key
+    server.fetch_onbid = lambda raw_url: (FAKE_NOTICE_URL, html)
+    server.public_data_service_key = lambda: ""
+    try:
+        return server.build_notice(FAKE_NOTICE_URL)
+    finally:
+        server.fetch_onbid, server.public_data_service_key = saved_fetch, saved_key
+
+
+def test_build_notice_joint_wiring() -> None:
+    split = server.split_sections(BID_METHOD_SPLIT)
+    # 도달 증거 — 이 픽스처가 실제로 두 라벨을 가르는 판별 케이스여야 한다.
+    check(
+        "B11 도달 증거 — 공동/대리 값이 갈린다",
+        (server.bid_method_flag(split, "공동입찰"), server.bid_method_flag(split, "대리입찰")) == ("가능", "불가능"),
+        str((server.bid_method_flag(split, "공동입찰"), server.bid_method_flag(split, "대리입찰"))),
+    )
+    # 🔴 양성 — 빈 값 고정 변이와 「대리입찰」 값 탑재 변이를 둘 다 가른다.
+    notice = notice_from_html(BID_METHOD_SPLIT)
+    check("B11 양성 공동입찰 값을 싣는다", notice.get("jointBidAllowed") == "가능", str(notice.get("jointBidAllowed")))
+    check(
+        "B11 양성 순수 함수 값과 일치",
+        notice.get("jointBidAllowed") == server.bid_method_flag(split, "공동입찰"),
+        str(notice.get("jointBidAllowed")),
+    )
+    # 🔴 음성 대조 1 — 값을 뒤집은 픽스처. 「가능」 하드코딩과 대리입찰 탑재가 여기서 붉어진다.
+    reversed_notice = notice_from_html(BID_METHOD_SPLIT_REVERSED)
+    check(
+        "B11 음성 대조 값 뒤집기",
+        reversed_notice.get("jointBidAllowed") == "불가능",
+        str(reversed_notice.get("jointBidAllowed")),
+    )
+    # 음성 대조 2 — 「입찰방법」 절이 없으면 빈 문자열이다. 「불가능」으로 접지 않는다.
+    no_section = notice_from_html(GENERIC_DOCS_TABLE)
+    check(
+        "B11 음성 대조 절 없음은 빈 값",
+        no_section.get("jointBidAllowed") == "",
+        str(no_section.get("jointBidAllowed")),
+    )
+    # 명도책임도 같은 조립 지점을 지난다 — 배선을 함께 고정한다.
+    check(
+        "B11 음성 대조 명도책임 값은 지어내지 않는다",
+        no_section.get("evictionResponsibility") == "",
+        str(no_section.get("evictionResponsibility")),
+    )
+
+
+# ---------------------------------------------------------------------------
 # B10. 명도책임 — 사실 한 줄, 조건 축이 아니다
 # ---------------------------------------------------------------------------
 def test_eviction_responsibility() -> None:
@@ -763,6 +871,8 @@ def main() -> int:
         test_glossary,
         test_bid_method_flag,
         test_joint_axis_wiring,
+        test_joint_action_wording,
+        test_build_notice_joint_wiring,
         test_eviction_responsibility,
     ):
         test()

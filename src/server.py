@@ -1187,7 +1187,13 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
                         if has_doc_condition
                         else f"온비드 「입찰방법」에 공동입찰이 `{joint_allowed}`으로 표시돼 있습니다. 서류 목록은 원문에서 뽑지 못했습니다."
                     ),
-                    "action": "내 입찰 방식이 단독/공동/대리 중 무엇인지 정하고 필요한 서류만 남깁니다.",
+                    # reason 과 같은 분기다. 서류를 0건 뽑은 공고에서 「필요한 서류만 남깁니다」라고 쓰면
+                    # 화면에 없는 목록을 전제한다 — 못 뽑았으면 못 뽑았다고 말한다.
+                    "action": (
+                        "내 입찰 방식이 단독/공동/대리 중 무엇인지 정하고 필요한 서류만 남깁니다."
+                        if has_doc_condition
+                        else "내 입찰 방식이 단독/공동/대리 중 무엇인지 정하고, 필요한 서류는 온비드 원문·첨부에서 직접 확인하십시오."
+                    ),
                     "source": "제출서류 표" if has_doc_condition else "온비드 입찰방법",
                 }
             )

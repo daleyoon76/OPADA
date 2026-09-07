@@ -55,6 +55,24 @@ def load_asset_types() -> tuple[dict[int, str], str]:
     return observed, note
 
 
+FAKE_NOTICE_URL = "https://www.onbid.co.kr/op/ppa/pbcpubannc/publicAnnounceDetail.do"
+
+
+def notice_joint_allowed(html: str) -> str:
+    """`build_notice` 를 오프라인으로 불러 조립된 `jointBidAllowed` 를 읽는다.
+
+    표본 축은 여태 `bid_method_flag()` 를 직접 불러 재서, 호출부가 그 값을 실제로
+    싣는지는 아무도 보지 않았다. 네트워크 두 곳만 대신 연기해 호출부를 지나게 한다.
+    """
+    saved_fetch, saved_key = server.fetch_onbid, server.public_data_service_key
+    server.fetch_onbid = lambda raw_url: (FAKE_NOTICE_URL, html)
+    server.public_data_service_key = lambda: ""
+    try:
+        return str(server.build_notice(FAKE_NOTICE_URL).get("jointBidAllowed") or "")
+    finally:
+        server.fetch_onbid, server.public_data_service_key = saved_fetch, saved_key
+
+
 def main() -> int:
     if not SAMPLE_DIR.is_dir():
         print(f"표본 HTML 디렉터리가 없습니다: {SAMPLE_DIR}")
@@ -93,6 +111,10 @@ def main() -> int:
                 # `has_doc_condition or joint_allowed == "가능"` 과 같은 모양이다.
                 "docJoint": any("joint" in item["conditionKeys"] for item in items),
                 "screenJoint": server.bid_method_flag(sections, "공동입찰"),
+                # 호출부 배선 — `build_notice` 가 조립해 내보내는 값. 위 순수 함수 값과
+                # 갈리면 배선이 끊겼거나 다른 라벨(`대리입찰`)을 싣고 있다는 뜻이다.
+                "noticeJoint": notice_joint_allowed(text),
+                "proxyFlag": server.bid_method_flag(sections, "대리입찰"),
                 "eviction": server.eviction_responsibility(sections),
             }
         )
@@ -133,11 +155,26 @@ def main() -> int:
     print(f"joint 반대 방향(서류 켜짐 · 화면 「불가능」): {len(reverse)}/{total} {reverse}")
     unread = [row["idx"] for row in rows if not row["screenJoint"]]
     print(f"공동입찰 값 못 읽음(화면 「원문 확인」): {len(unread)}/{total} {unread}")
+
+    # 호출부 배선 — `build_notice` 산출값이 순수 함수 값과 같은가.
+    # 판별 케이스: 공동과 대리 값이 갈리는 공고. 여기서만 「대리입찰 값을 싣는」 배선이 드러난다.
+    wiring_gap = [row["idx"] for row in rows if row["noticeJoint"] != row["screenJoint"]]
+    split_rows = [row["idx"] for row in rows if row["screenJoint"] != row["proxyFlag"]]
+    print(f"build_notice 배선 일치: {total - len(wiring_gap)}/{total} · 불일치 {wiring_gap}")
+    print(f"  판별 케이스(공동≠대리): {len(split_rows)}/{total} {split_rows}")
+    for row in rows:
+        if row["idx"] in split_rows:
+            print(f"    #{row['idx']} 공동={row['screenJoint'] or '없음'} · 대리={row['proxyFlag'] or '없음'} "
+                  f"· build_notice={row['noticeJoint'] or '없음'}")
     eviction = [row["idx"] for row in rows if row["eviction"]]
     print(f"명도책임 값: {len(eviction)}/{total} {eviction} · 어휘 {sorted({row['eviction'] for row in rows if row['eviction']})}")
     if partial:
         print(f"표본 {SAMPLE_TOTAL}건 중 {SAMPLE_TOTAL - total}건이 없어 위 수치는 전수가 아닙니다. rc=3")
         return 3
+    # 계측 스크립트이지 게이트가 아니지만, 배선 불일치는 수치가 아니라 결함이다.
+    if wiring_gap:
+        print(f"build_notice 가 조립한 값이 순수 함수 값과 다릅니다: {wiring_gap}. rc=4")
+        return 4
     return 0
 
 
