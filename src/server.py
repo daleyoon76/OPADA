@@ -335,6 +335,16 @@ def call_public_data(
         }
 
 
+# 온비드 물건상세 페이지의 hidden input은 물건관리번호를 하이픈 없이 준다(20260800045167).
+# 공공데이터 API는 4-4-6 하이픈 형식만 인정하고, 하이픈이 없으면 200 + NODATA_ERROR를 돌려준다.
+# 2026-09-07 실측: 시연 3건 모두 하이픈 없으면 NODATA, 넣으면 데이터 1건.
+def api_cltr_mng_no(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) != 14:
+        return value or ""
+    return f"{digits[:4]}-{digits[4:8]}-{digits[8:]}"
+
+
 def fetch_public_data_bundle(ids: dict[str, str]) -> dict[str, object]:
     service_key = public_data_service_key()
     if not service_key:
@@ -346,7 +356,7 @@ def fetch_public_data_bundle(ids: dict[str, str]) -> dict[str, object]:
         }
 
     services: list[dict[str, object]] = []
-    cltr_mng_no = ids.get("cltrMngNo", "")
+    cltr_mng_no = api_cltr_mng_no(ids.get("cltrMngNo", ""))
     pbct_cdtn_no = ids.get("pbctCdtnNo", "")
     pbanc_mng_no = ids.get("pbancMngNo", "")
 
