@@ -27,6 +27,7 @@ const AXES = [
   ["S6", "마감 D-day", "배지 노출", "상태 unknown 이면 배지 없을 것", "Y"],
   ["S7", "첨부 내려받기", "dnldFile.do 링크", "첨부 0건이면 링크 없을 것", "Y"],
   ["S8", "공고문 항목·용어", "목록 노출", "비어 있으면 안내 문장으로 대체될 것", "Y"],
+  ["S9", "공동입찰·명도책임", "값 그대로 표시 · 못 읽으면 「원문 확인」", "못 읽었을 때 행이 사라지거나 「불가능」으로 단정될 것 · 명도책임 값이 없는데 행이 생길 것", "Y"],
 ];
 
 test.beforeAll(() => {
@@ -63,6 +64,8 @@ const BASE_NOTICE = {
   bidPeriod: "2026-09-14 14:00 ~ 2026-09-16 17:00",
   bidDeadline: "2026-09-16 17:00",
   minimumBidPrice: "450,000,000",
+  jointBidAllowed: "가능",
+  evictionResponsibility: "매수인",
   appraisalPrice: "411,790,440",
   relatedDocs: [],
   requiredDocs: [],
@@ -153,6 +156,9 @@ function missingDocsNotice() {
   const notice = JSON.parse(JSON.stringify(BASE_NOTICE));
   notice.assetType = "공유재산";
   notice.minimumBidPrice = "비공개";
+  // 「입찰방법」 절을 못 읽은 공고. 화면은 「원문 확인」으로 두어야 한다.
+  notice.jointBidAllowed = "";
+  notice.evictionResponsibility = "";
   notice.requiredDocs = [];
   notice.countdown = { state: "unknown", label: "", deadline: "", daysLeft: null };
   notice.relatedDocs = [
@@ -243,6 +249,14 @@ test("S1·S2·S5·S6·S7 추출에 성공한 공고를 화면에 그린다", asy
   await expect(page.locator("#quick-facts")).toContainText("450,000,000");
   await expect(page.locator("#quick-facts")).not.toContainText("비공개");
 
+  // S9 공동입찰 값과 명도책임을 원문 표시값 그대로 옮긴다.
+  await expect(page.locator("#quick-facts")).toContainText("공동입찰");
+  await expect(page.locator("#quick-facts")).toContainText("가능");
+  await expect(page.locator("#quick-facts")).toContainText("명도책임");
+  await expect(page.locator("#quick-facts")).toContainText("매수인 부담");
+  // S9 음성 대조: 값을 읽었으면 「원문 확인」으로 흐리지 않는다.
+  await expect(page.locator("#quick-facts")).not.toContainText("원문 확인");
+
   // S7 음성 대조: 첨부가 없으면 내려받기 링크가 없다.
   await expect(page.locator("#attachment-list")).toContainText("첨부파일이 없습니다");
   await expect(page.locator("#attachment-list a")).toHaveCount(0);
@@ -292,6 +306,15 @@ test("S1·S3·S4·S5·S6·S7 못 뽑은 공고는 못 뽑았다고 말하고 진
   // S5 최저입찰가격은 0이 아니라 「비공개」로 표시한다.
   await expect(page.locator("#quick-facts")).toContainText("비공개");
   await expect(page.locator("#quick-facts")).not.toContainText("최저입찰가격0");
+
+  // S9 못 읽었으면 행을 숨기지 않고 「원문 확인」으로 둔다 — 숨기면 「해당 없다」로 읽힌다.
+  await expect(page.locator("#quick-facts")).toContainText("공동입찰");
+  await expect(page.locator("#quick-facts")).toContainText("원문 확인");
+  // S9 음성 대조: 못 읽은 값을 「불가능」·「해당없음」으로 단정하지 않는다.
+  await expect(page.locator("#quick-facts")).not.toContainText("불가능");
+  await expect(page.locator("#quick-facts")).not.toContainText("해당없음");
+  // S9 음성 대조: 명도책임은 값이 없으면 행 자체를 만들지 않는다.
+  await expect(page.locator("#quick-facts")).not.toContainText("명도책임");
 
   // S7 첨부 내려받기 링크가 온비드 다운로드 엔드포인트를 가리킨다.
   const attachment = page.locator("#attachment-list a");

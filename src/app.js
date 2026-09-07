@@ -1285,6 +1285,14 @@ function renderReport() {
     ["공고기관", sampleNotice.agency],
     ["입찰방식", sampleNotice.bidMethod],
     ["최저입찰가격", sampleNotice.minimumBidPrice || "원문 확인"],
+    // 못 읽었으면 「원문 확인」이다. 「불가능」·「해당없음」으로 접거나 행을 숨기지 않는다 —
+    // 숨기면 사용자가 「해당 없다」로 읽는다.
+    ["공동입찰", sampleNotice.jointBidAllowed || "원문 확인"],
+    // 명도책임은 압류재산 공고문에만 나온다(표본 3/23). 값이 없으면 행을 만들지 않는다 —
+    // 「원문 확인」으로 두면 모든 공고에 없는 항목을 있다고 알린다.
+    ...(sampleNotice.evictionResponsibility
+      ? [["명도책임", `${sampleNotice.evictionResponsibility} 부담`]]
+      : []),
   ]
     .map(
       ([label, value]) => `<div class="fact-row">
