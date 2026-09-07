@@ -1156,7 +1156,9 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     # 「내가 단독입찰인지」가 아니다.
     # 표본 23건 실측 `[관측]`: 서류 근거만 9/23 → 화면 값 합산 12/23. 늘어나는 3건(17·18·21)은
     # 전부 서류 추출 0건 공고이고, 반대 방향 불일치(서류 켜짐 · 화면 「불가능」)는 0/23 이라
-    # 기존 9건의 판정을 뒤집지 않는 순수 증분이다
+    # 기존 9건의 판정을 뒤집지 않는 순수 증분이다.
+    # 다만 「3건」은 **조건 축 기준**이다 — 화면 코치 노출은 2건(17·18)이다.
+    # 21 은 임대(`is_sale=False`)라 아래 코치 블록에 들어오지 못하고 quick-facts 행만 남는다
     # (docs/90_MVP개발/09_공동입찰_명도책임_크롤링가용성_조사_20260908.md §5).
     joint_allowed = str(notice.get("jointBidAllowed") or "")
     has_doc_condition = bool({"proxy", "joint"} & condition_keys)
