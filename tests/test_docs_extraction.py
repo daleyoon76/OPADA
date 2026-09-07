@@ -48,6 +48,9 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
     ("B5", "공고문 목차", "번호 제목/서술문·파일명", "필터 삭제", "Y"),
     ("B6", "용어 안내", "재산유형·처분방식 뜻", "사전 비우기", "Y"),
     ("B7", "코치 직접제출 배선", "A형 실형태(서류 1건↑ + 항목 method 없음 + 표 직접제출)", "표 보조 근거 삭제 · 항목 가드 삭제", "Y"),
+    ("B8", "입찰방법 값 추출", "공동/대리 값 분리 · 값 없음 · 툴팁만", "절 전체 훑기 · 창 경계 삭제", "Y"),
+    ("B9", "공동입찰 축 배선", "화면 값 `or` 확장 · 기존 근거 보존", "or → 덮어쓰기 · 화면 값 무시", "Y"),
+    ("B10", "명도책임 사실", "매수인 부담 · 없으면 빈 값 · 조건 축 아님", "조건 축에 물리기", "Y"),
 )
 
 
@@ -154,6 +157,56 @@ ATTACHMENT_HTML = """
 <a href="javascript:devUtil.fn_chkPdfRead('17070043','4','','20260813033701200_2.pdf','COGFDOFI');">
   <span class="txt01">사용허가 조건.pdf</span></a>
 """
+
+
+def bid_method_item(label: str, value_html: str) -> str:
+    """온비드 「입찰방법」 절 항목 박스 하나. 라벨과 값 사이에 실제와 같은 툴팁을 끼운다."""
+    return f"""
+    <li class="item pos"><div class="item_box01"><div class="item_box_tit">
+      <div class="left_box"><div class="tit_area01">
+        <span class="txt_01">{label}</span>
+        <div class="tooltip_wrap01"><button class="tooltip"><span>도움말({label})</span></button>
+          <div class="tooltip_box"><div class="tooltip_con"><ul>
+            <li>서류제출방식: 공동입찰자 전원이 '공동입찰참가신청서' 등 관련 서류를 제출하는 방식</li>
+          </ul></div></div>
+        </div>
+      </div></div>
+      {value_html}
+    </div></div></li>
+    """
+
+
+ICO_VALUE = '<div class="right_box"><div class="ico_box01"><span class="ico"></span><span class="txt_01">{}</span></div></div>'
+
+# 표본 17의 형태 — 공동입찰과 대리입찰의 값이 갈린다. 두 축을 하나로 묶으면 안 되는 근거다.
+BID_METHOD_SPLIT = section(
+    "입찰방법",
+    bid_method_item("공동입찰", ICO_VALUE.format("가능"))
+    + bid_method_item("대리입찰", ICO_VALUE.format("불가능")),
+)
+
+# 라벨은 있고 값 박스가 없는 항목. 다음 항목(대리입찰)에는 값이 있으므로,
+# 창을 다음 `tit_area01` 에서 끊지 않으면 옆 항목의 「가능」을 훔쳐온다.
+BID_METHOD_NO_VALUE = section(
+    "입찰방법",
+    bid_method_item("공동입찰", "")
+    + bid_method_item("대리입찰", ICO_VALUE.format("가능")),
+)
+
+# 🔴 킬러 변이용 음성 픽스처. 「공동입찰」 라벨 항목이 **없고** 툴팁 본문에만
+# 「공동입찰참가신청서」가 있으며, 다른 항목(입찰보증금)이 값 「가능」을 갖는다.
+# 절 전체를 훑어 문자열 존재만 보는 구현은 여기서 「가능」을 집어 붉어진다.
+BID_METHOD_TOOLTIP_ONLY = section(
+    "입찰방법",
+    bid_method_item("입찰보증금", ICO_VALUE.format("가능")),
+)
+
+# 압류재산 공고문의 명도책임 문장. 표본 01·02·03 의 실제 두 줄을 그대로 줄여 썼다.
+EVICTION_NOTICE = section(
+    "공고문",
+    "<p>다. 공매재산의 인도 및 명도책임</p>"
+    "<p>- 부동산 명도책임은 매수인 부담이며, 동산은 보관중인 소재지에서 현 상태로 인도합니다.</p>",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -591,6 +644,106 @@ def test_glossary() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# B8. 「입찰방법」 절의 가능/불가능 값 — 툴팁을 값으로 읽지 않는가
+# ---------------------------------------------------------------------------
+def test_bid_method_flag() -> None:
+    split = server.split_sections(BID_METHOD_SPLIT)
+    # 도달 증거 — 픽스처가 실제로 툴팁을 품고 있어야 아래 음성 단언이 무언가를 잰다.
+    check("B8 도달 증거 — 절에 툴팁 문구 있음", "공동입찰참가신청서" in split["입찰방법"], "")
+    # 양성 1·2: 같은 절에서 두 축의 값이 서로 다르게 읽힌다(표본 17 형태).
+    check("B8 양성 공동입찰", server.bid_method_flag(split, "공동입찰") == "가능", server.bid_method_flag(split, "공동입찰"))
+    check("B8 양성 대리입찰", server.bid_method_flag(split, "대리입찰") == "불가능", server.bid_method_flag(split, "대리입찰"))
+
+    # 음성 1: 「입찰방법」 절이 없으면 빈 문자열이다. 「불가능」으로 접지 않는다.
+    check("B8 음성 절 없음", server.bid_method_flag(server.split_sections(GENERIC_DOCS_TABLE), "공동입찰") == "", "")
+    check(
+        "B8 음성 절 없음은 불가능이 아니다",
+        server.bid_method_flag({}, "공동입찰") not in ("가능", "불가능"),
+        server.bid_method_flag({}, "공동입찰"),
+    )
+
+    # 음성 2: 라벨은 있고 값 박스가 없으면 옆 항목의 값을 훔쳐오지 않는다.
+    no_value = server.split_sections(BID_METHOD_NO_VALUE)
+    check("B8 음성 값 없음", server.bid_method_flag(no_value, "공동입찰") == "", server.bid_method_flag(no_value, "공동입찰"))
+    check("B8 도달 증거 — 옆 항목에는 값이 있다", server.bid_method_flag(no_value, "대리입찰") == "가능", "")
+
+    # 🔴 음성 3(킬러). 툴팁의 「공동입찰참가신청서」를 값으로 읽으면 안 된다.
+    # 절 전체를 훑는 구현으로 되돌리면 이 단언이 붉어진다.
+    tooltip_only = server.split_sections(BID_METHOD_TOOLTIP_ONLY)
+    check("B8 음성 툴팁을 값으로 읽지 않음", server.bid_method_flag(tooltip_only, "공동입찰") == "", server.bid_method_flag(tooltip_only, "공동입찰"))
+    check("B8 도달 증거 — 그 절에 값 「가능」이 존재한다", server.bid_method_flag(tooltip_only, "입찰보증금") == "가능", "")
+
+
+# ---------------------------------------------------------------------------
+# B9. 공동입찰 조건 축 — 서류 근거를 덮지 않고 `or` 로 더하는가
+# ---------------------------------------------------------------------------
+JOINT_TITLE = "공동/대리입찰 서류가 나에게 필요한지"
+
+
+def coach_checks(notice_extra: dict, checklist: dict, docs: list[str]) -> list[dict]:
+    notice = {"assetType": "압류재산", "dispositionLabel": "매각", "docChecklist": checklist, **notice_extra}
+    return list(server.local_ai_coach(notice, docs)["unresolvedChecks"])
+
+
+def joint_check(notice_extra: dict, checklist: dict, docs: list[str]) -> dict:
+    """공동/대리입찰 항목 하나. 없으면 빈 dict — 변이가 항목을 지웠을 때 예외 대신 FAIL 로 떨어뜨린다."""
+    for entry in coach_checks(notice_extra, checklist, docs):
+        if entry["title"] == JOINT_TITLE:
+            return entry
+    return {}
+
+
+def test_joint_axis_wiring() -> None:
+    empty = server.build_doc_checklist(server.split_sections(GENERIC_DOCS_TABLE), "파산자산", [])
+    doc_based = server.build_doc_checklist(server.split_sections(NUMBERED_CONDITION_NOTICE), "압류재산", [])
+    doc_names = [str(item["name"]) for item in doc_based["items"]]
+    # 도달 증거 — 두 픽스처가 실제로 「서류 근거 없음」과 「서류 근거 있음」이어야 한다.
+    check("B9 도달 증거 — 서류 0건 픽스처", empty["items"] == [], str(empty["items"]))
+    check(
+        "B9 도달 증거 — 서류 근거 픽스처에 joint/proxy 축",
+        bool({"proxy", "joint"} & {key for item in doc_based["items"] for key in item["conditionKeys"]}),
+        str(doc_names),
+    )
+
+    # 양성: 서류를 0건 뽑아도 화면 값이 「가능」이면 축이 켜진다(표본 17·18·21 형태).
+    titles = [item["title"] for item in coach_checks({"jointBidAllowed": "가능"}, empty, [])]
+    check("B9 양성 화면 값만으로 켜짐", JOINT_TITLE in titles, str(titles))
+    item = joint_check({"jointBidAllowed": "가능"}, empty, [])
+    check("B9 근거 표기 — 입찰방법", item.get("source") == "온비드 입찰방법", str(item.get("source")))
+    # 서류를 못 뽑은 공고에서 「원문에는 …가 보이지만」이라고 쓰면 없는 목록을 전제한다.
+    check("B9 음성 — 없는 서류 목록을 전제하지 않음", "제출서류 표 확인" not in item.get("reason", ""), str(item.get("reason")))
+
+    # 음성 1: 값이 없으면 켜지지 않는다(옛 동작 그대로).
+    check("B9 음성 값 없음", JOINT_TITLE not in [i["title"] for i in coach_checks({}, empty, [])], "")
+    # 음성 2: 값이 「불가능」이면 화면 값만으로는 켜지지 않는다.
+    check("B9 음성 불가능", JOINT_TITLE not in [i["title"] for i in coach_checks({"jointBidAllowed": "불가능"}, empty, [])], "")
+
+    # 🔴 순수 증분 — 값이 「불가능」이어도 서류 근거로 켜진 축을 **끄지 않는다**.
+    off_titles = [i["title"] for i in coach_checks({"jointBidAllowed": "불가능"}, doc_based, doc_names)]
+    check("B9 음성 기존 근거를 덮지 않음", JOINT_TITLE in off_titles, str(off_titles))
+    # 서류 근거가 있으면 문구도 옛것을 그대로 쓴다(덮어쓰기가 아니라 확장임을 잰다).
+    doc_item = joint_check({"jointBidAllowed": "가능"}, doc_based, doc_names)
+    check("B9 서류 근거 우선", doc_item.get("source") == "제출서류 표", str(doc_item.get("source")))
+
+
+# ---------------------------------------------------------------------------
+# B10. 명도책임 — 사실 한 줄, 조건 축이 아니다
+# ---------------------------------------------------------------------------
+def test_eviction_responsibility() -> None:
+    sections = server.split_sections(EVICTION_NOTICE)
+    check("B10 양성 매수인", server.eviction_responsibility(sections) == "매수인", server.eviction_responsibility(sections))
+    # 음성: 문장이 없으면 빈 문자열이다. 「해당없음」을 지어내지 않는다.
+    check("B10 음성 없음", server.eviction_responsibility(server.split_sections(GENERIC_DOCS_TABLE)) == "", "")
+    # 음성: 조건 축이 아니다 — 명도/인도 어휘가 CONDITION_AXES 에 들어가면 안 된다.
+    check(
+        "B10 음성 조건 축 아님",
+        all("명도" not in pattern and "인도" not in pattern for _key, _label, pattern in server.CONDITION_AXES),
+        str([axis[0] for axis in server.CONDITION_AXES]),
+    )
+    check("B10 축 수 고정", len(server.CONDITION_AXES) == 10, str(len(server.CONDITION_AXES)))
+
+
 def main() -> int:
     print_header()
     for test in (
@@ -608,6 +761,9 @@ def main() -> int:
         test_costs,
         test_notice_outline,
         test_glossary,
+        test_bid_method_flag,
+        test_joint_axis_wiring,
+        test_eviction_responsibility,
     ):
         test()
     total = PASSED + len(FAILURES)

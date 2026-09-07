@@ -89,6 +89,11 @@ def main() -> int:
                 "attachments": len(attachments),
                 "downloadable": sum(1 for att in attachments if att["downloadUrl"]),
                 "status": checklist["status"],
+                # 조건 축 `joint` 의 두 근거를 나란히 잰다. 합산식은 server.py 의
+                # `has_doc_condition or joint_allowed == "가능"` 과 같은 모양이다.
+                "docJoint": any("joint" in item["conditionKeys"] for item in items),
+                "screenJoint": server.bid_method_flag(sections, "공동입찰"),
+                "eviction": server.eviction_responsibility(sections),
             }
         )
 
@@ -116,6 +121,20 @@ def main() -> int:
     att_link = sum(row["downloadable"] for row in rows)
     with_att = sum(1 for row in rows if row["attachments"])
     print(f"첨부 다운로드 파라미터: {att_link}/{att_total} (첨부가 있는 공고 {with_att}건)")
+
+    # 조건 축 `joint` — 서류 근거 / 화면 값 / 합산. 반대 방향 불일치는 「기존 켜짐을 끄는가」다.
+    doc_joint = [row["idx"] for row in rows if row["docJoint"]]
+    screen_joint = [row["idx"] for row in rows if row["screenJoint"] == "가능"]
+    union = sorted(set(doc_joint) | set(screen_joint))
+    reverse = [idx for idx in doc_joint if idx not in screen_joint]
+    print(f"joint 서류 근거: {len(doc_joint)}/{total} {doc_joint}")
+    print(f"joint 화면 값 「가능」: {len(screen_joint)}/{total} {screen_joint}")
+    print(f"joint 합산(현행 판정): {len(union)}/{total} · 증분 {sorted(set(union) - set(doc_joint))}")
+    print(f"joint 반대 방향(서류 켜짐 · 화면 「불가능」): {len(reverse)}/{total} {reverse}")
+    unread = [row["idx"] for row in rows if not row["screenJoint"]]
+    print(f"공동입찰 값 못 읽음(화면 「원문 확인」): {len(unread)}/{total} {unread}")
+    eviction = [row["idx"] for row in rows if row["eviction"]]
+    print(f"명도책임 값: {len(eviction)}/{total} {eviction} · 어휘 {sorted({row['eviction'] for row in rows if row['eviction']})}")
     if partial:
         print(f"표본 {SAMPLE_TOTAL}건 중 {SAMPLE_TOTAL - total}건이 없어 위 수치는 전수가 아닙니다. rc=3")
         return 3

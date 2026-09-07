@@ -155,6 +155,60 @@ def label_value(chunk: str, label: str) -> str:
     return ""
 
 
+# 온비드 「입찰방법」 절의 가능/불가능 값은 `label_value()` 로 읽히지 않는다 — 값 span 이
+# `txt01` 이 아니라 라벨과 같은 `txt_01` 이라 `next_label` 가드에 먼저 걸린다(표본 23/23 빈 문자열).
+# 값은 항목 박스 오른쪽 `ico_box01` 안의 첫 `txt_01` 이다.
+# 🔴 라벨과 값 사이에는 온비드 UI 툴팁이 끼어 있고, 그 본문에는 「공동입찰참가신청서」가
+# 표본 23/23 전건 들어 있다. 절 전체를 훑어 문자열 존재만 보는 구현은 전건 오탐이다.
+# (docs/90_MVP개발/09_공동입찰_명도책임_크롤링가용성_조사_20260908.md §2-1·§6-3)
+BID_METHOD_SECTION = "입찰방법"
+ICO_BOX_VALUE_RE = re.compile(
+    r"<div[^>]*class=(?:\"[^\"]*\bico_box01\b[^\"]*\"|'[^']*\bico_box01\b[^']*')[^>]*>.*?"
+    r"<span[^>]*class=(?:\"[^\"]*\btxt_01\b[^\"]*\"|'[^']*\btxt_01\b[^']*')[^>]*>(.*?)</span>",
+    re.I | re.S,
+)
+# 다음 항목 박스의 라벨 영역. 값이 없는 항목이 옆 항목의 값을 집어오지 않도록 창을 여기서 끊는다.
+TIT_AREA_RE = re.compile(r"<div[^>]*class=(?:\"[^\"]*\btit_area01\b[^\"]*\"|'[^']*\btit_area01\b[^']*')[^>]*>", re.I)
+
+
+def bid_method_flag(sections: dict[str, str], label: str) -> str:
+    """「입찰방법」 절에서 `공동입찰`·`대리입찰` 의 가능/불가능 값을 읽는다.
+
+    못 읽으면 빈 문자열이다. 빈 값을 「불가능」으로 접지 않는다 — 표본에 없던 어휘가
+    나오면 화면은 「원문 확인」을 띄워야 한다.
+    """
+    chunk = sections.get(BID_METHOD_SECTION, "")
+    if not chunk:
+        return ""
+    for match in re.finditer(
+        rf"<span[^>]*class=(?:\"[^\"]*\btxt_01\b[^\"]*\"|'[^']*\btxt_01\b[^']*')[^>]*>\s*{re.escape(label)}\s*</span>",
+        chunk,
+        flags=re.I,
+    ):
+        window = chunk[match.end() :]
+        next_item = TIT_AREA_RE.search(window)
+        if next_item:
+            window = window[: next_item.start()]
+        value_match = ICO_BOX_VALUE_RE.search(window)
+        if not value_match:
+            continue
+        value = clean_text(value_match.group(1))
+        if value:
+            return value
+    return ""
+
+
+# 명도책임은 구조화 필드가 아니라 압류재산 공고문 본문의 한 문장이다(표본 3/23 · 어휘 `매수인` 하나).
+# 조건 축에 물리지 않는다 — 분기를 만들 근거가 없다(같은 문서 §3·§6-2 5번).
+EVICTION_RESPONSIBILITY_RE = re.compile(r"명도책임(?:은|이)?\s*([^\s,\.]{2,8}?)\s*부담")
+
+
+def eviction_responsibility(sections: dict[str, str]) -> str:
+    """공고문 본문에서 「명도책임은 ○○ 부담」의 ○○ 를 읽는다. 없으면 빈 문자열."""
+    match = EVICTION_RESPONSIBILITY_RE.search(clean_text(sections.get("공고문", "")))
+    return match.group(1) if match else ""
+
+
 # 표본 23건에서 재산유형과 A/B/C 판정이 예외 0건으로 일치했다
 # (docs/90_MVP개발/07_제출서류_표본조사_20260907.md §2).
 # 표본은 층화추출이 아니므로 전체 공고의 분포 추정치가 아니다.
@@ -1097,7 +1151,16 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
         bool(checklist_items)
         and any(row.get("method") for row in checklist.get("tableRows", []))
     )
-    has_proxy_or_joint = bool({"proxy", "joint"} & condition_keys)
+    # 서류 줄 정규식 근거(`condition_keys`)를 그대로 두고 「입찰방법」 절의 화면 값을 `or` 로 **더한다**.
+    # 값이 `불가능` 이어도 서류 근거로 켜진 축을 **끄지 않는다** — 이 값은 「공동입찰 자체의 허용 여부」이지
+    # 「내가 단독입찰인지」가 아니다.
+    # 표본 23건 실측 `[관측]`: 서류 근거만 9/23 → 화면 값 합산 12/23. 늘어나는 3건(17·18·21)은
+    # 전부 서류 추출 0건 공고이고, 반대 방향 불일치(서류 켜짐 · 화면 「불가능」)는 0/23 이라
+    # 기존 9건의 판정을 뒤집지 않는 순수 증분이다
+    # (docs/90_MVP개발/09_공동입찰_명도책임_크롤링가용성_조사_20260908.md §5).
+    joint_allowed = str(notice.get("jointBidAllowed") or "")
+    has_doc_condition = bool({"proxy", "joint"} & condition_keys)
+    has_proxy_or_joint = has_doc_condition or joint_allowed == "가능"
     has_docs = bool(docs)
 
     confirmed_facts = [
@@ -1117,9 +1180,15 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
             unresolved_checks.append(
                 {
                     "title": "공동/대리입찰 서류가 나에게 필요한지",
-                    "reason": f"원문에는 `{docs_summary}`가 보이지만, 단독 전자입찰이면 일부 서류가 불필요할 수 있습니다.",
+                    # 서류를 못 뽑은 공고에서 「원문에는 …가 보이지만」이라고 쓰면 없는 서류 목록을 전제한다.
+                    # 근거가 화면 값뿐일 때는 그 사실을 그대로 적는다.
+                    "reason": (
+                        f"원문에는 `{docs_summary}`가 보이지만, 단독 전자입찰이면 일부 서류가 불필요할 수 있습니다."
+                        if has_doc_condition
+                        else f"온비드 「입찰방법」에 공동입찰이 `{joint_allowed}`으로 표시돼 있습니다. 서류 목록은 원문에서 뽑지 못했습니다."
+                    ),
                     "action": "내 입찰 방식이 단독/공동/대리 중 무엇인지 정하고 필요한 서류만 남깁니다.",
-                    "source": "제출서류 표",
+                    "source": "제출서류 표" if has_doc_condition else "온비드 입찰방법",
                 }
             )
             ask_agency.append("단독 전자입찰이면 공동입찰서류·대리입찰서류를 제출하지 않아도 되는지 확인할 수 있나요?")
@@ -1659,6 +1728,10 @@ def build_notice(raw_url: str) -> dict[str, object]:
         "disposition": disposition,
         "dispositionLabel": disposition_label,
         "bidMethod": bid_method,
+        # 「입찰방법」 절의 원문 표시값을 그대로 옮긴다. 못 읽으면 빈 문자열이고 화면이 「원문 확인」을 띄운다.
+        "jointBidAllowed": bid_method_flag(sections, "공동입찰"),
+        # 표본 3/23 에서만 나온다. 값이 없으면 빈 문자열이고 화면은 행 자체를 만들지 않는다.
+        "evictionResponsibility": eviction_responsibility(sections),
         "bidType": bid_type,
         "noticeDate": notice_date or "공고일 확인",
         "round": values_after_label(text, "회차") or "",
