@@ -249,8 +249,10 @@ DOC_REQUEST_RE = re.compile(r"제출|지참|구비|첨부|발급받아|제시")
 # 표본 6건의 목록이 계약 단계 서류였다(표본조사 §4-7).
 CONTRACT_STAGE_RE = re.compile(r"계약\s*(?:체결|시|을)|낙찰\s*(?:자|후|일)|사용\s*허가\s*(?:신청|일)|매매계약")
 
-# 조건 축 8개는 표본에서 관측된 것이다(§3-4). 여기에 「지역 제한」을 더했다 —
-# 2026-09-07 캠코 회의에서 정인기 차장이 제한경쟁 입찰의 지역 요건 증빙을 예로 들었다.
+# 조건 축은 아래 10개다(`len(CONDITION_AXES) == 10` 으로 셀 것).
+# 표본조사 §3-4 표의 8행에서 왔고, 그중 「개인 / 법인」 1행을 `corp`·`person` 2축으로 나눠 9개가 된다.
+# 여기에 「지역 제한」을 더해 10개 — 2026-09-07 캠코 회의에서 정인기 차장이
+# 제한경쟁 입찰의 지역 요건 증빙을 예로 들었다.
 CONDITION_AXES: tuple[tuple[str, str, str], ...] = (
     ("proxy", "대리입찰", r"대리\s*입찰|대리인(?:을)?\s*(?:선임|방문|제출)|위임"),
     ("joint", "공동입찰", r"공동\s*(?:입찰|계약|매수)|여러\s*사람이\s*공동"),
@@ -1084,9 +1086,10 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     condition_keys = {key for item in checklist_items for key in item.get("conditionKeys", [])}
     docs_summary = " / ".join(docs[:2]) if docs else "제출서류 표 확인"
     is_sale = "매각" in disposition or "공매" in disposition or "압류" in asset_type
-    has_direct_submit = any(item.get("method") for item in checklist_items) or any(
-        row.get("method") for row in checklist.get("tableRows", [])
-    )
+    # 근거는 `docChecklist["items"]` 뿐이다. 온비드 제출서류 표(`tableRows`)의 제출방법 칸을
+    # 근거로 삼으면, 서류를 한 건도 못 뽑아 「못 뽑았습니다」를 띄운 공고에서 바로 다음 줄이
+    # 「직접제출 서류」의 존재를 전제한다(표본 09·10·18·21·22·23 실측).
+    has_direct_submit = any(item.get("method") for item in checklist_items)
     has_proxy_or_joint = bool({"proxy", "joint"} & condition_keys)
     has_docs = bool(docs)
 
@@ -1505,6 +1508,9 @@ def bid_countdown(bid_period: str, bid_deadline: str, now: datetime | None = Non
 
 # 재산유형·처분방식은 온비드 값을 그대로 쓰고 뜻만 따로 안내한다(2026-09-07 캠코 회의 확정).
 # 설명 문장은 그 회의에서 정인기 차장이 말한 내용을 옮긴 것이다.
+# 🔴 여기에는 **뜻만** 적는다. 처분방식 사이의 금액·보증금 비교는 담지 않는다 —
+# 「임대의 최저입찰가격과 보증금 구조는 매각과 같다」는 회의록 근거가 있으나(11_캠코_회의록 265행),
+# 임대는 사용료·매각은 매매대금이라 사용자가 금액 규모를 같게 오해할 수 있다. 값 자체는 원문에서 읽는다.
 TERM_GLOSSARY = {
     "압류재산": "체납자의 압류 재산을 국세청 등에서 위임받아 캠코가 처리하는 재산입니다.",
     "국유재산": "나라가 소유한 땅과 시설입니다. 부두 공공시설, 휴양림 부지 등을 민간에 매각하거나 임대합니다.",
@@ -1513,8 +1519,8 @@ TERM_GLOSSARY = {
     "수탁재산": "금융기관·기업 등이 캠코에 처분을 맡긴 재산입니다.",
     "파산자산": "파산관재인이 처분하는 재산입니다.",
     "매각": "소유권을 넘기는 처분 방식입니다.",
-    "임대": "일정 기간 빌려 쓰도록 하는 처분 방식입니다. 최저입찰가격과 보증금 구조는 매각과 같습니다.",
-    "대부": "국유재산을 빌려 쓰는 것을 가리키는 용어로, 임대와 같은 구조입니다.",
+    "임대": "일정 기간 빌려 쓰도록 하는 처분 방식입니다.",
+    "대부": "국유재산을 빌려 쓰는 것을 가리키는 용어입니다.",
 }
 
 
