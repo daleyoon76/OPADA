@@ -19,7 +19,7 @@ const PLAYED = [
 
 // 축 → 케이스 → 음성 대조 → 커버(Y/N/영구불가)
 const AXES = [
-  ["S1", "A/B/C 사전 안내", "A형/B형", "A형에 「첨부를 봐야 함」이 뜨지 않을 것", "Y"],
+  ["S1", "A/B/C 사전 안내", "A형/B형 문구 + 배지 색(safe/warn)", "A형에 「첨부를 봐야 함」이 뜨지 않을 것 · A형 배지에 warn 이 붙지 않을 것", "Y"],
   ["S2", "조건별 체크리스트", "그룹·칩·발급처", "추출 성공 화면에 「찾지 못했습니다」가 없을 것", "Y"],
   ["S3", "못 뽑음 정직 표시", "못 뽑았다 문구", "추출 성공 화면에는 안 뜰 것", "Y"],
   ["S4", "진행 차단 없음", "누락 상태에서도 다음 단계 가능", "대화상자·disabled 0건", "Y"],
@@ -206,6 +206,12 @@ test("S1·S2·S5·S6·S7 추출에 성공한 공고를 화면에 그린다", asy
   // S1 A형 사전 안내가 분석 직후 화면(공고 가져오기)에 뜬다.
   await expect(page.locator("#analysis-result")).toContainText("본문에서 찾을 수 있음");
   await expect(page.locator("#analysis-result")).not.toContainText("첨부를 봐야 함");
+  // S1 배지 «색». 문구만 단언하면 A/B를 같은 색으로 칠해도 초록이라 시각 신호가 무증명이 된다.
+  // A형은 safe(초록), B형은 warn(주황)이며 아래 B형 테스트가 반대편을 잡는다.
+  const aBadge = page.locator("#analysis-result .doc-source-notice .badge");
+  await expect(aBadge).toHaveCount(1);
+  await expect(aBadge).toHaveClass(/\bsafe\b/);
+  await expect(aBadge).not.toHaveClass(/\bwarn\b/);
 
   // S6 마감 D-day 배지와 「알림 발송은 하지 않습니다」 표기.
   await expect(page.locator("#analysis-result")).toContainText("마감 D-2");
@@ -254,6 +260,11 @@ test("S1·S3·S4·S5·S6·S7 못 뽑은 공고는 못 뽑았다고 말하고 진
   // S1 B형 사전 안내.
   await expect(page.locator("#analysis-result")).toContainText("첨부를 봐야 함");
   await expect(page.locator("#analysis-result")).not.toContainText("본문에서 찾을 수 있음");
+  // S1 배지 «색» 음성 대조 — B형은 warn 이어야 한다. A형 테스트의 safe 단언과 짝이다.
+  const bBadge = page.locator("#analysis-result .doc-source-notice .badge");
+  await expect(bBadge).toHaveCount(1);
+  await expect(bBadge).toHaveClass(/\bwarn\b/);
+  await expect(bBadge).not.toHaveClass(/\bsafe\b/);
 
   // S6 음성 대조: 마감 상태를 못 읽으면 D-day 줄 자체를 만들지 않는다(빈 배지도 없다).
   await expect(page.locator("#analysis-result")).not.toContainText("마감 D-");
