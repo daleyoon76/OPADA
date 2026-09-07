@@ -16,6 +16,7 @@ Thumbs.db
 # Node / Playwright
 node_modules/
 test-results/
+screenshots/
 playwright-report/
 playwright/.cache/
 .playwright-mcp/

@@ -15,8 +15,13 @@ test("analyzes a real OnBid URL and renders source notes", async ({ page }) => {
     timeout: 30000,
   });
   await expect(page.locator("#quick-facts")).toContainText("205,575,000");
-  await expect(page.locator("#task-list")).toContainText("공동입찰서류 - 입찰마감일시 전까지 - 직접제출");
+  // 2026-09-08 변경: 온비드 「제출서류」 표의 구분명(공동입찰서류·대리입찰서류)은 실제
+  // 서류명이 아니므로 체크리스트에 서류명으로 싣지 않는다. 본문에서 뽑은 실제 서류명을 쓴다.
+  await expect(page.locator("#task-list")).toContainText("농지취득자격증명");
+  await expect(page.locator("#task-list")).not.toContainText("공동입찰서류 - 입찰마감일시 전까지 - 직접제출");
   await expect(page.locator("#task-list")).not.toContainText("0076 / 022/001");
+  // 구분명 원본은 참고용으로 체크리스트 패널의 접힌 표에만 남는다.
+  await expect(page.locator("#doc-checklist")).toContainText("구분명 그대로");
   await expect(page.locator("#source-url-link")).toHaveAttribute("href", /onbidCltrno=1768473/);
 
   // 보조 데이터(공공데이터 API) 상태 표기는 #report-hero → #source-notes 로 이동했다.

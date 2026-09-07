@@ -7,4 +7,10 @@ module.exports = defineConfig({
   use: {
     baseURL: "http://127.0.0.1:8975",
   },
+  webServer: {
+    command: "python3 src/server.py",
+    url: "http://127.0.0.1:8975/",
+    reuseExistingServer: true,
+    timeout: 20000,
+  },
 });
