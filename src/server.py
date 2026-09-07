@@ -82,34 +82,537 @@ def values_after_label(text: str, label: str) -> str:
     return clean_text(" ".join(values) if values else chunk)
 
 
-def extract_required_docs(text: str) -> list[str]:
-    idx = text.find("제출서류")
-    if idx < 0:
-        return []
-    chunk = text[idx : idx + 9000]
-    table_match = re.search(r"<table\b.*?</table>", chunk, flags=re.I | re.S)
-    if table_match:
-        chunk = table_match.group(0)
-    rows = re.findall(r"<tr\b.*?</tr>", chunk, flags=re.I | re.S)
-    docs: list[str] = []
-    for row in rows:
-        cells = [clean_text(cell) for cell in re.findall(r"<td\b[^>]*>(.*?)</td>", row, flags=re.I | re.S)]
-        cells = [cell for cell in cells if cell]
-        if cells:
-            if len(cells) >= 4 and cells[0] == cells[1]:
-                docs.append(f"{cells[0]} - {cells[2]} - {cells[3]}")
-            else:
-                docs.append(" / ".join(cells[:4]))
-    return docs[:6]
+def block_text(value: str | None) -> str:
+    """블록 경계를 줄바꿈으로 남기고 태그를 제거한다.
+
+    clean_text()는 모든 공백을 한 칸으로 접어서 표의 셀 경계와 항목 경계가 사라진다.
+    제출서류 절은 항목 단위로 읽어야 하므로 별도 함수를 둔다.
+    """
+    if not value:
+        return ""
+    value = html.unescape(value)
+    value = re.sub(r"<script\b.*?</script>", " ", value, flags=re.I | re.S)
+    value = re.sub(r"<style\b.*?</style>", " ", value, flags=re.I | re.S)
+    value = re.sub(r"(?i)<br\s*/?>", "\n", value)
+    value = re.sub(r"(?i)</(?:td|tr|li|p|div|h\d|dt|dd|span)>", "\n", value)
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"[ \t\r ]+", " ", value)
+    value = re.sub(r"\n[ \t]*", "\n", value)
+    value = re.sub(r"\n{2,}", "\n", value)
+    return value.strip()
 
 
-def extract_related_docs(text: str) -> list[str]:
-    idx = text.find("관련문서")
-    if idx < 0:
+# 온비드 상세페이지는 <h2 class="tit">로 절을 나눈다. 표본 23/23에서 파싱됐다
+# (docs/90_MVP개발/07_제출서류_표본조사_20260907.md §4). 물건상세는 같은 절이 PC/모바일
+# 마크업으로 두 번 나오므로 같은 제목의 조각을 모두 모은다.
+SECTION_HEADING_RE = re.compile(r"<h2[^>]*class=(?:\"[^\"]*\btit\b[^\"]*\"|'[^']*\btit\b[^']*')[^>]*>(.*?)</h2>", re.I | re.S)
+
+
+def split_sections(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    matches = list(SECTION_HEADING_RE.finditer(text))
+    for index, match in enumerate(matches):
+        title = clean_text(match.group(1))
+        if not title:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.setdefault(title, []).append(text[match.end() : end])
+    return {title: "\n".join(chunks) for title, chunks in sections.items()}
+
+
+def section_html(sections: dict[str, str], *titles: str) -> str:
+    return "\n".join(sections.get(title, "") for title in titles if sections.get(title))
+
+
+# 온비드 「입찰방법」·「입찰 제한 정보」 절의 도움말(툴팁)은 공고 내용이 아니라 온비드 UI 문구다.
+# 표본 23/23에서 위임장·대리입찰신청서·공동입찰참가신청서를 포함하므로 서류명 탐색에서 뺀다.
+DOC_SEARCH_SECTIONS = ("공고문", "제출서류")
+TOOLTIP_BLOCK_RE = re.compile(r"<div[^>]*class=(?:\"[^\"]*\btooltip_wrap01\b[^\"]*\"|'[^']*\btooltip_wrap01\b[^']*')[^>]*>.*?</div>\s*</div>\s*</div>", re.I | re.S)
+
+
+def strip_tooltips(chunk: str) -> str:
+    return TOOLTIP_BLOCK_RE.sub(" ", chunk)
+
+
+def label_value(chunk: str, label: str) -> str:
+    """온비드 항목 박스의 `<span class="txt_01">라벨</span> … <span class="txt01">값</span>`을 읽는다."""
+    for match in re.finditer(
+        rf"<span[^>]*class=(?:\"[^\"]*\btxt_01\b[^\"]*\"|'[^']*\btxt_01\b[^']*')[^>]*>\s*{re.escape(label)}\s*</span>",
+        chunk,
+        flags=re.I,
+    ):
+        window = chunk[match.end() : match.end() + 1500]
+        # 다음 라벨이 먼저 나오면 값이 비어 있는 항목이다.
+        next_label = re.search(r"<span[^>]*class=(?:\"[^\"]*\btxt_01\b[^\"]*\"|'[^']*\btxt_01\b[^']*')[^>]*>", window, flags=re.I)
+        value_match = re.search(r"<span[^>]*class=(?:\"[^\"]*\btxt01\b[^\"]*\"|'[^']*\btxt01\b[^']*')[^>]*>(.*?)</span>", window, flags=re.I | re.S)
+        if not value_match:
+            continue
+        if next_label and next_label.start() < value_match.start():
+            continue
+        value = clean_text(value_match.group(1))
+        if value:
+            return value
+    return ""
+
+
+# 표본 23건에서 재산유형과 A/B/C 판정이 예외 0건으로 일치했다
+# (docs/90_MVP개발/07_제출서류_표본조사_20260907.md §2).
+# 표본은 층화추출이 아니므로 전체 공고의 분포 추정치가 아니다.
+DOC_SOURCE_BY_ASSET_TYPE = (
+    ("압류재산", "A"),
+    ("국유재산", "A"),
+    ("공유재산", "B"),
+    ("기타일반재산", "B"),
+    ("수탁재산", "B"),
+    ("파산자산", "C"),
+)
+
+DOC_SOURCE_PROFILES = {
+    "A": {
+        "code": "A",
+        "label": "공고 본문에서 서류 목록을 찾을 수 있는 유형입니다",
+        "detail": "이 재산유형은 캠코가 직접 집행하는 표준 공고라 조건별 서류가 본문에 적혀 있는 경우가 많습니다.",
+    },
+    "B": {
+        "code": "B",
+        "label": "서류 목록이 첨부파일에 있을 가능성이 큰 유형입니다",
+        "detail": "이용기관이 직접 작성하는 공고라 본문은 요약만 두고 목록을 첨부 공고문에 담는 경우가 많습니다. 아래 첨부파일을 함께 확인하십시오.",
+    },
+    "C": {
+        "code": "C",
+        "label": "원문에 서류 목록이 없을 수 있는 유형입니다",
+        "detail": "파산관재인이 개별 작성하는 공고라 본문과 첨부 어디에도 목록이 없는 표본이 있었습니다. 담당기관 확인이 필요합니다.",
+    },
+    "unknown": {
+        "code": "unknown",
+        "label": "재산유형으로는 어디에 서류 목록이 있는지 미리 알 수 없습니다",
+        "detail": "본문과 첨부파일을 모두 확인하십시오.",
+    },
+}
+
+
+def doc_source_profile(asset_type: str) -> dict[str, str]:
+    for keyword, code in DOC_SOURCE_BY_ASSET_TYPE:
+        if keyword in (asset_type or ""):
+            return dict(DOC_SOURCE_PROFILES[code], assetType=asset_type)
+    return dict(DOC_SOURCE_PROFILES["unknown"], assetType=asset_type or "")
+
+
+# 서류명은 닫힌 어휘다. 표본 23건에서 실제로 관측된 이름만 담았고, 여기에 없는 서류명은
+# 뽑히지 않는다(= 미추출로 보고된다). 긴 이름을 먼저 두고, 매칭된 구간은 가려서
+# 짧은 패턴이 그 안에서 다시 잡히지 않게 한다.
+DOC_NAME_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("법인인감증명서", r"법인\s*(?:의\s*)?인감\s*증명서"),
+    ("법인 등기사항증명서", r"법인\s*등기\s*(?:사항\s*)?(?:전부\s*)?증명서|법인\s*등기부\s*등본"),
+    ("등기사항증명서", r"(?:부동산\s*)?등기\s*사항\s*(?:전부\s*)?증명서|등기부\s*등본"),
+    ("본인서명사실확인서", r"본인\s*서명\s*사실\s*확인서"),
+    ("인감증명서", r"인감\s*증명서"),
+    ("인감도장", r"인감\s*도장"),
+    ("사용인감계", r"사용\s*인감계"),
+    ("주민등록등본", r"주민등록\s*등본"),
+    ("주민등록초본", r"주민등록\s*초본"),
+    ("가족관계증명서", r"가족관계\s*증명서"),
+    ("미성년자 입찰참가 동의서", r"미성년자\s*입찰\s*참가\s*동의서"),
+    ("대리입찰신청서", r"대리\s*입찰\s*(?:참가\s*)?신청서"),
+    ("공동입찰참가신청서", r"공동\s*입찰\s*(?:참가\s*)?신청서"),
+    ("위임장", r"위임장"),
+    ("컨소시엄 협정서", r"컨소시엄\s*협정서"),
+    ("농지취득자격증명", r"농지\s*취득\s*자격\s*증명(?:서)?"),
+    ("농지대장", r"농지\s*대장"),
+    ("토지이용계획 확인원", r"토지\s*이용\s*계획\s*확인(?:원|서)"),
+    ("사업자등록증", r"사업자\s*등록증(?:명)?"),
+    ("국세 및 지방세 완납증명서", r"국세\s*(?:및|과|,)\s*지방세\s*완납\s*증명서?"),
+    ("국세완납증명서", r"국세\s*완납\s*증명서?"),
+    ("지방세완납증명서", r"지방세\s*완납\s*증명서?"),
+    ("4대보험 가입확인서", r"(?:4대\s*보험|국민연금)[^\n]{0,20}가입\s*확인서"),
+    ("영업신고증", r"영업\s*신고증"),
+    ("청렴계약이행서약서", r"청렴\s*계약\s*이행\s*서약서"),
+    ("계약이행보증보험증권", r"계약\s*이행\s*보증\s*보험\s*증권"),
+    ("전자보증서", r"전자\s*보증서"),
+    ("보증보험증권", r"보증\s*보험\s*증권"),
+    ("확약서", r"확약서"),
+    ("운영계획서", r"(?:시설\s*)?운영\s*계획서"),
+    ("사업계획서", r"사업\s*계획서"),
+    ("제안서", r"제안서"),
+    ("입찰참가신청서", r"입찰\s*참가\s*신청서"),
+    ("신분증", r"신분증"),
+    # 라벨이 빈 문자열이면 매칭된 원문을 그대로 서류명으로 쓴다(업종·자격 서류는 이름이 열려 있다).
+    ("", r"[가-힣]{2,10}\s*등록증"),
+    ("", r"[가-힣]{2,10}\s*면허증"),
+)
+
+# 서류를 요구하는 문장에만 붙는 동사. 이것이 없고 조건 문맥도 없으면 단순 언급으로 본다.
+# 「갖추」는 넣지 않는다 — 「대항요건을 갖추고 있는 임차인」 같은 설명 문장이 걸린다(표본 01 실측).
+DOC_REQUEST_RE = re.compile(r"제출|지참|구비|첨부|발급받아|제시")
+
+# 이 절/문장이 입찰 전 준비물인지 낙찰 후 계약 서류인지 표시한다.
+# 표본 6건의 목록이 계약 단계 서류였다(표본조사 §4-7).
+CONTRACT_STAGE_RE = re.compile(r"계약\s*(?:체결|시|을)|낙찰\s*(?:자|후|일)|사용\s*허가\s*(?:신청|일)|매매계약")
+
+# 조건 축 8개는 표본에서 관측된 것이다(§3-4). 여기에 「지역 제한」을 더했다 —
+# 2026-09-07 캠코 회의에서 정인기 차장이 제한경쟁 입찰의 지역 요건 증빙을 예로 들었다.
+CONDITION_AXES: tuple[tuple[str, str, str], ...] = (
+    ("proxy", "대리입찰", r"대리\s*입찰|대리인(?:을)?\s*(?:선임|방문|제출)|위임"),
+    ("joint", "공동입찰", r"공동\s*(?:입찰|계약|매수)|여러\s*사람이\s*공동"),
+    ("minor", "미성년자", r"미성년자"),
+    ("consortium", "컨소시엄", r"컨소시엄"),
+    ("seal", "사용인감", r"사용\s*인감"),
+    ("region", "지역 제한(제한경쟁)", r"제한\s*경쟁|관내\s|소재지에\s*(?:주소|사업)|해당\s*지역에\s*(?:거주|소재)"),
+    ("license", "업종·자격 요건", r"등록증|면허|자격\s*요건|업종\s*제한"),
+    ("corp", "법인", r"법\s?인"),
+    ("person", "개인", r"개\s?인(?!정보)"),
+    ("foreign", "외국인", r"외국인"),
+)
+
+# 「~는 불가/불허용」이 같은 줄에 있으면 그 축은 서류 분기가 아니라 금지 안내다.
+# 표본 19는 「공동입찰허용여부 [□ 허용 / ■ 불허용]」이라 키워드만 보면 오탐이 된다(§3-4).
+CONDITION_NEGATIVE_RE = re.compile(r"불허용|불가능|불가하|허용하지\s*않|제외합니다|해당\s*없")
+
+# 발급처 안내는 일반 상식 수준으로만 둔다. 여기에 없는 서류는 안내 문장을 만들지 않는다.
+DOC_HOWTO = {
+    "인감증명서": ("정부24 또는 주민센터", "https://www.gov.kr/"),
+    "본인서명사실확인서": ("정부24 또는 주민센터", "https://www.gov.kr/"),
+    "주민등록등본": ("정부24 또는 주민센터", "https://www.gov.kr/"),
+    "주민등록초본": ("정부24 또는 주민센터", "https://www.gov.kr/"),
+    "가족관계증명서": ("정부24 또는 주민센터", "https://www.gov.kr/"),
+    "법인 등기사항증명서": ("인터넷등기소", "https://www.iros.go.kr/"),
+    "법인인감증명서": ("인터넷등기소 또는 등기소", "https://www.iros.go.kr/"),
+    "등기사항증명서": ("인터넷등기소", "https://www.iros.go.kr/"),
+    "사업자등록증": ("국세청 홈택스", "https://www.hometax.go.kr/"),
+    "국세완납증명서": ("국세청 홈택스", "https://www.hometax.go.kr/"),
+    "지방세완납증명서": ("위택스 또는 정부24", "https://www.wetax.go.kr/"),
+    "국세 및 지방세 완납증명서": ("홈택스(국세)·위택스(지방세)", "https://www.hometax.go.kr/"),
+    "전자보증서": ("SGI서울보증", "https://www.sgic.co.kr/"),
+    "보증보험증권": ("SGI서울보증", "https://www.sgic.co.kr/"),
+    # 아래 세 건은 공고 첨부 서식이나 온비드 자료실 서식을 쓰는 것이 표본에서 관측됐다.
+    "대리입찰신청서": ("공고 첨부 서식 또는 온비드 자료실 서식", "https://www.onbid.co.kr/"),
+    "공동입찰참가신청서": ("공고 첨부 서식 또는 온비드 자료실 서식", "https://www.onbid.co.kr/"),
+    "위임장": ("공고 첨부 서식 또는 온비드 자료실 서식", "https://www.onbid.co.kr/"),
+}
+
+
+def find_doc_names(line: str) -> list[str]:
+    names: list[str] = []
+    masked = line
+    for label, pattern in DOC_NAME_PATTERNS:
+        for match in re.finditer(pattern, masked):
+            name = label or clean_text(match.group(0))
+            if name and name not in names:
+                names.append(name)
+            masked = masked[: match.start()] + ("\x00" * (match.end() - match.start())) + masked[match.end() :]
+    return names
+
+
+def find_conditions(line: str) -> list[dict[str, str]]:
+    conditions: list[dict[str, str]] = []
+    negative = bool(CONDITION_NEGATIVE_RE.search(line))
+    for key, label, pattern in CONDITION_AXES:
+        if re.search(pattern, line):
+            conditions.append({"key": key, "label": label, "negative": "1" if negative else ""})
+    return conditions
+
+
+def doc_extras(line: str) -> dict[str, str]:
+    """서류 한 줄에 붙은 부가조건을 뽑는다. 없으면 빈 문자열이며 지어내지 않는다."""
+    extras: dict[str, str] = {}
+    if re.search(r"원본", line):
+        extras["copy"] = "원본"
+    elif re.search(r"사본", line):
+        extras["copy"] = "사본"
+    validity = re.search(r"(?:최근\s*)?(\d+\s*개월|공고일\s*이후|입찰\s*공고일\s*이후|계약\s*신청일로부터\s*\d+\s*개월)[^\n]{0,12}(?:이내\s*)?발급", line)
+    if validity:
+        extras["validity"] = clean_text(validity.group(0))
+    method = re.search(r"온라인/직접제출|온라인제출|직접제출|우편|이메일|전자우편|방문", line)
+    if method:
+        extras["method"] = method.group(0)
+    due = re.search(r"까지|이내", line)
+    if due:
+        # 기한 문구는 「입찰마감일시 전까지」처럼 공백을 포함한다. 종결어 앞 22자를 창으로
+        # 잡고 구분자에서 잘라 마지막 조각만 쓴다.
+        head = line[max(0, due.start() - 22) : due.end()]
+        head = re.split(r"[,·)]\s*|\.\s+", head)[-1].strip()
+        if re.search(r"마감|낙찰|계약|허가|개시|일시|\d", head):
+            extras["due"] = clean_text(head)
+    count = re.search(r"\d+\s*부(?![가-힣])", line)
+    if count:
+        extras["count"] = clean_text(count.group(0))
+    return extras
+
+
+LINE_RESET_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.)")
+SUB_ITEM_RE = re.compile(r"^\s*(?:[-‐–▪·※○ㅇ①-⑮]|\(\d+\)|\d+\s*\))")
+
+
+def extract_doc_items(sections: dict[str, str]) -> list[dict[str, object]]:
+    """공고문·제출서류 절에서 조건별 서류 항목을 뽑는다.
+
+    한 줄이 조건 문구만 담고 서류명이 없으면 그 조건을 다음 하위 항목들에 물려준다.
+    새 상위 번호(1. / 가.)가 조건 없이 나오면 물림을 끊는다.
+    """
+    items: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    for title in DOC_SEARCH_SECTIONS:
+        chunk = sections.get(title, "")
+        if not chunk:
+            continue
+        carried: list[dict[str, str]] = []
+        for raw_line in block_text(strip_tooltips(chunk)).split("\n"):
+            line = raw_line.strip()
+            if not line or len(line) > 1200:
+                continue
+            conditions = [item for item in find_conditions(line) if not item["negative"]]
+            names = find_doc_names(line)
+            if not names:
+                if conditions and DOC_REQUEST_RE.search(line):
+                    carried = conditions
+                elif LINE_RESET_RE.match(line):
+                    carried = []
+                continue
+            carried_applies = bool(carried) and bool(SUB_ITEM_RE.match(line))
+            active = conditions or (carried if carried_applies else [])
+            # 「업종·자격 요건」 축은 `등록증`·`면허` 같은 서류명 토큰으로 잡히므로
+            # 그것만으로 제출 요구를 증명하지 못한다. authorizing 축에서 뺀다.
+            authorizing = [item for item in conditions if item["key"] != "license"]
+            if not authorizing and not carried_applies and not DOC_REQUEST_RE.search(line):
+                # 조건 문맥도 제출 동사도 없으면 단순 언급이다(예: 「부동산의 표시는
+                # 등기사항증명서 기준」). 서류 요구로 세지 않는다.
+                continue
+            extras = doc_extras(line)
+            stage = "낙찰 후·계약 시" if CONTRACT_STAGE_RE.search(line) else "입찰 전"
+            labels = [item["label"] for item in active] or ["공통"]
+            for name in names:
+                key = (name, " · ".join(labels))
+                if key in seen:
+                    continue
+                seen.add(key)
+                howto, howto_url = DOC_HOWTO.get(name, ("", ""))
+                items.append(
+                    {
+                        "name": name,
+                        "conditions": labels,
+                        "conditionKeys": [item["key"] for item in active],
+                        "copy": extras.get("copy", ""),
+                        "validity": extras.get("validity", ""),
+                        "method": extras.get("method", ""),
+                        "due": extras.get("due", ""),
+                        "count": extras.get("count", ""),
+                        "stage": stage,
+                        "howto": howto,
+                        "howtoUrl": howto_url,
+                        "sourceSection": title,
+                        "evidence": line[:300],
+                    }
+                )
+    return items
+
+
+# 온비드 「제출서류」 표의 서류명 칸이 구분명 그대로이거나 「공고문 확인」이면
+# 실제 서류명이 아니다. 표본 15건 전건이 여기에 해당했다(§4-1).
+GENERIC_DOC_NAME_RE = re.compile(r"^(?:-|공고문\s*확인)$|서류$|\(공고문\s*확인\)$")
+
+
+def extract_docs_table(sections: dict[str, str]) -> list[dict[str, object]]:
+    chunk = sections.get("제출서류", "")
+    if not chunk:
         return []
-    chunk = text[idx : idx + 7000]
-    names = [clean_text(item) for item in re.findall(r"<span[^>]*class=(?:\"[^\"]*\btxt01\b[^\"]*\"|'[^']*\btxt01\b[^']*')[^>]*>(.*?)</span>", chunk, flags=re.I | re.S)]
-    return [name for name in names if name][:6]
+    rows: list[dict[str, object]] = []
+    seen: set[tuple[str, ...]] = set()
+    for table in re.findall(r"<table\b.*?</table>", chunk, flags=re.I | re.S):
+        for row in re.findall(r"<tr\b.*?</tr>", table, flags=re.I | re.S):
+            cells = [clean_text(cell) for cell in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row, flags=re.I | re.S)]
+            cells = [cell for cell in cells if cell]
+            if len(cells) < 2 or cells[0] == "구분":
+                continue
+            key = tuple(cells[:4])
+            if key in seen:
+                continue
+            seen.add(key)
+            name = cells[1]
+            rows.append(
+                {
+                    "category": cells[0],
+                    "name": name,
+                    "due": cells[2] if len(cells) > 2 else "",
+                    "method": cells[3] if len(cells) > 3 else "",
+                    "generic": bool(name == cells[0] or GENERIC_DOC_NAME_RE.search(name)),
+                }
+            )
+    return rows
+
+
+def build_doc_checklist(
+    sections: dict[str, str],
+    asset_type: str,
+    attachments: list[dict[str, str]],
+) -> dict[str, object]:
+    profile = doc_source_profile(asset_type)
+    items = extract_doc_items(sections)
+    table_rows = extract_docs_table(sections)
+    generic_only = bool(table_rows) and all(row["generic"] for row in table_rows)
+
+    groups: dict[str, dict[str, object]] = {}
+    for item in items:
+        label = " · ".join(item["conditions"])
+        group = groups.setdefault(label, {"condition": label, "items": []})
+        group["items"].append(item)
+
+    if items:
+        status = "extracted"
+        headline = f"공고 원문에서 서류 {len(items)}건을 찾았습니다. 확인하셨습니까?"
+    elif profile["code"] == "C":
+        status = "not_in_notice"
+        headline = "이 공고에서는 서류 목록을 찾지 못했습니다."
+    elif attachments:
+        status = "attachment_only"
+        headline = "본문에서 서류 목록을 찾지 못했습니다. 첨부 공고문을 확인하십시오."
+    else:
+        status = "not_found"
+        headline = "이 공고에서는 서류 목록을 찾지 못했습니다."
+
+    notes: list[str] = []
+    if generic_only:
+        notes.append(
+            "온비드 제출서류 표의 서류명 칸은 구분명(예: 공동입찰서류)이라 실제 준비할 서류명이 아닙니다."
+        )
+    if status != "extracted":
+        notes.append("자동 추출이 목록을 만들지 못한 상태입니다. 준비 보드는 그대로 진행할 수 있습니다.")
+    if profile["code"] == "B" and status == "extracted":
+        notes.append("이 재산유형은 첨부 공고문에 목록이 더 있을 수 있습니다. 첨부도 함께 확인하십시오.")
+    notes.append("서류마다 제출기한이 다를 수 있습니다. 각 항목의 기한을 따로 확인하십시오.")
+
+    return {
+        "status": status,
+        "headline": headline,
+        "profile": profile,
+        "items": items,
+        "groups": list(groups.values()),
+        "tableRows": table_rows,
+        "tableGenericOnly": generic_only,
+        "notes": notes,
+        "reference": "이 목록은 참고용입니다. 빠진 항목이 있어도 진행은 막지 않으며, 최종 확인은 온비드 원문과 담당기관 기준입니다.",
+    }
+
+
+# 첨부 앵커는 devUtil.fn_chkPdfRead('<atchFileLstNo>','<atchSn>','<pdfCnvsPrgnStatCd>',
+# '<physFileNm>','<hashCrpsNo>') 로 고정이고, 다운로드는 로그인 없이 200을 준다.
+# 표본 26/26 성공(docs/90_MVP개발/07_제출서류_표본조사_20260907.md §4·부록 A).
+ATTACHMENT_DOWNLOAD_PATH = "/op/cm/syc/filemng/filemngprcs/FileMngPrcsController/dnldFile.do"
+ATTACHMENT_ANCHOR_RE = re.compile(
+    r"<a\b[^>]*fn_chkPdfRead\(\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'\s*\)[^>]*>(.*?)</a>",
+    re.I | re.S,
+)
+
+
+def extract_related_docs(text: str, base_url: str = "https://www.onbid.co.kr") -> list[dict[str, str]]:
+    docs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for match in ATTACHMENT_ANCHOR_RE.finditer(text):
+        file_list_no, file_sn, _pdf_state, phys_file_nm, hash_no, inner = match.groups()
+        key = (file_list_no, file_sn)
+        if not file_list_no or not hash_no or key in seen:
+            continue
+        seen.add(key)
+        name_match = re.search(r"<span[^>]*class=(?:\"[^\"]*\btxt01\b[^\"]*\"|'[^']*\btxt01\b[^']*')[^>]*>(.*?)</span>", inner, flags=re.I | re.S)
+        name = clean_text(name_match.group(1)) if name_match else clean_text(inner)
+        if not name:
+            name = phys_file_nm
+        docs.append(
+            {
+                "name": name,
+                "downloadUrl": make_onbid_url(
+                    base_url,
+                    ATTACHMENT_DOWNLOAD_PATH,
+                    {"atchFileLstNo": file_list_no, "atchSn": file_sn, "hashCrpsNo": hash_no},
+                ),
+            }
+        )
+    return docs
+
+
+# 공고문 절을 번호 제목 단위로 잘라 목차를 만든다. 첨부 파일(PDF·HWP) 내부는 열지 않는다.
+NOTICE_OUTLINE_RE = re.compile(r"^\s*(?:\d{1,2}\s*[.)]|[가-하]\s*\.|[■●▣]|\d{1,2}\s*장)\s*(\S[^\n]{0,60})$")
+# 「가. …합니다.」처럼 서술로 끝나는 줄은 목차 제목이 아니라 본문이다.
+OUTLINE_SENTENCE_RE = re.compile(r"(?:니다|하세요|바랍니다|있음|없음)\s*\.?$")
+# 물건상세의 공고문 절에는 첨부 목록이 「1. 공고문.hwp」 꼴로 함께 들어온다. 목차가 아니다.
+OUTLINE_FILENAME_RE = re.compile(r"\.(?:hwpx?|pdf|zip|jpe?g|png|docx?|xlsx?)\s*$", re.I)
+
+
+def extract_notice_outline(sections: dict[str, str]) -> list[dict[str, str]]:
+    chunk = sections.get("공고문", "")
+    if not chunk:
+        return []
+    outline: list[dict[str, str]] = []
+    seen: set[str] = set()
+    lines = [line.strip() for line in block_text(strip_tooltips(chunk)).split("\n") if line.strip()]
+    for index, line in enumerate(lines):
+        match = NOTICE_OUTLINE_RE.match(line)
+        if not match or OUTLINE_SENTENCE_RE.search(line) or OUTLINE_FILENAME_RE.search(line):
+            continue
+        title = clean_text(line)[:80]
+        if title in seen:
+            continue
+        seen.add(title)
+        body = ""
+        for follow in lines[index + 1 : index + 3]:
+            if NOTICE_OUTLINE_RE.match(follow) or OUTLINE_FILENAME_RE.search(follow):
+                break
+            body = f"{body} {follow}".strip()
+        outline.append({"title": title, "body": clean_text(body)[:220]})
+        if len(outline) >= 20:
+            break
+    return outline
+
+
+def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> list[dict[str, str]]:
+    """공고 원문에 적힌 비용 조건만 모은다. 세율·요율은 계산하지 않는다."""
+    chunk = strip_tooltips(section_html(sections, "입찰방법"))
+    terms: list[dict[str, str]] = []
+    deposit = label_value(chunk, "입찰보증금")
+    if deposit:
+        terms.append(
+            {
+                "title": "입찰보증금",
+                "value": deposit,
+                "note": f"온비드 원문 표시값입니다. 기준이 되는 최저입찰가격은 {minimum_bid_display or '원문 확인'}입니다.",
+                "source": "온비드 상세 페이지 > 입찰방법",
+            }
+        )
+    for label in ("잔대금 납부방법", "잔대금 납부기한"):
+        value = label_value(chunk, label)
+        if value:
+            terms.append(
+                {
+                    "title": label,
+                    "value": value,
+                    "note": "온비드 원문 표시값입니다.",
+                    "source": "온비드 상세 페이지 > 입찰방법",
+                }
+            )
+    terms.append(
+        {
+            "title": "낙찰 후 세금·부대비용",
+            "value": "값 없음 — 사용자 확인 필요",
+            "note": "취득세·등록면허세·중개 및 이전 비용은 온비드가 제공하지 않습니다. 세율과 금액은 이 서비스에서 계산하지 않으며 담당기관과 관할 세무서에서 확인하십시오.",
+            "source": "온비드 미제공 항목",
+        }
+    )
+    return terms
+
+
+# 온비드는 최저입찰가격 공개 여부를 lowstBidPrcHideDivCd 로 가른다.
+# 온비드 물건상세 페이지의 자체 스크립트가 `lowstBidPrcHideDivCd != '0001'` 이면 "비공개"를
+# 찍는다(2026-09-07 물건상세 HTML 실측). 공개 여부는 이용기관이 정한다(캠코 회의 확인).
+PRICE_UNDISCLOSED = "비공개"
+
+
+def minimum_bid_value(inputs: dict[str, str], raw_value: str) -> str:
+    hide_code = (inputs.get("lowstBidPrcHideDivCd") or "").strip()
+    if hide_code and hide_code != "0001":
+        return PRICE_UNDISCLOSED
+    digits = re.sub(r"\D", "", raw_value or "")
+    if raw_value and digits and int(digits) == 0:
+        return PRICE_UNDISCLOSED
+    return raw_value or ""
 
 
 def validate_onbid_url(raw_url: str) -> str:
@@ -495,10 +998,10 @@ def infer_focus(disposition: str, asset_type: str) -> str:
 
 def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, object]]:
     disposition = notice.get("dispositionLabel", "")
-    is_sale = "매각" in disposition or "압류" in notice.get("assetType", "")
-    price_label = "공매예정가격" if is_sale else "입찰보증금/대부료"
+    checklist = notice.get("docChecklist") if isinstance(notice.get("docChecklist"), dict) else {}
+    price_label = "최저입찰가격"
     price_value = notice.get("minimumBidPrice") or notice.get("bidDeposit") or "공고 원문 확인"
-    docs_detail = " / ".join(docs[:2]) if docs else "공고 원문 제출서류 표 확인"
+    docs_detail = " / ".join(docs[:2]) if docs else str(checklist.get("headline") or "공고 원문과 첨부 확인")
     final_url = notice["sourceUrl"]
 
     tasks: list[dict[str, object]] = [
@@ -531,7 +1034,11 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
             "title": f"{price_label} 확인",
             "action": price_value,
             "due": "입찰 전",
-            "detail": "가격, 보증금, 대부료, 납부 방식은 입찰 판단에 영향을 주지만 본 MVP는 수익성 판단을 제공하지 않습니다.",
+            "detail": (
+                "최저입찰가격이 「비공개」이면 이용기관이 공개하지 않기로 선택한 것입니다. 보증금은 이 값에 이용기관이 정한 비율을 곱해 정해집니다."
+                if price_value == PRICE_UNDISCLOSED
+                else "가격, 보증금, 대부료, 납부 방식은 입찰 판단에 영향을 주지만 본 MVP는 수익성 판단을 제공하지 않습니다."
+            ),
             "question": "입찰보증금, 납부 방식, 낙찰 후 비용을 공고 원문과 담당기관에 확인합니다.",
             "source": "온비드 상세 페이지 > 가격/보증금/비용 항목",
             "cta": "온비드 원문",
@@ -543,7 +1050,7 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
             "title": "제출서류 확인",
             "action": docs_detail,
             "due": "입찰 마감 전",
-            "detail": "공동입찰, 대리입찰, 법인/개인 여부에 따라 제출서류와 제출방법이 달라질 수 있습니다.",
+            "detail": "공동입찰, 대리입찰, 법인/개인 여부에 따라 제출서류와 제출방법이 달라질 수 있습니다. 이 목록은 참고용이며 빠진 항목이 있어도 진행을 막지 않습니다.",
             "question": "이번 물건에서 원본 제출, 직접 제출, 공동/대리입찰 서류 조건이 무엇인지 담당기관에 확인합니다.",
             "source": "온비드 상세 페이지 > 제출서류",
             "cta": "온비드 원문",
@@ -572,11 +1079,15 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     bid_period = str(notice.get("bidPeriod") or notice.get("bidDeadline") or "입찰기간 원문 확인")
     price = str(notice.get("minimumBidPrice") or notice.get("bidDeposit") or "가격/보증금 원문 확인")
     contact = str(notice.get("contact") or notice.get("agency") or "담당기관 확인")
+    checklist = notice.get("docChecklist") if isinstance(notice.get("docChecklist"), dict) else {}
+    checklist_items = checklist.get("items", []) if isinstance(checklist, dict) else []
+    condition_keys = {key for item in checklist_items for key in item.get("conditionKeys", [])}
     docs_summary = " / ".join(docs[:2]) if docs else "제출서류 표 확인"
-    docs_text = " ".join(docs)
     is_sale = "매각" in disposition or "공매" in disposition or "압류" in asset_type
-    has_direct_submit = "직접제출" in docs_text
-    has_proxy_or_joint = "공동" in docs_text or "대리" in docs_text
+    has_direct_submit = any(item.get("method") for item in checklist_items) or any(
+        row.get("method") for row in checklist.get("tableRows", [])
+    )
+    has_proxy_or_joint = bool({"proxy", "joint"} & condition_keys)
     has_docs = bool(docs)
 
     confirmed_facts = [
@@ -655,16 +1166,33 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
         )
 
     if not has_docs:
+        # 🔴 못 뽑았으면 못 뽑았다고 말한다. 구분명만 있는 온비드 표(공동입찰서류 등)를
+        # 추출 성공으로 세지 않는다 — 2026-09-07 표본조사에서 15건이 이 경로로 허위 통과했다.
+        status = str(checklist.get("status") or "not_found")
+        reason = {
+            "attachment_only": "본문에 서류명이 없고 목록이 첨부 공고문 안에 있는 유형입니다. 첨부를 열어야 확인됩니다.",
+            "not_in_notice": "이 재산유형은 본문과 첨부 어디에도 목록이 없는 표본이 있었습니다. 담당기관 확인이 필요합니다.",
+        }.get(status, "자동 추출이 이 공고에서 서류명을 찾지 못했습니다. 온비드 원문과 첨부를 직접 확인해야 합니다.")
         unresolved_checks.insert(
             0,
             {
-                "title": "제출서류 표를 찾지 못함",
-                "reason": "자동 추출에서 제출서류가 비어 있어 원문 탭이나 첨부 공고문 확인이 필요합니다.",
-                "action": "공고보기 링크에서 제출서류/첨부파일을 먼저 확인합니다.",
+                "title": "서류 목록을 자동으로 뽑지 못했습니다",
+                "reason": reason,
+                "action": "온비드 원문의 공고문 절과 첨부파일을 직접 확인합니다. 준비 보드는 그대로 진행할 수 있습니다.",
                 "source": "자동 추출 결과",
             },
         )
         ask_agency.insert(0, "이 공고의 제출서류 목록과 제출 방법이 별도 첨부파일에 있는지 확인할 수 있나요?")
+    elif str(checklist.get("profile", {}).get("code")) == "B":
+        unresolved_checks.insert(
+            0,
+            {
+                "title": "첨부 공고문에 서류가 더 있을 수 있습니다",
+                "reason": "이 재산유형은 이용기관이 직접 작성해 목록을 첨부에 담는 경우가 많습니다.",
+                "action": "본문에서 찾은 목록과 첨부 공고문을 나란히 비교합니다.",
+                "source": "재산유형 기반 사전 판정",
+            },
+        )
 
     next_steps = [
         f"`{unresolved_checks[0]['title']}`부터 확인합니다." if unresolved_checks else "분석된 주요 값을 준비 보드에 저장합니다.",
@@ -935,6 +1463,72 @@ def bid_deadline_passed(bid_period: str, bid_deadline: str) -> tuple[bool, str]:
     return False, ""
 
 
+def parse_notice_datetime(raw: str) -> datetime | None:
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}))?", raw or "")
+    if not match:
+        return None
+    try:
+        return datetime(
+            int(match.group(1)),
+            int(match.group(2)),
+            int(match.group(3)),
+            int(match.group(4)) if match.group(4) else 23,
+            int(match.group(5)) if match.group(5) else 59,
+        )
+    except ValueError:
+        return None
+
+
+def bid_countdown(bid_period: str, bid_deadline: str, now: datetime | None = None) -> dict[str, object]:
+    """마감까지 남은 일수를 화면 표시용으로 계산한다. 알림 발송은 하지 않는다."""
+    now = now or datetime.now()
+    start_raw = bid_period.split("~")[0].strip() if bid_period and "~" in bid_period else ""
+    end_raw = bid_period.split("~")[-1].strip() if bid_period and "~" in bid_period else (bid_deadline or "").strip()
+    end_dt = parse_notice_datetime(end_raw)
+    start_dt = parse_notice_datetime(start_raw)
+    if not end_dt:
+        return {"state": "unknown", "label": "", "deadline": "", "daysLeft": None}
+    days_left = (end_dt.date() - now.date()).days
+    deadline = end_dt.strftime("%Y-%m-%d %H:%M")
+    if end_dt < now:
+        return {"state": "closed", "label": "입찰 마감 지남", "deadline": deadline, "daysLeft": days_left}
+    if start_dt and start_dt > now:
+        return {"state": "before", "label": f"입찰 시작 전 · 마감 D-{days_left}", "deadline": deadline, "daysLeft": days_left}
+    label = "마감 당일" if days_left == 0 else f"마감 D-{days_left}"
+    return {
+        "state": "urgent" if days_left <= 3 else "open",
+        "label": label,
+        "deadline": deadline,
+        "daysLeft": days_left,
+    }
+
+
+# 재산유형·처분방식은 온비드 값을 그대로 쓰고 뜻만 따로 안내한다(2026-09-07 캠코 회의 확정).
+# 설명 문장은 그 회의에서 정인기 차장이 말한 내용을 옮긴 것이다.
+TERM_GLOSSARY = {
+    "압류재산": "체납자의 압류 재산을 국세청 등에서 위임받아 캠코가 처리하는 재산입니다.",
+    "국유재산": "나라가 소유한 땅과 시설입니다. 부두 공공시설, 휴양림 부지 등을 민간에 매각하거나 임대합니다.",
+    "기타일반재산": "압류재산·국유재산에 해당하지 않는 재산을 묶은 분류입니다.",
+    "공유재산": "지방자치단체가 소유한 재산입니다.",
+    "수탁재산": "금융기관·기업 등이 캠코에 처분을 맡긴 재산입니다.",
+    "파산자산": "파산관재인이 처분하는 재산입니다.",
+    "매각": "소유권을 넘기는 처분 방식입니다.",
+    "임대": "일정 기간 빌려 쓰도록 하는 처분 방식입니다. 최저입찰가격과 보증금 구조는 매각과 같습니다.",
+    "대부": "국유재산을 빌려 쓰는 것을 가리키는 용어로, 임대와 같은 구조입니다.",
+}
+
+
+def build_glossary(*values: str) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for value in values:
+        for term, meaning in TERM_GLOSSARY.items():
+            if term in (value or "") and term not in seen:
+                seen.add(term)
+                entries.append({"term": term, "meaning": meaning})
+    return entries
+
+
 def build_notice(raw_url: str) -> dict[str, object]:
     final_url, text = fetch_onbid(raw_url)
     inputs = hidden_inputs(text)
@@ -1018,15 +1612,22 @@ def build_notice(raw_url: str) -> dict[str, object]:
     if not bid_period and (api_start or api_end):
         bid_period = f"{api_start} ~ {api_end}".strip(" ~")
     bid_deadline = inputs.get("pbctLastDdlnDt") or api_end
-    minimum_bid = (
-        inputs.get("lowstBidPrc")
-        or values_after_label(text, "공매예정가격(원)")
-        or api_value(api_entries, "minBidPrc", "lowstBidPrc", "fstBidPrc", "pbctExpcPrc", "bidPrc")
-    )
+    minimum_bid = minimum_bid_value(
+        inputs,
+        (
+            inputs.get("lowstBidPrc")
+            or values_after_label(text, "공매예정가격(원)")
+            or api_value(api_entries, "minBidPrc", "lowstBidPrc", "fstBidPrc", "pbctExpcPrc", "bidPrc")
+        ),
+    ) or api_value(api_entries, "lowstBidPrcIndctCont")
     appraisal = inputs.get("cltrApslEvlAvgAmt") or values_after_label(text, "감정평가금액(원)") or api_value(api_entries, "apslAmt", "cltrApslEvlAvgAmt", "aprsPrc")
     area = values_after_label(text, "면적") or api_value(api_entries, "area", "lndArea", "bldArea", "ar")
-    related_docs = extract_related_docs(text)
-    required_docs = extract_required_docs(text)
+    sections = split_sections(text)
+    related_docs = extract_related_docs(text, final_url)
+    doc_checklist = build_doc_checklist(sections, asset_type, related_docs)
+    required_docs = [str(item["name"]) for item in doc_checklist["items"]]
+    notice_outline = extract_notice_outline(sections)
+    countdown = bid_countdown(bid_period, bid_deadline)
 
     core_id = notice_id
     if page_type == "물건 상세" and onbid_cltr_no:
@@ -1062,13 +1663,28 @@ def build_notice(raw_url: str) -> dict[str, object]:
         "area": area,
         "relatedDocs": related_docs,
         "requiredDocs": required_docs,
+        "docChecklist": doc_checklist,
+        "noticeOutline": notice_outline,
+        "countdown": countdown,
+        "glossary": build_glossary(asset_type, disposition_label, title),
     }
 
     price_candidates = []
     if minimum_bid:
-        price_candidates.append({"title": "공매예정가격", "value": minimum_bid, "note": "온비드 상세 페이지 표시값"})
+        price_candidates.append(
+            {
+                "title": "최저입찰가격",
+                "value": minimum_bid,
+                "note": (
+                    "이용기관이 공개하지 않기로 선택한 값입니다. 온비드도 「비공개」로 표시합니다."
+                    if minimum_bid == PRICE_UNDISCLOSED
+                    else "온비드 상세 페이지 표시값"
+                ),
+            }
+        )
     if appraisal:
         price_candidates.append({"title": "감정평가금액", "value": appraisal, "note": "온비드 상세 페이지 표시값"})
+    price_candidates.extend(extract_cost_terms(sections, minimum_bid))
     if not price_candidates:
         price_candidates.append({"title": "비용 후보", "value": "공고 원문 확인", "note": "보증금, 대부료, 납부 방식은 원문 기준 확인"})
 
@@ -1084,6 +1700,15 @@ def build_notice(raw_url: str) -> dict[str, object]:
                 "status": "warn",
             }
         )
+    elif countdown.get("label"):
+        notice["alerts"].append(
+            {
+                "title": str(countdown["label"]),
+                "value": f"{countdown['deadline']} 마감",
+                "note": "화면 표시 전용입니다. 이 서비스는 메일·푸시 알림을 보내지 않으니 마감 일정은 직접 캘린더에 옮기십시오.",
+                "status": "warn" if countdown["state"] == "urgent" else "check",
+            }
+        )
     notice["alerts"].extend([
         {
             "title": "입찰기간",
@@ -1093,8 +1718,8 @@ def build_notice(raw_url: str) -> dict[str, object]:
         },
         {
             "title": "제출서류",
-            "value": required_docs[0] if required_docs else "제출서류 표 확인",
-            "note": "공동/대리입찰 여부와 제출방법에 따라 준비 시간이 달라집니다.",
+            "value": required_docs[0] if required_docs else str(doc_checklist["headline"]),
+            "note": str(doc_checklist["profile"]["detail"]),
             "status": "check",
         },
     ])
