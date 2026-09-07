@@ -1088,7 +1088,10 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     is_sale = "매각" in disposition or "공매" in disposition or "압류" in asset_type
     # 근거는 `docChecklist["items"]` 뿐이다. 온비드 제출서류 표(`tableRows`)의 제출방법 칸을
     # 근거로 삼으면, 서류를 한 건도 못 뽑아 「못 뽑았습니다」를 띄운 공고에서 바로 다음 줄이
-    # 「직접제출 서류」의 존재를 전제한다(표본 09·10·18·21·22·23 실측).
+    # 「직접제출 서류」의 존재를 전제한다.
+    # 귀속 주의 — 이 위험은 `[추론]` 이다. 표본 23건에서 그 조합(`is_sale=True` + 서류 0건)은
+    # 관측되지 않았다. 서류 0건이면서 표에 제출방법이 있던 6건은 전부 `is_sale=False` 라
+    # 이 분기에 도달하지 않는다 — 닫은 것은 계산 경로일 뿐 화면에 뜬 적이 없다.
     has_direct_submit = any(item.get("method") for item in checklist_items)
     has_proxy_or_joint = bool({"proxy", "joint"} & condition_keys)
     has_docs = bool(docs)
