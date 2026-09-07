@@ -2,31 +2,8 @@
 
 의존성 없이 `python3 tests/test_docs_extraction.py` 로 돌린다.
 
-PLAYED — 이 게이트가 프로덕션 호출부를 대신 연기한 것
-  1. `fetch_onbid()` — 실제 HTTP 대신 이 파일의 픽스처 HTML을 넣는다.
-  2. `build_notice()` — 전체 조립 대신 `build_doc_checklist`/`build_tasks`/`local_ai_coach`
-     를 직접 부른다. 진짜 `build_notice` 배선은 `tests/measure_sample_23.py`(표본 23건)와
-     로컬 서버 실호출로 확인한다.
-  3. 화면 렌더 — 이 파일은 화면을 연기하지 않는다. 화면 축은 `tests/screen.spec.js` 다.
-
-AXES — 축 → 케이스 → 킬러 변이 → 커버
-  A1 섹션 분리        → 입찰방법 도움말 배제      → 배제 제거      → Y
-  A2 서류명 어휘      → 긴 이름 우선/열린 이름    → 순서 뒤집기    → Y
-  A3 조건 물림        → ㅇ 머리글 → - 하위 항목   → 물림 삭제      → Y
-  A4 부정 문맥        → 「불허용」 축 제외        → 가드 삭제      → Y
-  A5 제출 동사 요구   → 단순 언급 제외            → 동사 요구 삭제 → Y
-  A6 부가조건         → 원본/유효기간/방법/기한   → 파싱 삭제      → Y
-  A7 A/B/C 사전판정   → 재산유형 → 코드           → 표 비우기      → Y
-  A8 첨부 다운로드    → fn_chkPdfRead 5인자       → 인자 무시      → Y
-  A9 온비드 표        → 구분명만/공고문 확인      → generic 끄기   → Y
-  B1 has_docs 정직성  → 구분명만 → 못 뽑았다 표시 → 옛 판정 복원   → Y
-  B2 최저입찰가 비공개 → HideDivCd != 0001        → 코드 무시      → Y
-  B3 마감 D-day       → 시작 전/진행/임박/마감    → 상태 고정      → Y
-  B4 비용 항목        → 원문값만·세율 미계산      → 세율 삽입      → Y (음성)
-  B5 공고문 목차      → 번호 제목/서술문·파일명   → 필터 삭제      → Y
-  B6 용어 안내        → 재산유형·처분방식 뜻      → 사전 비우기    → Y
-
-킬러 변이 실측(2026-09-08): 22개 변이 전부 붉어짐. 화면 축은 17개 전부 붉어짐.
+연기한 것(`PLAYED`)과 축 표(`AXES`)는 아래 상수에 두고 **실행할 때마다 stdout 에 찍는다.**
+docstring 에만 두면 로그를 받은 사람이 무엇이 연기됐는지 알 수 없다.
 """
 
 from __future__ import annotations
@@ -41,6 +18,46 @@ import server  # noqa: E402
 
 FAILURES: list[str] = []
 PASSED = 0
+
+# 이 게이트가 프로덕션 호출부를 대신 «연기»한 심볼. 여기 있는 것은 이 파일이 검증하지 못한다.
+PLAYED: tuple[tuple[str, str], ...] = (
+    ("fetch_onbid()", "실제 HTTP 대신 이 파일의 픽스처 HTML을 넣는다"),
+    (
+        "build_notice()",
+        "전체 조립 대신 build_doc_checklist·build_tasks·local_ai_coach 를 직접 부른다. "
+        "진짜 배선은 tests/measure_sample_23.py(표본 23건)와 로컬 서버 실호출로 확인한다",
+    ),
+    ("화면 렌더", "이 파일은 화면을 연기하지 않는다. 화면 축은 tests/screen.spec.js 다"),
+)
+
+# 축 → 케이스 → 킬러 변이 → 커버(Y/N/영구불가)
+AXES: tuple[tuple[str, str, str, str, str], ...] = (
+    ("A1", "섹션 분리", "입찰방법 도움말 배제", "배제 제거", "Y"),
+    ("A2", "서류명 어휘", "긴 이름 우선/열린 이름", "순서 뒤집기", "Y"),
+    ("A3", "조건 물림", "ㅇ 머리글 → - 하위 항목 · 비하위항목 경계", "물림 삭제 · 하위항목 제한 삭제", "Y"),
+    ("A4", "부정 문맥", "「불허용」 축 제외", "가드 삭제", "Y"),
+    ("A5", "제출 동사 요구", "단순 언급 제외 · license 축 제외", "동사 요구 삭제 · license 필터 해제", "Y"),
+    ("A6", "부가조건", "원본/유효기간/방법/기한", "파싱 삭제", "Y"),
+    ("A7", "A/B/C 사전판정", "재산유형 → 코드", "표 비우기", "Y"),
+    ("A8", "첨부 다운로드", "fn_chkPdfRead 5인자 · 빈 파라미터", "인자 무시 · 빈값 가드 해제", "Y"),
+    ("A9", "온비드 표", "구분명만/공고문 확인", "generic 끄기", "Y"),
+    ("B1", "추출 정직성", "구분명만 → 못 뽑았다 표시(not_found·C형) · 코치 배선", "옛 판정 복원 · headline 교체", "Y"),
+    ("B2", "최저입찰가 비공개", "HideDivCd != 0001", "코드 무시", "Y"),
+    ("B3", "마감 D-day", "시작 전/진행/임박/마감", "상태 고정", "Y"),
+    ("B4", "비용 항목", "원문값만·세율 미계산", "세율 삽입", "Y"),
+    ("B5", "공고문 목차", "번호 제목/서술문·파일명", "필터 삭제", "Y"),
+    ("B6", "용어 안내", "재산유형·처분방식 뜻", "사전 비우기", "Y"),
+)
+
+
+def print_header() -> None:
+    print(f"PLAYED — 이 게이트가 대신 연기한 것 {len(PLAYED)}개")
+    for symbol, note in PLAYED:
+        print(f"  · {symbol} — {note}")
+    print(f"AXES — 축 {len(AXES)}개 (축 → 케이스 → 킬러 변이 → 커버)")
+    for code, name, case, mutation, covered in AXES:
+        print(f"  {code} {name:<14} → {case} → {mutation} → {covered}")
+    print()
 
 
 def check(name: str, condition: bool, detail: str = "") -> None:
@@ -182,6 +199,21 @@ def test_doc_names() -> None:
     # 음성 대조: 「법인 인감증명서」가 「인감증명서」로도 중복 계상되면 안 된다.
     check("A2 음성 인감증명서 중복 없음", "인감증명서" not in names, str(names))
 
+    # 음성 대조(A5 license 축 제외): `등록증`·`면허` 는 서류명 토큰이라 「업종·자격 요건」 축에
+    # 걸리지만, 그것만으로는 제출 요구를 증명하지 못한다. 제출 동사도 다른 조건도 없는 줄에서
+    # 서류가 뽑히면 안 된다. 이 단언이 `extract_doc_items` 의 `authorizing` 필터를 고정한다.
+    license_only = server.extract_doc_items(
+        server.split_sections(
+            section("공고문", "<p>본 시설은 옥외광고업 등록증을 보유한 업체만 사용할 수 있습니다.</p>")
+        )
+    )
+    check("A5 음성 license 축만으로는 미추출", license_only == [], str(license_only))
+    # 같은 문장에 제출 동사가 붙으면 뽑혀야 한다 — 위 단언이 영구 초록이 아님을 보인다.
+    license_asked = server.extract_doc_items(
+        server.split_sections(section("공고문", "<p>옥외광고업 등록증 사본 1부를 제출하여야 합니다.</p>"))
+    )
+    check("A5 양성 제출 동사 있으면 추출", [str(i["name"]) for i in license_asked] == ["옥외광고업 등록증"], str(license_asked))
+
     open_names = server.find_doc_names("옥외광고업 등록증 및 사업자등록증 사본을 제출")
     check("A2 열린 이름 원문 보존", "옥외광고업 등록증" in open_names, str(open_names))
     check("A2 사업자등록증", "사업자등록증" in open_names, str(open_names))
@@ -214,6 +246,23 @@ def test_condition_carry() -> None:
     carry_only = server.extract_doc_items(server.split_sections(CARRY_ONLY_NOTICE))
     check("A3 물림만으로 추출", [str(item["name"]) for item in carry_only] == ["주민등록등본"], str(carry_only))
     check("A3 물림 조건 부여", carry_only and carry_only[0]["conditions"] == ["미성년자"], str(carry_only))
+
+    # 음성 대조(물림 경계): 하위 항목 표식이 없는 줄은 물림 대상이 아니다.
+    # 이 제한이 없으면 머리글 조건이 절 끝까지 새어 무관한 서류에 「미성년자」가 붙는다.
+    # 위 `A3 음성 조건 누수 없음` 은 모든 줄이 하위 항목인 픽스처라 이 경계에 닿지 못한다.
+    boundary = server.extract_doc_items(
+        server.split_sections(
+            section(
+                "공고문",
+                "<p>ㅇ 매수신청인이 미성년자인 경우에는 다음의 서류를 제출하여야 합니다.</p>"
+                "<p>- 주민등록등본</p>"
+                "<p>모든 입찰자는 인감증명서를 제출하여야 합니다.</p>",
+            )
+        )
+    )
+    labels = {str(item["name"]): list(item["conditions"]) for item in boundary}
+    check("A3 경계 하위항목은 물림", labels.get("주민등록등본") == ["미성년자"], str(labels))
+    check("A3 경계 음성 비하위항목은 미물림", labels.get("인감증명서") == ["공통"], str(labels))
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +347,28 @@ def test_attachments() -> None:
     check("A8 hashCrpsNo", "hashCrpsNo=COGFDOFI" in url, url)
     check("A8 오리진", url.startswith("https://www.onbid.co.kr/"), url)
     # 음성 대조: 앵커가 없으면 빈 목록이며 가짜 URL을 만들지 않는다.
+    # 주의 — 이 입력은 `ATTACHMENT_ANCHOR_RE` 에 매칭되지 않아 정규식 앞에서 걸러진다.
+    # 빈 파라미터 가드(`not file_list_no or not hash_no`) 분기에는 도달하지 못하므로 아래를 따로 둔다.
     check("A8 음성 앵커 없음", server.extract_related_docs("<a href='#'>공고문.pdf</a>") == [], "")
+
+    # 음성 대조(빈 파라미터 가드): 5인자 형태는 갖췄으나 atchFileLstNo·hashCrpsNo 가 비어 있다.
+    # 이대로 URL을 만들면 `atchFileLstNo=&hashCrpsNo=` 인 깨진 링크를 정상 내려받기처럼 노출한다.
+    empty_anchor = (
+        "<a href=\"javascript:devUtil.fn_chkPdfRead('','3','','x.pdf','');\">"
+        "<span class=\"txt01\">공고문.pdf</span></a>"
+    )
+    check("A8 음성 빈 atchFileLstNo", server.extract_related_docs(empty_anchor) == [], str(server.extract_related_docs(empty_anchor)))
+    empty_hash = (
+        "<a href=\"javascript:devUtil.fn_chkPdfRead('17070043','3','','x.pdf','');\">"
+        "<span class=\"txt01\">공고문.pdf</span></a>"
+    )
+    check("A8 음성 빈 hashCrpsNo", server.extract_related_docs(empty_hash) == [], str(server.extract_related_docs(empty_hash)))
+    # 도달 증거: 같은 형태에서 두 인자를 채우면 뽑힌다. 위 둘이 정규식 미매칭으로 통과한 게 아님을 보인다.
+    filled = server.extract_related_docs(
+        "<a href=\"javascript:devUtil.fn_chkPdfRead('17070043','3','','x.pdf','COGFDOFI');\">"
+        "<span class=\"txt01\">공고문.pdf</span></a>"
+    )
+    check("A8 도달 증거 채우면 추출", len(filled) == 1 and "hashCrpsNo=COGFDOFI" in filled[0]["downloadUrl"], str(filled))
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +396,30 @@ def test_generic_table_is_not_success() -> None:
         all("공동/대리입찰 서류가 나에게 필요한지" != title for title in titles),
         str(titles),
     )
+    # 배선 음성: 서류 0건인데 「직접제출 서류」의 존재를 전제하면 안 된다.
+    # 온비드 표(`tableRows`)의 제출방법 칸은 구분명 행에 붙은 값이라 근거가 될 수 없다.
+    check(
+        "B1 배선 음성 — 직접제출 서류 전제 없음",
+        all("직접제출 서류" not in title for title in titles),
+        str(titles),
+    )
+    check("B1 배선 음성 전제 — 표에는 제출방법 값이 있다", any(row["method"] for row in checklist["tableRows"]), str(checklist["tableRows"]))
+
+    # 배선 양성: 추출된 서류가 제출방법을 실제로 갖고 있으면 그 항목은 떠야 한다.
+    submit_checklist = server.build_doc_checklist(
+        server.split_sections(
+            section("공고문", "<p>ㅇ 대리입찰의 경우 대리입찰신청서 1부를 직접제출 하여야 합니다.</p>")
+        ),
+        "압류재산",
+        [],
+    )
+    submit_titles = [
+        item["title"]
+        for item in server.local_ai_coach(
+            {"assetType": "압류재산", "dispositionLabel": "매각", "docChecklist": submit_checklist}, ["대리입찰신청서"]
+        )["unresolvedChecks"]
+    ]
+    check("B1 배선 양성 — 직접제출", any("직접제출 서류" in title for title in submit_titles), str(submit_titles))
 
     # 배선: 체크리스트 항목이 실제로 있을 때는 조건 축을 근거로 공동/대리 항목이 붙는다.
     real = server.build_doc_checklist(server.split_sections(NUMBERED_CONDITION_NOTICE), "압류재산", [])
@@ -348,6 +442,14 @@ def test_checklist_states() -> None:
     check("B1 B형 첨부 안내", b_type["status"] == "attachment_only", str(b_type["status"]))
     c_type = server.build_doc_checklist(empty, "파산자산", attachments)
     check("B1 C형 원문 없음", c_type["status"] == "not_in_notice", str(c_type["status"]))
+    # C형에서도 「못 뽑으면 못 뽑았다고 말한다」가 지켜져야 한다. 표본 18·19(파산자산)가 이 분기를 탄다.
+    # `not_found` 분기의 같은 단언과 별개다 — 상태 코드만 보면 문구가 바뀌어도 초록이 된다.
+    check("B1 C형 못 뽑았다고 말한다", "찾지 못했습니다" in str(c_type["headline"]), str(c_type["headline"]))
+    check(
+        "B1 C형 음성 — 준비를 단정하지 않음",
+        "준비를 진행" not in str(c_type["headline"]),
+        str(c_type["headline"]),
+    )
     extracted = server.build_doc_checklist(server.split_sections(BULLET_CONDITION_NOTICE), "국유재산", [])
     check("B1 A형 추출됨", extracted["status"] == "extracted", str(extracted["status"]))
     # 음성 대조: 어떤 상태에서도 참고용 문구가 빠지면 안 된다.
@@ -445,8 +547,21 @@ def test_glossary() -> None:
     check("용어 중복 없음", len(terms) == len(set(terms)), str(terms))
     check("용어 음성 미상", server.build_glossary("재산유형 확인", "처분방식 확인", "") == [], "")
 
+    # 음성 대조: 용어 안내는 «뜻»만 적는다. 처분방식 사이의 금액·보증금 비교를 담으면
+    # 임대(사용료)와 매각(매매대금)의 금액 규모를 같게 오해시킨다.
+    lease = server.build_glossary("국유재산", "임대", "") + server.build_glossary("국유재산", "대부", "")
+    meanings = {str(entry["term"]): str(entry["meaning"]) for entry in lease}
+    check("B6 음성 임대 설명에 매각 비교 없음", "매각" not in meanings.get("임대", ""), str(meanings.get("임대")))
+    check("B6 음성 대부 설명에 구조 단정 없음", "구조" not in meanings.get("대부", ""), str(meanings.get("대부")))
+    check(
+        "B6 음성 사전 전체에 보증금 비교 없음",
+        all("보증금" not in meaning for meaning in server.TERM_GLOSSARY.values()),
+        str([t for t, m in server.TERM_GLOSSARY.items() if "보증금" in m]),
+    )
+
 
 def main() -> int:
+    print_header()
     for test in (
         test_sections,
         test_doc_names,
@@ -467,8 +582,12 @@ def main() -> int:
     total = PASSED + len(FAILURES)
     for failure in FAILURES:
         print(f"FAIL {failure}")
-    print(f"{PASSED}/{total} 통과 · 연기 3개 · 축 15개 중 미커버 0개")
-    print("미커버 없음. 화면 축은 tests/screen.spec.js, 표본 축은 tests/measure_sample_23.py 가 맡는다.")
+    uncovered = [f"{code} {name}" for code, name, _case, _mut, covered in AXES if covered != "Y"]
+    print(
+        f"{PASSED}/{total} 통과 · 연기 {len(PLAYED)}개 · 축 {len(AXES)}개 중 미커버 {len(uncovered)}개"
+    )
+    print(f"미커버 축: {', '.join(uncovered) if uncovered else '없음'}. "
+          "화면 축은 tests/screen.spec.js, 표본 축은 tests/measure_sample_23.py 가 맡는다.")
     return 1 if FAILURES else 0
 
 

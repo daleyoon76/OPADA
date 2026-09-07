@@ -3,22 +3,46 @@ const { test, expect } = require("@playwright/test");
 /**
  * 화면 노출 축.
  *
- * PLAYED — 이 게이트가 대신 연기한 것
- *   1. `/api/analyze` — 실제 온비드 크롤링 대신 `window.fetch` 를 픽스처로 바꾼다.
- *      서버 추출 로직은 `tests/test_docs_extraction.py`(순수 함수)와
- *      `tests/measure_sample_23.py`(표본 23건)가 맡는다.
- *   2. 그 밖의 화면 요소는 연기하지 않는다 — 실제 `src/app.js` 가 실제 DOM에 그린다.
- *
- * AXES — 축 → 케이스 → 음성 대조
- *   S1 A/B/C 사전 안내   → A형/B형   → A형에 「첨부를 봐야 함」이 뜨지 않을 것
- *   S2 조건별 체크리스트 → 그룹·칩·발급처 → 추출 성공 화면에 「찾지 못했습니다」가 없을 것
- *   S3 못 뽑음 정직 표시 → 못 뽑았다 문구 → 추출 성공 화면에는 안 뜰 것
- *   S4 진행 차단 없음    → 누락 상태에서도 다음 단계 가능 → 대화상자·disabled 0건
- *   S5 최저입찰가 비공개 → 「비공개」 표시 → 정상 금액에는 안 뜰 것
- *   S6 마감 D-day        → 배지 노출 → 상태 unknown 이면 배지 없을 것
- *   S7 첨부 내려받기     → dnldFile.do 링크 → 첨부 0건이면 링크 없을 것
- *   S8 공고문 항목·용어  → 목록 노출 → 비어 있으면 안내 문장으로 대체될 것
+ * 연기한 것(PLAYED)과 축 표(AXES)는 아래 상수에 두고 실행할 때마다 stdout 에 찍는다.
+ * 주석에만 두면 로그를 받은 사람이 무엇이 연기됐는지 알 수 없다.
  */
+
+// 이 게이트가 프로덕션 호출부를 대신 «연기»한 것. 여기 있는 것은 이 파일이 검증하지 못한다.
+const PLAYED = [
+  [
+    "/api/analyze",
+    "실제 온비드 크롤링 대신 window.fetch 를 픽스처로 바꾼다. 서버 추출 로직은 " +
+      "tests/test_docs_extraction.py(순수 함수)와 tests/measure_sample_23.py(표본 23건)가 맡는다",
+  ],
+  ["그 밖의 화면 요소", "연기하지 않는다 — 실제 src/app.js 가 실제 DOM에 그린다"],
+];
+
+// 축 → 케이스 → 음성 대조 → 커버(Y/N/영구불가)
+const AXES = [
+  ["S1", "A/B/C 사전 안내", "A형/B형", "A형에 「첨부를 봐야 함」이 뜨지 않을 것", "Y"],
+  ["S2", "조건별 체크리스트", "그룹·칩·발급처", "추출 성공 화면에 「찾지 못했습니다」가 없을 것", "Y"],
+  ["S3", "못 뽑음 정직 표시", "못 뽑았다 문구", "추출 성공 화면에는 안 뜰 것", "Y"],
+  ["S4", "진행 차단 없음", "누락 상태에서도 다음 단계 가능", "대화상자·disabled 0건", "Y"],
+  ["S5", "최저입찰가 비공개", "「비공개」 표시", "정상 금액에는 안 뜰 것", "Y"],
+  ["S6", "마감 D-day", "배지 노출", "상태 unknown 이면 배지 없을 것", "Y"],
+  ["S7", "첨부 내려받기", "dnldFile.do 링크", "첨부 0건이면 링크 없을 것", "Y"],
+  ["S8", "공고문 항목·용어", "목록 노출", "비어 있으면 안내 문장으로 대체될 것", "Y"],
+];
+
+test.beforeAll(() => {
+  const lines = [`PLAYED — 이 게이트가 대신 연기한 것 ${PLAYED.length}개`];
+  for (const [symbol, note] of PLAYED) lines.push(`  · ${symbol} — ${note}`);
+  lines.push(`AXES — 축 ${AXES.length}개 (축 → 케이스 → 음성 대조 → 커버)`);
+  for (const [code, name, useCase, negative, covered] of AXES) {
+    lines.push(`  ${code} ${name} → ${useCase} → ${negative} → ${covered}`);
+  }
+  const uncovered = AXES.filter((axis) => axis[4] !== "Y").map((axis) => `${axis[0]} ${axis[1]}`);
+  lines.push(
+    `연기 ${PLAYED.length}개 · 축 ${AXES.length}개 중 미커버 ${uncovered.length}개 — ` +
+      `미커버 축: ${uncovered.length ? uncovered.join(", ") : "없음"}`,
+  );
+  console.log(lines.join("\n"));
+});
 
 const BASE_NOTICE = {
   sourceUrl: "https://www.onbid.co.kr/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController/mvmnPbancDtl.do?onbidPbancNo=886933",
