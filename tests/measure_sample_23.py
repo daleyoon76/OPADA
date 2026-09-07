@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import server  # noqa: E402
 
 SAMPLE_DIR = Path(os.environ.get("ONBID_SAMPLE_HTML_DIR", "/tmp/onbid-survey/html"))
+SAMPLE_TOTAL = 23
 
 # 재산유형은 표본조사가 목록 API에서 받아 `samples.json` 에 남긴 `prptDvsnNm` 이 정본이다.
 # 공고상세 HTML에는 `scrnCltrPrptDivNm` 이 없어 페이지에서 다시 읽을 수 없다.
@@ -64,7 +65,7 @@ def main() -> int:
     print(f"재산유형 출처: {asset_note}")
     by_profile: dict[str, list[int]] = {}
     rows = []
-    for index in range(1, 24):
+    for index in range(1, SAMPLE_TOTAL + 1):
         path = SAMPLE_DIR / f"pbanc_{index:02d}.html"
         if not path.exists():
             print(f"없음: {path}")
@@ -103,8 +104,11 @@ def main() -> int:
 
     total = len(rows)
     ok = sum(1 for row in rows if row["docs"])
+    # 표본이 일부만 있으면 분모가 조용히 줄어 헤드라인이 「3/3 = 100%」로 읽힌다.
+    # 위쪽 「없음:」 줄은 스크롤로 밀리므로 헤드라인 자체에 부분 측정임을 박고 비정상 종료한다.
+    partial = "" if total == SAMPLE_TOTAL else f"  ⚠️ 부분 측정 — 표본 {total}/{SAMPLE_TOTAL}만 존재"
     print()
-    print(f"구체 서류명 1건 이상 추출: {ok}/{total}")
+    print(f"구체 서류명 1건 이상 추출: {ok}/{total}{partial}")
     for profile in sorted(by_profile):
         hits = by_profile[profile]
         print(f"  {profile}형: {sum(hits)}/{len(hits)}")
@@ -112,6 +116,9 @@ def main() -> int:
     att_link = sum(row["downloadable"] for row in rows)
     with_att = sum(1 for row in rows if row["attachments"])
     print(f"첨부 다운로드 파라미터: {att_link}/{att_total} (첨부가 있는 공고 {with_att}건)")
+    if partial:
+        print(f"표본 {SAMPLE_TOTAL}건 중 {SAMPLE_TOTAL - total}건이 없어 위 수치는 전수가 아닙니다. rc=3")
+        return 3
     return 0
 
 
