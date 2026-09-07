@@ -10,7 +10,10 @@ Hometest_op/
 │   ├── index.html       # 단일 페이지 셸
 │   └── styles.css       # 스타일
 ├── tests/
-│   └── public-data-status.spec.js  # Playwright e2e. 127.0.0.1:8975 대상 실사용 시나리오 검증
+│   ├── test_docs_extraction.py     # 순수 함수 게이트. 의존성 없이 python3로 실행
+│   ├── screen.spec.js              # 화면 노출 축. 픽스처 notice로 실제 DOM 렌더 검증
+│   ├── public-data-status.spec.js  # Playwright e2e. 127.0.0.1:8975 대상 실사용 시나리오 검증
+│   └── measure_sample_23.py        # 표본 23건 저장 HTML 계측(원자료는 레포 밖)
 └── docs/                # KAMCO Startup TechBlaze 제출 전 과정 문서 (원문 공고~본선준비, MVP 개발 기록)
 ```
 
@@ -18,10 +21,13 @@ Hometest_op/
 
 | 파일 | 역할 |
 | --- | --- |
-| `src/server.py` | 온비드 URL 검증(`validate_onbid_url`) → 원문 크롤링(`fetch_onbid`) → 필드 추출(`clean_text`, `hidden_inputs`, `class_text`, `values_after_label`, `extract_required_docs`, `extract_related_docs`) → 공공데이터 보강(`fetch_public_data_bundle`) → 체크리스트 생성(`build_tasks`) → AI 코치(`build_ai_coach`) → JSON 응답(`build_notice`) |
-| `src/app.js` | `#input`(공고 가져오기) / `#report`(준비 보드) / `#watchlist`(관심 공고) 세 화면 렌더링과 상태 전이, `/api/analyze` 호출, localStorage 기반 최근 살펴본 공고·관심 공고 저장 |
+| `src/server.py` | 온비드 URL 검증(`validate_onbid_url`) → 원문 크롤링(`fetch_onbid`) → 절 분리(`split_sections`) → 필드 추출(`clean_text`, `block_text`, `hidden_inputs`, `class_text`, `values_after_label`, `label_value`) → 제출서류 체크리스트(`build_doc_checklist`) → 첨부(`extract_related_docs`) → 공공데이터 보강(`fetch_public_data_bundle`) → 체크리스트 생성(`build_tasks`) → AI 코치(`build_ai_coach`) → JSON 응답(`build_notice`) |
+| `src/app.js` | `#input`(공고 가져오기) / `#report`(준비 보드) / `#watchlist`(관심 공고) 세 화면 렌더링과 상태 전이, `/api/analyze` 호출, localStorage 기반 최근 살펴본 공고·관심 공고 저장. 서류 체크리스트는 `renderDocChecklist`·`renderDocSourceNotice`, 첨부·목차·용어는 `renderAttachments`·`renderNoticeOutline`·`renderGlossary` |
 | `src/index.html` | 세 화면의 DOM 셸. `app.js`가 여기에 렌더링 |
+| `tests/test_docs_extraction.py` | 제출서류 추출·비공개 가격·D-day·비용·목차·용어의 순수 함수 게이트. 축마다 음성 대조를 같은 수로 둔다 |
+| `tests/screen.spec.js` | 픽스처 notice로 `window.fetch`를 대신해 실제 화면 렌더 결과를 검증. 진행 차단 없음(대화상자 0건·비활성 컨트롤 0건)을 포함 |
 | `tests/public-data-status.spec.js` | 실제 온비드 URL로 분석 → 준비 보드 생성 → 공공데이터 API 상태 문구 확인까지의 크리티컬 패스 e2e |
+| `tests/measure_sample_23.py` | 2026-09-07 표본조사가 저장한 공고상세 HTML 23건에 추출기를 돌려 성공률을 재는 계측 스크립트(게이트 아님) |
 
 ## 3. 데이터 흐름 (사용자 요청 → 응답)
 
@@ -30,6 +36,8 @@ Hometest_op/
 3. `build_notice(raw_url)`:
    - `validate_onbid_url` → `fetch_onbid`로 원문 HTML 가져옴 (short URL은 최종 URL로 추적)
    - 원문에서 공고/물건 필드 추출, `build_related_urls`로 연관 URL 구성
+   - `split_sections`가 `<h2 class="tit">` 기준으로 절을 나눈다. 서류명 탐색은 `공고문`·`제출서류` 절로 한정하고 `입찰방법` 절(온비드 공통 도움말)은 배제한다
+   - `build_doc_checklist`가 재산유형으로 A/B/C를 사전 판정하고, 조건 축별 서류 항목·부가조건·발급처·근거를 만든다. 뽑지 못하면 상태를 그대로 반환한다(`attachment_only`/`not_in_notice`/`not_found`)
    - `ONBID_API_SERVICE_KEY`가 있으면 `fetch_public_data_bundle`이 `PUBLIC_DATA_ENDPOINTS` 6종을 호출해 필드 보강 (키 없거나 403/`NODATA_ERROR`여도 원문 분석 결과는 유지)
    - `build_tasks`가 필요서류·준비 빈칸을 체크리스트로 변환
    - `build_ai_coach`가 `local_ai_coach` → (`GEMINI_API_KEY` 있으면) `gemini_ai_coach` → (없으면 gcloud 토큰으로) `vertex_ai_coach` 순으로 AI 우선 액션/확인 문장 생성
