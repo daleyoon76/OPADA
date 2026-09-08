@@ -64,4 +64,9 @@
 - 순수 함수 게이트 실측이 **153단언·21축 → 203단언·24축**(연기 3 → 5)이 됐다. 축 C1·C2·C3 이 늘린 몫이며, 킬러 변이 7개가 전부 `rc=1`(변이 없는 사본 `rc=0`)이다. 연기가 는 것은 배선 축이 `urlopen` 과 `public_data_service_key` 를 연기하기 때문이고, 게이트 머리에 그대로 찍힌다.
 
 <!-- arch-review: 2026-09-08: 제출서류 추출 계층 신설(split_sections → build_doc_checklist) · 검증 3축 분리 -->
+- **상시 공개 접속 경로를 확보했다** — 로컬 실행뿐이던 MVP 를 ngrok 고정 도메인으로 상시 노출한다. 서버와 터널을 LaunchAgent(`RunAtLoad`·`KeepAlive`)로 올려 Claude Code 세션과 분리했고, 프로세스가 죽으면 자동 재시작된다. `~/Documents` 가 TCC 보호 폴더라 LaunchAgent 가 `Errno 1` 로 죽는 문제는 CommandLineTools python3 에 전체 디스크 접근 권한을 부여해 해소했다(`/usr/bin/python3` 은 별도 스텁이라 통하지 않는다). 서버 `kill -9` · ngrok `kill -9` 후 자동 재시작과 주소 동일을 실측했고, 공개 주소 `/api/analyze` 실호출 200(0.56초)까지 확인했다.
+  - 부수 효과로 **공공데이터포털 운영계정 신청의 블로커가 풀렸다** — 필수 항목 「서비스 URL」에 넣을 값이 없어 보류했던 건이다. 신청 절차는 폼까지 진입해 실물 확인했고(API별 신청 · 활용사례 등록이 폼에 통합 · 필수 입력 11개) 제출은 하지 않았다.
+  - 🔴 공개 서버에 인증이 없다. `ONBID_API_SERVICE_KEY` 를 넣고 공개해 두면 남이 개발계정 일 1,000건 한도를 쓴다 — 키 투입과 접근 제한은 한 묶음으로 결정한다.
+
 <!-- arch-review: 2026-09-08: api_header 게이트웨이 봉투 분기 · 엔드포인트 https 전환 · 축 C1~C3 -->
+<!-- arch-review: 2026-09-08: ngrok 고정 도메인 + launchd 상시화로 공개 접속 경로 신설 -->
