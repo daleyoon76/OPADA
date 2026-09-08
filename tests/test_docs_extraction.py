@@ -8,6 +8,7 @@ docstring 에만 두면 로그를 받은 사람이 무엇이 연기됐는지 알
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,12 @@ PLAYED: tuple[tuple[str, str], ...] = (
         "단 B11 축은 build_notice 를 실제로 부르며 그때는 fetch_onbid·public_data_service_key 둘만 연기한다",
     ),
     ("화면 렌더", "이 파일은 화면을 연기하지 않는다. 화면 축은 tests/screen.spec.js 다"),
+    (
+        "urllib.request.urlopen()",
+        "C1 배선 축에서만 — 실제 HTTP 대신 픽스처 본문을 돌려주고 요청 URL 을 캡처한다. "
+        "게이트웨이의 실제 응답과 실제 인증키는 이 파일이 검증하지 못한다",
+    ),
+    ("public_data_service_key()", "C1 배선 축에서만 — 실제 인증키 대신 더미 문자열을 넣는다"),
 )
 
 # 축 → 케이스 → 킬러 변이 → 커버(Y/N/영구불가)
@@ -53,6 +60,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
     ("B10", "명도책임 사실", "매수인 부담 · 없으면 빈 값 · 조건 축 아님", "조건 축에 물리기", "Y"),
     ("B11", "build_notice 배선", "공동/대리 값 갈림 · 값 뒤집기 · 절 없음", "빈 값 고정 · 대리입찰 값 탑재", "Y"),
     ("B11-1", "코치 action 문구", "서류 0건 → 목록 전제 없음 · 서류 근거 → 옛 문장", "분기 삭제(한 문장으로 합치기)", "Y"),
+    (
+        "C1",
+        "물건관리번호 4-4-6",
+        "하이픈 없는 14자리 · 이미 하이픈(멱등) · 14자리 아님(원문 통과) · 빈값/None · 요청 URL 배선",
+        "하이픈 삽입 삭제 · 자리수 4-6-4 · 슬라이스 소스를 digits→value(멱등 파괴) · 배선 호출 삭제",
+        "Y",
+    ),
 )
 
 
@@ -852,6 +866,163 @@ def test_eviction_responsibility() -> None:
     check("B10 축 수 고정", len(server.CONDITION_AXES) == 10, str(len(server.CONDITION_AXES)))
 
 
+# ---------------------------------------------------------------------------
+# C 계열. 공공데이터 API 경로 — 이 세 축은 네트워크를 연기한다.
+# 연기하는 것은 urlopen 과 인증키 둘뿐이고, 요청 URL 조립과 응답 해석은 실제 코드가 한다.
+# ---------------------------------------------------------------------------
+OK_BODY = json.dumps(
+    {
+        "response": {
+            "header": {"resultCode": "00", "resultMsg": "NORMAL SERVICE."},
+            "body": {"items": {"item": {"cltrMngNo": "2026-0800-045167"}}},
+        }
+    }
+)
+class PlayedHeaders:
+    def get_content_charset(self) -> str:
+        return "utf-8"
+
+
+class PlayedResponse:
+    """urlopen 이 돌려주는 것 중 `call_public_data` 가 실제로 쓰는 면만 흉내낸다."""
+
+    def __init__(self, body: str, status: int = 200) -> None:
+        self._body = body.encode("utf-8")
+        self.status = status
+        self.headers = PlayedHeaders()
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self) -> "PlayedResponse":
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+
+def with_played_urlopen(body: str, action, status: int = 200) -> tuple[object, list[str]]:
+    """`action()` 을 도는 동안 urlopen 을 픽스처로 갈아끼우고, 실제 요청 URL 을 모아 돌려준다."""
+    urls: list[str] = []
+    saved = server.urllib.request.urlopen
+
+    def played(request, timeout=None):  # noqa: ANN001
+        urls.append(request.full_url)
+        return PlayedResponse(body, status)
+
+    server.urllib.request.urlopen = played
+    try:
+        return action(), urls
+    finally:
+        server.urllib.request.urlopen = saved
+
+
+def bundle_request_urls(ids: dict, body: str = OK_BODY) -> list[str]:
+    """`fetch_public_data_bundle` 이 실제로 만드는 요청 URL. 인증키만 더미로 연기한다."""
+    saved_key = server.public_data_service_key
+    server.public_data_service_key = lambda: "DUMMY-KEY"
+    try:
+        _bundle, urls = with_played_urlopen(body, lambda: server.fetch_public_data_bundle(ids))
+        return urls
+    finally:
+        server.public_data_service_key = saved_key
+
+
+# ---------------------------------------------------------------------------
+# C1. 물건관리번호 4-4-6 재조립 — 하이픈이 없으면 API 는 200 + NODATA_ERROR 를 돌려준다.
+# 순수 함수와 호출부 배선을 따로 단정한다. 함수가 초록이어도 호출부가 안 부르면 소용없다.
+# ---------------------------------------------------------------------------
+RAW_CLTR_MNG_NO = "20260800045167"  # 온비드 hidden input 이 주는 형태
+API_CLTR_MNG_NO = "2026-0800-045167"  # API 가 인정하는 형태
+
+
+def test_api_cltr_mng_no() -> None:
+    # 도달 증거 — 이 픽스처가 실제로 하이픈 삽입 분기를 지난다(입력과 출력이 달라야 한다).
+    check(
+        "C1 도달 증거 — 하이픈 삽입 분기를 지난다",
+        server.api_cltr_mng_no(RAW_CLTR_MNG_NO) != RAW_CLTR_MNG_NO,
+        server.api_cltr_mng_no(RAW_CLTR_MNG_NO),
+    )
+    # 🔴 양성 1 — 하이픈 없는 14자리를 4-4-6 으로 만든다.
+    check(
+        "C1 양성 하이픈 없는 14자리",
+        server.api_cltr_mng_no(RAW_CLTR_MNG_NO) == API_CLTR_MNG_NO,
+        server.api_cltr_mng_no(RAW_CLTR_MNG_NO),
+    )
+    # 자리수를 4-4-6 이 아닌 것으로 바꾼 변이는 여기서 붉어진다. 마디를 따로 센다.
+    parts = server.api_cltr_mng_no(RAW_CLTR_MNG_NO).split("-")
+    check(
+        "C1 양성 마디 길이가 4-4-6",
+        [len(part) for part in parts] == [4, 4, 6],
+        str([len(part) for part in parts]),
+    )
+    # 🔴 양성 2 — 구분자가 섞인 14자리도 정규화한다(슬라이스 소스를 value 로 바꾼 변이를 가른다).
+    check(
+        "C1 양성 구분자 섞인 14자리",
+        server.api_cltr_mng_no("2026 0800 045167") == API_CLTR_MNG_NO,
+        server.api_cltr_mng_no("2026 0800 045167"),
+    )
+    # 🔴 양성 3 — 멱등. 이미 하이픈이 있는 값은 그대로다. f(f(x)) == f(x).
+    check(
+        "C1 양성 멱등 — 이미 하이픈",
+        server.api_cltr_mng_no(API_CLTR_MNG_NO) == API_CLTR_MNG_NO,
+        server.api_cltr_mng_no(API_CLTR_MNG_NO),
+    )
+    check(
+        "C1 양성 멱등 — 두 번 적용해도 같다",
+        server.api_cltr_mng_no(server.api_cltr_mng_no(RAW_CLTR_MNG_NO)) == API_CLTR_MNG_NO,
+        server.api_cltr_mng_no(server.api_cltr_mng_no(RAW_CLTR_MNG_NO)),
+    )
+    # 🔴 양성 4 — 빈 값과 None 은 빈 문자열이다. 하이픈만 남은 값을 만들지 않는다.
+    check("C1 양성 빈 문자열", server.api_cltr_mng_no("") == "", repr(server.api_cltr_mng_no("")))
+    check("C1 양성 None", server.api_cltr_mng_no(None) == "", repr(server.api_cltr_mng_no(None)))
+
+    # ---- 붉히면 안 되는 입력 4개(양성 축과 같은 수) -------------------------
+    # 음성 1 — `pbctCdtnNo`(공매조건번호)는 NUMBER(22) 로 하이픈이 없다. 같은 규칙을 적용하면 안 된다.
+    check(
+        "C1 음성 pbctCdtnNo 류 숫자는 원문 통과",
+        server.api_cltr_mng_no("12345678") == "12345678",
+        server.api_cltr_mng_no("12345678"),
+    )
+    # 음성 2 — `pbancMngNo` 는 6-5-2(숫자 13자리)다. 14자리가 아니므로 재조립하지 않는다.
+    check(
+        "C1 음성 pbancMngNo 는 재조립하지 않는다",
+        server.api_cltr_mng_no("202406-21411-00") == "202406-21411-00",
+        server.api_cltr_mng_no("202406-21411-00"),
+    )
+    # 음성 3 — 14자리에서 하나 모자라거나 하나 넘치는 값은 원문 그대로다.
+    check(
+        "C1 음성 13자리 원문 통과",
+        server.api_cltr_mng_no("2026080004516") == "2026080004516",
+        server.api_cltr_mng_no("2026080004516"),
+    )
+    check(
+        "C1 음성 15자리 원문 통과",
+        server.api_cltr_mng_no("202608000451678") == "202608000451678",
+        server.api_cltr_mng_no("202608000451678"),
+    )
+    # 음성 4 — 원문 통과 경로에는 하이픈이 새로 생기지 않는다.
+    check(
+        "C1 음성 원문 통과에 하이픈을 만들지 않는다",
+        "-" not in server.api_cltr_mng_no("12345678901234567890"),
+        server.api_cltr_mng_no("12345678901234567890"),
+    )
+
+
+def test_api_cltr_mng_no_wiring() -> None:
+    """순수 함수가 초록인 것과 호출부가 그것을 부르는 것은 다른 사실이다."""
+    urls = bundle_request_urls({"cltrMngNo": RAW_CLTR_MNG_NO})
+    check("C1 배선 도달 증거 — 요청이 1건 이상 나갔다", len(urls) >= 1, str(len(urls)))
+    joined = " ".join(urls)
+    # 🔴 양성 — 하이픈 있는 값이 실제 요청 URL 에 실린다.
+    check(f"C1 배선 요청 URL 에 {API_CLTR_MNG_NO}", f"cltrMngNo={API_CLTR_MNG_NO}" in joined, joined[:200])
+    # 🔴 음성 대조 — 하이픈 없는 원본은 URL 에 남아 있으면 안 된다. 배선 삭제 변이가 여기서 붉어진다.
+    check(f"C1 배선 음성 — {RAW_CLTR_MNG_NO} 가 나가지 않는다", f"cltrMngNo={RAW_CLTR_MNG_NO}" not in joined, joined[:200])
+    # 음성 대조 — pbctCdtnNo 는 넘긴 값 그대로 나간다(4-4-6 규칙을 물리지 않는다).
+    with_cdtn = " ".join(bundle_request_urls({"cltrMngNo": RAW_CLTR_MNG_NO, "pbctCdtnNo": "12345678"}))
+    check("C1 배선 음성 pbctCdtnNo 원문", "pbctCdtnNo=12345678" in with_cdtn, with_cdtn[:200])
+
+
 def main() -> int:
     print_header()
     for test in (
@@ -874,6 +1045,8 @@ def main() -> int:
         test_joint_action_wording,
         test_build_notice_joint_wiring,
         test_eviction_responsibility,
+        test_api_cltr_mng_no,
+        test_api_cltr_mng_no_wiring,
     ):
         test()
     total = PASSED + len(FAILURES)
