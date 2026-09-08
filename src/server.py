@@ -21,13 +21,15 @@ PORT = 8975
 ROOT = Path(__file__).resolve().parent
 _VERTEX_TOKEN = ""
 _VERTEX_TOKEN_EXPIRES_AT = 0.0
+# 스킴은 `https` 다. 참고문서 6종의 「서비스URL · 운영환경」이 전부 `https://apis.data.go.kr/B010003/…`
+# 이고, `http` 로 부르면 serviceKey 가 평문으로 나간다(2026-09-08 교체).
 PUBLIC_DATA_ENDPOINTS = {
-    "notice_list": "http://apis.data.go.kr/B010003/OnbidPbancListSrvc2/getPbancList2",
-    "real_estate_list": "http://apis.data.go.kr/B010003/OnbidRlstListSrvc2/getRlstCltrList2",
-    "real_estate_detail": "http://apis.data.go.kr/B010003/OnbidRlstDtlSrvc2/getRlstDtlInf2",
-    "item_bid_detail": "http://apis.data.go.kr/B010003/OnbidCltrBidDtlSrvc2/getCltrBidInf2",
-    "notice_detail": "http://apis.data.go.kr/B010003/OnbidPbancDtlnfSrvc2/getPbancDtlInf2",
-    "notice_bid_detail": "http://apis.data.go.kr/B010003/OnbidPbancBidDtlSrvc2/getPbancBidInf2",
+    "notice_list": "https://apis.data.go.kr/B010003/OnbidPbancListSrvc2/getPbancList2",
+    "real_estate_list": "https://apis.data.go.kr/B010003/OnbidRlstListSrvc2/getRlstCltrList2",
+    "real_estate_detail": "https://apis.data.go.kr/B010003/OnbidRlstDtlSrvc2/getRlstDtlInf2",
+    "item_bid_detail": "https://apis.data.go.kr/B010003/OnbidCltrBidDtlSrvc2/getCltrBidInf2",
+    "notice_detail": "https://apis.data.go.kr/B010003/OnbidPbancDtlnfSrvc2/getPbancDtlInf2",
+    "notice_bid_detail": "https://apis.data.go.kr/B010003/OnbidPbancBidDtlSrvc2/getPbancBidInf2",
 }
 # 온비드 물건/공고 상세 컨트롤러는 이 파라미터 없이 열면 온비드 자체가 500을 반환한다.
 DETAIL_CONTROLLER_REQUIRED_PARAM = {

@@ -31,7 +31,7 @@ PLAYED: tuple[tuple[str, str], ...] = (
     ("화면 렌더", "이 파일은 화면을 연기하지 않는다. 화면 축은 tests/screen.spec.js 다"),
     (
         "urllib.request.urlopen()",
-        "C1·C2 배선 축에서만 — 실제 HTTP 대신 픽스처 본문을 돌려주고 요청 URL 을 캡처한다. "
+        "C1·C2·C3 배선 축에서만 — 실제 HTTP 대신 픽스처 본문을 돌려주고 요청 URL 을 캡처한다. "
         "게이트웨이의 실제 응답과 실제 인증키는 이 파일이 검증하지 못한다",
     ),
     ("public_data_service_key()", "C1 배선 축에서만 — 실제 인증키 대신 더미 문자열을 넣는다"),
@@ -72,6 +72,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "게이트웨이 오류 봉투",
         "cmmMsgHeader.returnReasonCode 22 · returnAuthMsg 없으면 errMsg · 정상 봉투 불변 · 봉투는 item 아님",
         "OpenAPI_ServiceResponse 분기 삭제 · returnReasonCode 를 resultCode 로 안 옮기기",
+        "Y",
+    ),
+    (
+        "C3",
+        "API 스킴 https",
+        "엔드포인트 6종 상수 · 6종 각각의 실제 요청 URL",
+        "한 줄이라도 http 로 되돌리기",
         "Y",
     ),
 )
@@ -1112,6 +1119,53 @@ def test_gateway_error_envelope_wiring() -> None:
     check("C2 배선 음성 정상 items 1건", len(normal.get("items", [])) == 1, str(normal.get("items")))
 
 
+# ---------------------------------------------------------------------------
+# C3. API 엔드포인트 스킴 — 참고문서 규격은 6종 전부 https. http 는 인증키가 평문으로 나간다.
+# 🔴 라이브 미검증: 이 기기에 ONBID_API_SERVICE_KEY 가 없어 실제 https 호출은 확인하지 못했다.
+# ---------------------------------------------------------------------------
+def test_public_data_endpoint_scheme() -> None:
+    endpoints = server.PUBLIC_DATA_ENDPOINTS
+    check("C3 엔드포인트 6종 고정", len(endpoints) == 6, str(len(endpoints)))
+    # 🔴 양성 — 6종 전부 https 다.
+    check(
+        "C3 양성 6종 전부 https",
+        all(url.startswith("https://") for url in endpoints.values()),
+        str([name for name, url in endpoints.items() if not url.startswith("https://")]),
+    )
+    # 🔴 음성 대조 — http:// 로 시작하는 것이 하나도 없다. 한 줄만 되돌린 변이도 여기서 붉어진다.
+    check(
+        "C3 음성 http:// 0건",
+        [name for name, url in endpoints.items() if url.startswith("http://")] == [],
+        str([name for name, url in endpoints.items() if url.startswith("http://")]),
+    )
+    # 음성 대조 — 호스트는 바뀌지 않았다. 스킴만 고친 수정이다.
+    check(
+        "C3 음성 호스트 불변",
+        all("://apis.data.go.kr/B010003/" in url for url in endpoints.values()),
+        str(list(endpoints.values())),
+    )
+
+
+def test_public_data_endpoint_scheme_wiring() -> None:
+    """상수가 https 인 것과 요청이 https 로 나가는 것은 다른 사실이다. 6종 전부 실제 URL 을 본다."""
+    plain: list[str] = []
+    for name in server.PUBLIC_DATA_ENDPOINTS:
+        _result, urls = with_played_urlopen(
+            OK_BODY,
+            lambda name=name: server.call_public_data(name, {"cltrMngNo": API_CLTR_MNG_NO}, "DUMMY-KEY"),
+        )
+        check(f"C3 배선 도달 증거 {name} 요청 1건", len(urls) == 1, str(urls))
+        if urls and not urls[0].startswith("https://"):
+            plain.append(f"{name}={urls[0][:40]}")
+    check("C3 배선 6종 요청 URL 전부 https", plain == [], str(plain))
+    # 🔴 음성 대조 — 인증키는 여전히 URL 에 실린다. 이 수정은 키를 뺀 것이 아니라 채널을 바꾼 것이다.
+    _result, urls = with_played_urlopen(
+        OK_BODY,
+        lambda: server.call_public_data("real_estate_detail", {"cltrMngNo": API_CLTR_MNG_NO}, "DUMMY-KEY"),
+    )
+    check("C3 배선 음성 serviceKey 는 그대로 실린다", "serviceKey=DUMMY-KEY" in urls[0], urls[0][:120])
+
+
 def main() -> int:
     print_header()
     for test in (
@@ -1138,6 +1192,8 @@ def main() -> int:
         test_api_cltr_mng_no_wiring,
         test_gateway_error_envelope,
         test_gateway_error_envelope_wiring,
+        test_public_data_endpoint_scheme,
+        test_public_data_endpoint_scheme_wiring,
     ):
         test()
     total = PASSED + len(FAILURES)
