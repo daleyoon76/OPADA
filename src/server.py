@@ -806,6 +806,10 @@ def api_items(payload: object) -> list[dict[str, object]]:
         return []
     if "result" in payload and not any(key in payload for key in ("response", "body", "items", "item")):
         return []
+    # 게이트웨이 오류 봉투는 데이터가 아니다. 이 가드가 없으면 아래 마지막 분기가 봉투 자체를
+    # item 1건으로 돌려주어 오류가 데이터로 세어진다.
+    if "OpenAPI_ServiceResponse" in payload:
+        return []
     current: object = payload
     for key in ("response", "body", "items"):
         if isinstance(current, dict) and key in current:
@@ -819,12 +823,28 @@ def api_items(payload: object) -> list[dict[str, object]]:
     return []
 
 
+# 게이트웨이(공공데이터포털) 오류는 서비스 응답과 봉투가 다르다.
+#   {"OpenAPI_ServiceResponse": {"cmmMsgHeader": {"returnReasonCode": "22", "returnAuthMsg": …, "errMsg": …}}}
+# 사유 코드가 `resultCode` 가 아니라 `returnReasonCode` 에 있어, 이 분기가 없으면 헤더가 {} 가 되고
+# resultCode 가 빈 문자열이 된다. 개발계정 한도(일 1,000건) 초과 코드 22 는 HTTP 200 에 실려 오므로
+# HTTPError 경로에도 걸리지 않고 화면에는 원인 없는 `failed` 로만 보인다(2026-09-08 신설).
+def gateway_error_header(raw: dict[str, object]) -> dict[str, object]:
+    """게이트웨이 오류 봉투의 사유 코드·메시지를 서비스 헤더와 같은 키로 옮긴다."""
+    header = dict(raw)
+    header["resultCode"] = str(raw.get("returnReasonCode") or "")
+    header["resultMsg"] = str(raw.get("returnAuthMsg") or raw.get("errMsg") or "")
+    return header
+
+
 def api_header(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         return {}
     response = payload.get("response")
     if isinstance(response, dict) and isinstance(response.get("header"), dict):
         return response["header"]
+    gateway = payload.get("OpenAPI_ServiceResponse")
+    if isinstance(gateway, dict) and isinstance(gateway.get("cmmMsgHeader"), dict):
+        return gateway_error_header(gateway["cmmMsgHeader"])
     if isinstance(payload.get("result"), dict):
         return payload["result"]
     if isinstance(payload.get("header"), dict):

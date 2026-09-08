@@ -31,7 +31,7 @@ PLAYED: tuple[tuple[str, str], ...] = (
     ("화면 렌더", "이 파일은 화면을 연기하지 않는다. 화면 축은 tests/screen.spec.js 다"),
     (
         "urllib.request.urlopen()",
-        "C1 배선 축에서만 — 실제 HTTP 대신 픽스처 본문을 돌려주고 요청 URL 을 캡처한다. "
+        "C1·C2 배선 축에서만 — 실제 HTTP 대신 픽스처 본문을 돌려주고 요청 URL 을 캡처한다. "
         "게이트웨이의 실제 응답과 실제 인증키는 이 파일이 검증하지 못한다",
     ),
     ("public_data_service_key()", "C1 배선 축에서만 — 실제 인증키 대신 더미 문자열을 넣는다"),
@@ -65,6 +65,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "물건관리번호 4-4-6",
         "하이픈 없는 14자리 · 이미 하이픈(멱등) · 14자리 아님(원문 통과) · 빈값/None · 요청 URL 배선",
         "하이픈 삽입 삭제 · 자리수 4-6-4 · 슬라이스 소스를 digits→value(멱등 파괴) · 배선 호출 삭제",
+        "Y",
+    ),
+    (
+        "C2",
+        "게이트웨이 오류 봉투",
+        "cmmMsgHeader.returnReasonCode 22 · returnAuthMsg 없으면 errMsg · 정상 봉투 불변 · 봉투는 item 아님",
+        "OpenAPI_ServiceResponse 분기 삭제 · returnReasonCode 를 resultCode 로 안 옮기기",
         "Y",
     ),
 )
@@ -878,6 +885,20 @@ OK_BODY = json.dumps(
         }
     }
 )
+# 게이트웨이 오류 봉투. 개발계정 한도(일 1,000건) 초과가 이 형태로 HTTP 200 에 실려 온다.
+GATEWAY_LIMIT_BODY = json.dumps(
+    {
+        "OpenAPI_ServiceResponse": {
+            "cmmMsgHeader": {
+                "errMsg": "SERVICE ERROR",
+                "returnAuthMsg": "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR",
+                "returnReasonCode": "22",
+            }
+        }
+    }
+)
+
+
 class PlayedHeaders:
     def get_content_charset(self) -> str:
         return "utf-8"
@@ -1023,6 +1044,74 @@ def test_api_cltr_mng_no_wiring() -> None:
     check("C1 배선 음성 pbctCdtnNo 원문", "pbctCdtnNo=12345678" in with_cdtn, with_cdtn[:200])
 
 
+# ---------------------------------------------------------------------------
+# C2. 게이트웨이 오류 봉투 — HTTP 200 에 실려 오는 사유 코드를 상태에 싣는가
+# ---------------------------------------------------------------------------
+def test_gateway_error_envelope() -> None:
+    gateway_payload = json.loads(GATEWAY_LIMIT_BODY)
+    # 도달 증거 — 원래 봉투에는 resultCode 키가 없다. 있으면 이 축은 통과해도 무증명이다.
+    check(
+        "C2 도달 증거 — 봉투에 resultCode 키가 없다",
+        "resultCode" not in gateway_payload["OpenAPI_ServiceResponse"]["cmmMsgHeader"],
+        str(gateway_payload["OpenAPI_ServiceResponse"]["cmmMsgHeader"].keys()),
+    )
+    header = server.api_header(gateway_payload)
+    # 🔴 양성 — 사유 코드 22 를 resultCode 로 읽는다.
+    check("C2 양성 returnReasonCode → resultCode", header.get("resultCode") == "22", str(header.get("resultCode")))
+    check(
+        "C2 양성 사유 메시지를 싣는다",
+        "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR" in str(header.get("resultMsg")),
+        str(header.get("resultMsg")),
+    )
+    # 🔴 양성 — returnAuthMsg 가 없으면 errMsg 로 대체한다. 빈 메시지를 내지 않는다.
+    only_err = server.api_header({"OpenAPI_ServiceResponse": {"cmmMsgHeader": {"errMsg": "SERVICE ERROR", "returnReasonCode": "30"}}})
+    check("C2 양성 errMsg 대체", only_err.get("resultMsg") == "SERVICE ERROR", str(only_err.get("resultMsg")))
+    check("C2 양성 코드 30 도 읽는다", only_err.get("resultCode") == "30", str(only_err.get("resultCode")))
+    # 🔴 음성 대조 — 게이트웨이 봉투는 데이터가 아니다. item 으로 세면 안 된다.
+    check("C2 음성 봉투는 item 이 아니다", server.api_items(gateway_payload) == [], str(server.api_items(gateway_payload)))
+
+    # ---- 붉히면 안 되는 입력 — 기존 세 봉투 형태의 동작이 그대로여야 한다 ----
+    normal = server.api_header(json.loads(OK_BODY))
+    check("C2 음성 정상 봉투 resultCode 불변", normal.get("resultCode") == "00", str(normal.get("resultCode")))
+    check("C2 음성 정상 봉투 resultMsg 불변", normal.get("resultMsg") == "NORMAL SERVICE.", str(normal.get("resultMsg")))
+    check(
+        "C2 음성 result 형태 불변",
+        server.api_header({"result": {"resultCode": "11"}}).get("resultCode") == "11",
+        str(server.api_header({"result": {"resultCode": "11"}})),
+    )
+    check(
+        "C2 음성 header 형태 불변",
+        server.api_header({"header": {"resultCode": "12"}}).get("resultCode") == "12",
+        str(server.api_header({"header": {"resultCode": "12"}})),
+    )
+    check("C2 음성 dict 아님은 {}", server.api_header("문자열") == {}, str(server.api_header("문자열")))
+    check("C2 음성 빈 dict 는 {}", server.api_header({}) == {}, str(server.api_header({})))
+
+
+def test_gateway_error_envelope_wiring() -> None:
+    """HTTP 200 에 실린 오류가 상태·사유로 내려오는가. 상태코드만 보면 이 축은 잡히지 않는다."""
+    limited, urls = with_played_urlopen(
+        GATEWAY_LIMIT_BODY,
+        lambda: server.call_public_data("real_estate_detail", {"cltrMngNo": API_CLTR_MNG_NO}, "DUMMY-KEY"),
+    )
+    check("C2 배선 도달 증거 — 요청 1건", len(urls) == 1, str(len(urls)))
+    # 도달 증거 — 이 축의 핵심 조건은 HTTP 가 200 이라는 것이다.
+    check("C2 배선 도달 증거 — HTTP 200 이다", limited.get("status") == 200, str(limited.get("status")))
+    # 🔴 양성 — 200 이어도 ok 가 아니고, 사유 코드와 메시지가 실린다.
+    check("C2 배선 ok 아님", limited.get("ok") is False, str(limited.get("ok")))
+    check("C2 배선 resultCode 22", limited.get("resultCode") == "22", str(limited.get("resultCode")))
+    check("C2 배선 사유 메시지 비어 있지 않음", bool(limited.get("resultMsg")), str(limited.get("resultMsg")))
+    check("C2 배선 오류 봉투는 items 0건", limited.get("items") == [], str(limited.get("items")))
+    # 🔴 음성 대조 — 정상 응답 경로는 그대로 ok 다. 이 축이 정상 경로를 죽이지 않았다.
+    normal, _ = with_played_urlopen(
+        OK_BODY,
+        lambda: server.call_public_data("real_estate_detail", {"cltrMngNo": API_CLTR_MNG_NO}, "DUMMY-KEY"),
+    )
+    check("C2 배선 음성 정상 응답은 ok", normal.get("ok") is True, str(normal.get("ok")))
+    check("C2 배선 음성 정상 resultCode 00", normal.get("resultCode") == "00", str(normal.get("resultCode")))
+    check("C2 배선 음성 정상 items 1건", len(normal.get("items", [])) == 1, str(normal.get("items")))
+
+
 def main() -> int:
     print_header()
     for test in (
@@ -1047,6 +1136,8 @@ def main() -> int:
         test_eviction_responsibility,
         test_api_cltr_mng_no,
         test_api_cltr_mng_no_wiring,
+        test_gateway_error_envelope,
+        test_gateway_error_envelope_wiring,
     ):
         test()
     total = PASSED + len(FAILURES)
