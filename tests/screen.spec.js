@@ -739,6 +739,13 @@ test("N0 커버리지 측정 함수를 직접 호출해 단정한다", () => {
   expect(sparse.noNegative).toContain("S1");
   expect(sparse.noNegative).not.toContain("N1");
 
+  // 축 코드를 손으로 박는다. AXES 에서 축을 지우면 아래 full 묶음의 입력과 기대가 «함께»
+  // 줄어 아무도 붉지 않는다 — 이 한 줄이 그 자리를 막는다(2026-09-09 r2 P2-2).
+  expect(AXES.map((axis) => axis[0])).toEqual([
+    "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9",
+    "N0", "N1", "N2", "N3", "N4", "N5", "N6",
+  ]);
+
   // 붉히면 안 되는 입력 — 모든 축에 양성·음성이 하나씩 있으면 어긋남이 없다.
   const full = measureAxisCoverage(AXES.flatMap((axis) => [`${axis[0]} 양성`, `${axis[0]} 음성 — 붉지 않는다`]));
   expect(full.absent).toEqual([]);

@@ -19,9 +19,11 @@ const {
 
 const SCREEN_SPEC = "screen.spec.js";
 
-// 모수 하한. 이보다 적게 돌았으면 판정 로직이 아니라 «빈 입력»에서 초록이 난 것이다.
-// 값은 축 표에서 파생시키지 않는다 — 파생시키면 축을 지울 때 하한이 같이 내려가 항상 통과한다.
-const MIN_TESTS = 15;
+// 이 spec 이 가진 test 의 «정확한» 수. 하한(>=)이 아니라 일치(!==)로 본다 —
+// 하한이 실제보다 낮으면 그 차이만큼 «공짜 삭제»가 생긴다(2026-09-09 r2 실측: 하한 15 ·
+// 실제 16 이라 커버리지 측정 테스트 하나가 소리 없이 빠져도 경고 0건이었다).
+// 값은 축 표에서 파생시키지 않는다 — 파생시키면 축을 지울 때 기대값이 같이 내려가 항상 통과한다.
+const EXPECTED_TEST_COUNT = 16;
 
 class GateReporter {
   onBegin(config, suite) {
@@ -65,15 +67,20 @@ class GateReporter {
     // 모수 미달 2/15 인데 종료코드 0) onEnd 의 반환값으로 상태를 뒤집는다.
     let forcedFailure = false;
 
-    // 모수 하한. 빈 입력에서 나는 초록을 판정으로 세지 않는다.
-    if (tests.length < MIN_TESTS) {
+    // 모수. 빈 입력에서 나는 초록을 판정으로 세지 않는다. 더해도 붉는다 — 표를 같은
+    // 커밋에서 갱신하게 하기 위해서다.
+    if (tests.length !== EXPECTED_TEST_COUNT) {
       lines.push(
-        `🔴 모수 미달 ${tests.length}/${MIN_TESTS} — 이 실행은 판정이 아니다. ` +
-          `축을 지웠거나, --grep 으로 걸렀거나, 크래시로 뒤 축이 돌지 않았다`,
+        `🔴 모수 어긋남 ${tests.length}/${EXPECTED_TEST_COUNT} — 이 실행은 판정이 아니다. ` +
+          `축을 지웠거나, --grep 으로 걸렀거나, 크래시로 뒤 축이 돌지 않았다. ` +
+          `test 를 더했으면 EXPECTED_TEST_COUNT 를 같은 커밋에서 갱신한다`,
       );
       forcedFailure = true;
     }
-    if (skipped) lines.push(`🔴 건너뛴 테스트 ${skipped}건 — 통과로 세지 않았다`);
+    if (skipped) {
+      lines.push(`🔴 건너뛴 테스트 ${skipped}건 — 통과로 세지 않았다`);
+      forcedFailure = true;
+    }
     if (coverage.declaredButAbsent.length) {
       lines.push(
         `🔴 표가 「커버 Y」라고 적었는데 도는 테스트가 없는 축: ${coverage.declaredButAbsent.join(", ")}` +
@@ -86,6 +93,7 @@ class GateReporter {
         `🔴 「붉히면 안 되는 입력」이 없는 축: ${coverage.noNegative.join(", ")}` +
           ` — 양성만 있는 축은 무엇이든 붉히는 검사와 구분되지 않는다`,
       );
+      forcedFailure = true;
     }
 
     const expected = new Set(EXPECTED_RED);
