@@ -15,6 +15,7 @@ const {
   axisCodes,
   measureAxisCoverage,
   p0WithoutAxis,
+  NEGATIVE_DEBT,
 } = require("./screen-axes");
 
 const SCREEN_SPEC = "screen.spec.js";
@@ -88,10 +89,29 @@ class GateReporter {
       );
       forcedFailure = true;
     }
-    if (coverage.noNegative.length) {
+    // 부채로 «선언한» 축과 그렇지 않은 축을 가른다. 선언은 배너에 남고, 선언 밖은 붉는다.
+    const undeclaredNoNegative = coverage.noNegative.filter((code) => !NEGATIVE_DEBT.includes(code));
+    const declaredDebt = coverage.noNegative.filter((code) => NEGATIVE_DEBT.includes(code));
+    if (declaredDebt.length) {
       lines.push(
-        `🔴 「붉히면 안 되는 입력」이 없는 축: ${coverage.noNegative.join(", ")}` +
-          ` — 양성만 있는 축은 무엇이든 붉히는 검사와 구분되지 않는다`,
+        `⚠️ 음성 대조 부채 ${declaredDebt.length}개: ${declaredDebt.join(", ")}` +
+          ` — 「붉히면 안 되는 입력」이 아직 없다. 선언된 부채이므로 종료코드를 바꾸지 않는다`,
+      );
+    }
+    if (undeclaredNoNegative.length) {
+      lines.push(
+        `🔴 「붉히면 안 되는 입력」이 없는데 부채 선언도 없는 축: ${undeclaredNoNegative.join(", ")}` +
+          ` — 양성만 있는 축은 무엇이든 붉히는 검사와 구분되지 않는다. 음성을 만들거나 NEGATIVE_DEBT 에 적는다`,
+      );
+      forcedFailure = true;
+    }
+    // 부채 목록에 적혀 있는데 실제로는 음성이 있는 축. 부채를 갚고 목록을 안 줄인 상태다.
+    const staleDebt = NEGATIVE_DEBT.filter(
+      (code) => coverage.positive.get(code) > 0 && coverage.negative.get(code) > 0,
+    );
+    if (staleDebt.length) {
+      lines.push(
+        `🔴 부채 목록이 낡았다: ${staleDebt.join(", ")} — 음성이 생겼으니 NEGATIVE_DEBT 에서 뺀다`,
       );
       forcedFailure = true;
     }

@@ -519,7 +519,15 @@ def build_doc_checklist(
         headline = f"공고 원문에서 서류 {len(items)}건을 찾았습니다. 확인하셨습니까?"
     elif profile["code"] == "C":
         status = "not_in_notice"
-        headline = "이 공고에서는 서류 목록을 찾지 못했습니다."
+        if attachments:
+            # 이 공고에 대해 «관측한 것»만 말한다. 우리가 읽은 것은 본문뿐이고 첨부는 열지
+            # 않았으므로 「원문에 없다」고 하지 않는다. 첨부가 화면에 렌더되므로 그 존재는
+            # 말한다 — 말하지 않으면 「없다」와 눈앞의 첨부가 어긋난다.
+            # 표본 수치로 이 공고의 첨부를 예측하지 않는다. 유형 수준의 사례 진술은
+            # profile["detail"] 이 이미 맡는다.
+            headline = f"본문에서 서류 목록을 찾지 못했습니다. 첨부 {len(attachments)}건이 있습니다."
+        else:
+            headline = "이 공고에서는 서류 목록을 찾지 못했습니다."
     elif attachments:
         status = "attachment_only"
         headline = "본문에서 서류 목록을 찾지 못했습니다. 첨부 공고문을 확인하십시오."
@@ -528,9 +536,18 @@ def build_doc_checklist(
         headline = "이 공고에서는 서류 목록을 찾지 못했습니다."
 
     notes: list[str] = []
-    if generic_only:
+    # 전건 generic 뿐 아니라 «섞인» 표에도 경고가 필요하다. 섞이면 실서류명 몇 줄 때문에
+    # 나머지 구분명 줄까지 실제 서류명으로 읽힌다.
+    generic_mixed = bool(table_rows) and any(row.get("generic") for row in table_rows)
+    if generic_mixed:
         notes.append(
             "온비드 제출서류 표의 서류명 칸은 구분명(예: 공동입찰서류)이라 실제 준비할 서류명이 아닙니다."
+        )
+    if status == "extracted":
+        # 부분 추출을 완전한 것처럼 말하지 않는다. 추출은 닫힌 어휘 기준이라 그 밖은 못 뽑는다.
+        notes.append(
+            "자동 인식은 닫힌 어휘 기준이라 인식 범위가 한정적입니다. 목록에 없는 서류가 있을 수 "
+            "있으니 원문과 대조하십시오."
         )
     if status != "extracted":
         notes.append("자동 추출이 목록을 만들지 못한 상태입니다. 준비 보드는 그대로 진행할 수 있습니다.")
@@ -1060,6 +1077,11 @@ def build_related_urls(
     urls = {"source": final_url}
     if common["onbidCltrno"]:
         urls["itemDetail"] = item_url
+        # 물건상세는 pbctCdtnNo 가 없으면 온비드가 500 을 준다(known-pitfalls.md:62-65).
+        # 표본 23건의 보유는 0/23 이라 이 경로가 기본값에 가깝다. 링크를 지우지 않고
+        # «확신을 낮춰» 내보낸다 — 화면이 이 플래그로 주의 표기를 붙인다.
+        if not common["pbctCdtnNo"]:
+            urls["itemDetailUncertain"] = True
     if common["onbidPbancNo"]:
         urls["noticeDetail"] = notice_url
     return urls

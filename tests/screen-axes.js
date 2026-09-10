@@ -34,16 +34,28 @@ const AXES = [
   ["S8", "공고문 항목·용어", "목록 노출", "비어 있으면 안내 문장으로 대체될 것", "N", "축 없음"],
   ["S9", "공동입찰·명도책임", "값 그대로 표시 · 못 읽으면 「원문 확인」", "못 읽었을 때 행이 사라지거나 「불가능」으로 단정될 것 · 명도책임 값이 없는데 행이 생길 것", "N", "축 없음"],
   ["N0", "판정 함수 자체", "J1~J6 을 화면 없이 직접 호출", "각 함수마다 붉히지 «않아야» 하는 입력도 함께 단정", "Y", "초록"],
-  ["N1", "「원문에 없음」 단정 + 첨부 동시 노출", "not_in_notice + relatedDocs 3건", "정상 A형(extracted) + 첨부 1건 — 단정 배지가 없으니 붉지 않을 것", "Y", "붉음(의도)"],
-  ["N2", "부분 추출을 완전한 것처럼 말함", "extracted + items 1건", "B형 attachment_only — 「범위 한정」 note 를 요구하지 않을 것", "Y", "붉음(의도)"],
-  ["N3", "generic 혼합 표에 총평 경고 없음", "tableRows = 실서류명 1행 + generic 3행", "전건 generic + 총평 note 있음 — 혼합이 아니니 붉지 않을 것", "Y", "붉음(의도)"],
+  ["N1", "「원문에 없음」 단정 + 첨부 동시 노출", "not_in_notice + relatedDocs 3건", "정상 A형(extracted) + 첨부 1건 — 단정 배지가 없으니 붉지 않을 것", "Y", "초록"],
+  ["N2", "부분 추출을 완전한 것처럼 말함", "extracted + items 1건", "B형 attachment_only — 「범위 한정」 note 를 요구하지 않을 것", "Y", "초록"],
+  ["N3", "generic 혼합 표에 총평 경고 없음", "tableRows = 실서류명 1행 + generic 3행", "전건 generic + 총평 note 있음 — 혼합이 아니니 붉지 않을 것", "Y", "초록"],
   ["N4", "비공개 가격에 숫자 노출", "minimumBidPrice:\"비공개\" — 요약·분석직후 두 창", "정상 금액 450,000,000 — 출처가 비공개가 아니니 숫자가 있어도 붉지 않을 것", "Y", "초록"],
-  ["N5", "LLM 미호출인데 AI 완료 단정", "aiCoach.llmStatus:\"rule_based\"", "llmStatus:\"connected\" — 같은 문구가 있어도 붉지 않을 것", "Y", "붉음(의도)"],
-  ["N6", "500 링크를 정상 링크와 동급 제시", "relatedUrls.itemDetail 있고 pbctCdtnNo 없음(공고상세 입력)", "물건상세 입력(pbctCdtnNo 있음) — 같은 모양이어도 붉지 않을 것", "Y", "붉음(의도)"],
+  ["N5", "LLM 미호출인데 AI 완료 단정", "aiCoach.llmStatus:\"rule_based\"", "llmStatus:\"connected\" — 같은 문구가 있어도 붉지 않을 것", "Y", "초록"],
+  ["N6", "500 링크를 정상 링크와 동급 제시", "relatedUrls.itemDetail 있고 pbctCdtnNo 없음(공고상세 입력)", "물건상세 입력(pbctCdtnNo 있음) — 같은 모양이어도 붉지 않을 것", "Y", "초록"],
 ];
 
 /** 「지금 붉어야 정상」이라고 선언한 축. 이 목록이 실제 실패와 어긋나면 리포터가 알린다. */
 const EXPECTED_RED = AXES.filter((axis) => axis[5].startsWith("붉음")).map((axis) => axis[0]);
+
+/**
+ * 「붉히면 안 되는 입력」이 아직 없는 축. 부채로 «선언»한다.
+ *
+ * 2026-09-09 r2 리뷰가 두 선택지를 줬다 — (A) 종료코드를 뒤집는다 (B) 부채로 기록하고
+ * 뒤집지 않는다. (A) 로 갔다가 (B) 로 옮겼다. (A) 는 S1~S7 에 음성을 만들기 전까지 CI 가
+ * «영원히» 붉어서, 고쳐도 초록이 안 되는 상태가 되기 때문이다.
+ *
+ * 숨기는 것이 아니다 — 배너가 이 목록을 실행마다 찍고, 선언에 «없는» 축이 음성 없이
+ * 들어오면 리포터가 종료코드를 뒤집는다. 이 목록을 줄이는 것이 다음 작업이다.
+ */
+const NEGATIVE_DEBT = ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "N0"];
 
 // 거짓 안내 P0 6건 ↔ 축. 축 표의 「커버 Y」는 «축을 선언했다»는 뜻이지 «P0 을 덮었다»는 뜻이
 // 아니다. 배너가 둘을 같은 말처럼 읽히게 해서 이 표를 따로 둔다 — 축이 없는 P0 은 null 이다.
@@ -116,6 +128,7 @@ module.exports = {
   AXES,
   P0_AXES,
   EXPECTED_RED,
+  NEGATIVE_DEBT,
   bannerLines,
   axisCodes,
   measureAxisCoverage,

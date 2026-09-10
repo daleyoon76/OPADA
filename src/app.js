@@ -859,12 +859,19 @@ function renderAnalysisResult() {
       <div><b>최저입찰가격</b><strong>${sampleNotice.minimumBidPrice || "원문 확인"}</strong></div>
     </div>
     <p class="deadline-line">${countdownBadge()}</p>
+    <p class="small-text freshness-note">온비드 원문 기준이며, 최대 30분 지연될 수 있습니다. 마감이 가까우면 원문에서 다시 확인하십시오.</p>
     ${renderDocSourceNotice()}
     <div class="linked-pages">
       <b>온비드 연결</b>
       <a href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">현재 분석 페이지</a>
       ${links.noticeDetail ? `<a href="${links.noticeDetail}" target="_blank" rel="noreferrer">공고보기</a>` : ""}
-      ${links.itemDetail ? `<a href="${links.itemDetail}" target="_blank" rel="noreferrer">물건상세</a>` : ""}
+      ${
+        links.itemDetail
+          ? links.itemDetailUncertain
+            ? `<a href="${links.itemDetail}" target="_blank" rel="noreferrer" class="link-uncertain">물건상세 (열리지 않을 수 있음)</a>`
+            : `<a href="${links.itemDetail}" target="_blank" rel="noreferrer">물건상세</a>`
+          : ""
+      }
     </div>
     ${renderAiReadySummary(coach)}
     <p class="small-text">${fit.action}</p>
@@ -873,7 +880,10 @@ function renderAnalysisResult() {
 
 function renderCoachPanel(coach, options = {}) {
   const panelClass = options.board ? "coach-panel board" : "coach-panel";
-  const coachMode = "AI 누락 점검";
+  // 모델에 붙지 않았으면 「AI 가 했다」고 말하지 않는다. 색만 바꾸면 색을 못 보는 사람에게는
+  // 같은 화면이고, 색을 보는 사람에게도 문구가 사실과 어긋난 채 남는다.
+  const llmConnected = coach?.llmStatus === "connected";
+  const coachMode = llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검";
   const facts = (coach?.confirmedFacts || []).slice(0, options.board ? 2 : 4);
   const checks = (coach?.unresolvedChecks || []).slice(0, 3);
   const questions = (coach?.askAgency || []).slice(0, 2);
@@ -893,8 +903,15 @@ function renderCoachPanel(coach, options = {}) {
 
   return `<section class="${panelClass}">
     <div class="coach-head">
-      ${badge(coachMode, coach?.llmStatus === "connected" ? "safe" : "warn")}
-      <strong>${options.board ? "AI가 먼저 볼 빈칸을 체크리스트에 연결했습니다." : coach?.headline || "AI가 미해결 항목만 골랐습니다."}</strong>
+      ${badge(coachMode, llmConnected ? "safe" : "warn")}
+      <strong>${
+        options.board
+          ? llmConnected
+            ? "AI가 먼저 볼 빈칸을 체크리스트에 연결했습니다."
+            : "규칙 기반으로 먼저 볼 빈칸을 체크리스트에 연결했습니다."
+          : coach?.headline ||
+            (llmConnected ? "AI가 미해결 항목만 골랐습니다." : "규칙 기반으로 미해결 항목만 골랐습니다.")
+      }</strong>
     </div>
     <p>${options.board ? "아래 체크리스트에서 AI 우선 확인 표시가 붙은 항목부터 처리하세요." : coach?.plainSummary || "이미 보이는 값은 반복하지 않고, 실제 준비 전에 남는 빈칸만 분리합니다."}</p>
     ${factsHtml ? `<div class="coach-facts">${factsHtml}</div>` : ""}
@@ -916,7 +933,7 @@ function renderAiReadySummary(coach) {
   const questionCount = (coach?.askAgency || []).length;
   return `<section class="ai-ready-summary">
     <div>
-      ${badge("AI 분석 완료", coach?.llmStatus === "connected" ? "safe" : "warn")}
+      ${badge(coach?.llmStatus === "connected" ? "AI 분석 완료" : "규칙 기반 점검 완료", coach?.llmStatus === "connected" ? "safe" : "warn")}
       <strong>준비 보드에서 우선순위 체크리스트로 보여드립니다.</strong>
     </div>
     <p>${checks.length ? `${checks.length}개 미해결 항목과 ${questionCount}개 담당기관 확인 질문을 준비했습니다.` : "공고별 준비 보드에서 다음 확인 항목을 정리합니다."}</p>
@@ -985,7 +1002,12 @@ function renderDocChecklist() {
     return;
   }
   const profile = checklist.profile || {};
-  const [statusLabel, statusType] = docChecklistStatusBadge[checklist.status] || ["확인 필요", "warn"];
+  let [statusLabel, statusType] = docChecklistStatusBadge[checklist.status] || ["확인 필요", "warn"];
+  // 첨부를 열지 않았으면 「원문에 없음」이라고 말할 수 없다. 우리가 확인한 것은 본문뿐이고,
+  // 첨부는 눈앞에 렌더된다. 배지가 「원문」이라고 말하면 그 첨부와 정면으로 어긋난다.
+  if (checklist.status === "not_in_notice" && (sampleNotice.relatedDocs?.length || 0) > 0) {
+    statusLabel = "본문에 없음";
+  }
   const groups = Array.isArray(checklist.groups) ? checklist.groups : [];
 
   const groupsHtml = groups
@@ -1365,8 +1387,12 @@ function renderWatchlist() {
     })).filter((item) => !favoriteKeys.has(`${item.title || item.notice}|${item.type}`)),
   ];
 
+  // 서버가 항상 실어 보내는 placeholder(sample) 는 사용자가 «저장한» 것이 아니다.
+  // 합쳐 세면 하나도 저장하지 않은 사용자에게 「관심 공고 2건」이 뜬다.
+  const savedByUser = savedItems.filter((item) => !item.sample);
+
   byId("watch-summary").innerHTML = [
-    ["관심 공고", `${savedItems.length}건`],
+    ["관심 공고", `${savedByUser.length}건`],
     ["최근 살펴본 공고", `${recent.length}건`],
     ["현재 공고 진행률", hasBlockingMessage ? "입력 공고 미분석" : formatProgress(summary)],
   ]

@@ -366,7 +366,10 @@ function absenceClaimNotice() {
   notice.assetType = "파산자산";
   notice.docChecklist = {
     status: "not_in_notice",
-    headline: "이 공고에서는 서류 목록을 찾지 못했습니다.",
+    // 첨부가 있는 C형의 문안. 서버가 이 형태를 만드는 것은 파이썬 단위가 증명한다
+    // (test_docs_extraction.py 「B1 C형 첨부 존재 언급」 + 음성 2건).
+    // 관측한 것만 말한다 — 본문은 읽었고 첨부는 열지 않았다. 표본으로 예측하지 않는다.
+    headline: "본문에서 서류 목록을 찾지 못했습니다. 첨부 3건이 있습니다.",
     profile: {
       code: "C",
       label: "원문에 서류 목록이 없을 수 있는 유형입니다",
@@ -400,15 +403,24 @@ function partialExtractNotice() {
   notice.docChecklist.groups = [{ condition: "미성년자", items: [notice.docChecklist.items[0]] }];
   notice.docChecklist.tableRows = [];
   notice.docChecklist.tableGenericOnly = false;
-  // profile A + extracted 이면 서버가 붙이는 note 는 이 한 줄뿐이다(server.py:530-539).
-  notice.docChecklist.notes = ["서류마다 제출기한이 다를 수 있습니다. 각 항목의 기한을 따로 확인하십시오."];
+  // profile A + extracted 이면 서버가 붙이는 note 는 이 둘이다(server.py:546-562).
+  // 범위 한정 안내를 서버가 실제로 붙이는 것은 파이썬 단위가 증명한다
+  // (test_docs_extraction.py 「B1 A형 인식 범위 한정 안내」 + 음성 대조 1건).
+  notice.docChecklist.notes = [
+    "자동 인식은 닫힌 어휘 기준이라 인식 범위가 한정적입니다. 목록에 없는 서류가 있을 수 있으니 원문과 대조하십시오.",
+    "서류마다 제출기한이 다를 수 있습니다. 각 항목의 기한을 따로 확인하십시오.",
+  ];
   return notice;
 }
 
 // 온비드 「제출서류」 표의 실제 서류명 칸 값. 표본 15건 전건이 이 셋 중 하나였다.
 const REAL_ONBID_GENERIC_NAMES = ["공동입찰서류", "-", "보증서등(공고문 확인)"];
 
-/** N3 양성. 실서류명 1행 + 위 실측 generic 3행. all() 이 False 라 총평 note 가 붙지 않는다. */
+/**
+ * N3 양성. 실서류명 1행 + 위 실측 generic 3행.
+ * 서버는 이제 any() 로 보므로 섞인 표에도 총평 note 를 붙인다(server.py:546-551).
+ * 그 배선은 파이썬 단위가 아니라 여기서 잰다 — 화면이 그 note 를 실제로 그리는지가 축이다.
+ */
 function mixedTableNotice() {
   const notice = partialExtractNotice();
   notice.docChecklist.tableRows = [
@@ -418,6 +430,10 @@ function mixedTableNotice() {
     { category: "보증", name: REAL_ONBID_GENERIC_NAMES[2], due: "", method: "", generic: true },
   ];
   notice.docChecklist.tableGenericOnly = false;
+  notice.docChecklist.notes = [
+    "온비드 제출서류 표의 서류명 칸은 구분명(예: 공동입찰서류)이라 실제 준비할 서류명이 아닙니다.",
+    ...notice.docChecklist.notes,
+  ];
   return notice;
 }
 
@@ -455,7 +471,9 @@ function coachNotice(llmStatus) {
 
 /**
  * N6. 공고상세 입력이면 pbctCdtnNo 가 비어 make_onbid_url 이 그 파라미터를 버린다.
- * 그래도 build_related_urls 는 onbidCltrno 만 보고 itemDetail 을 연다(server.py:1061).
+ * build_related_urls 는 itemDetail 을 지우지 않고 itemDetailUncertain 플래그를 함께
+ * 보낸다(server.py:1084-1091) — 링크를 없애면 물건상세로 가는 길이 통째로 사라진다.
+ * 서버가 그 플래그를 실제로 세우는 것은 파이썬 단위가 증명한다.
  */
 function linkNotice({ withPbctCdtnNo }) {
   const notice = copyBase();
@@ -468,6 +486,7 @@ function linkNotice({ withPbctCdtnNo }) {
     noticeDetail:
       "https://www.onbid.co.kr/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController/mvmnPbancDtl.do?onbidPbancNo=886933",
     itemDetail: withPbctCdtnNo ? `${itemBase}&pbctCdtnNo=5988631` : itemBase,
+    ...(withPbctCdtnNo ? {} : { itemDetailUncertain: true }),
   };
   return notice;
 }
@@ -548,9 +567,23 @@ test("N0 판정 함수 J1~J6 을 직접 호출해 단정한다", () => {
  */
 const ABSENCE_CLAIM_BADGES = ["원문에 없음", "원문에 없습니다"];
 
-async function absenceClaimCount(page) {
+async function docStatusBadgeTexts(page) {
   const texts = await page.locator("#doc-checklist .doc-panel > .doc-head .badge").allTextContents();
-  return texts.filter((text) => ABSENCE_CLAIM_BADGES.includes(text.trim())).length;
+  return texts.map((text) => text.trim());
+}
+
+/** 「원문 전체에 없다」고 단정하는 배지의 수. 「본문에 없음」은 관측 진술이라 세지 않는다. */
+async function absenceClaimCount(page) {
+  return (await docStatusBadgeTexts(page)).filter((text) => ABSENCE_CLAIM_BADGES.includes(text)).length;
+}
+
+/**
+ * not_in_notice 분기에 «닿았는지» 를 잰다. 판정(단정했는가)과 별개다 —
+ * 도달을 「단정 배지 > 0」으로 재면 고친 뒤 그 단정이 깨져서, 위반이 사라진 것과
+ * 픽스처가 분기에 못 닿은 것이 같은 붉음으로 보인다(2026-09-10 실측).
+ */
+async function absenceBranchReached(page) {
+  return (await docStatusBadgeTexts(page)).some((text) => text.includes("없음"));
 }
 
 async function attachmentRowCount(page) {
@@ -600,7 +633,7 @@ test("N1 「원문에 없음」 단정과 첨부 목록을 같은 화면에 함�
   const claims = await absenceClaimCount(page);
   const attachments = await attachmentRowCount(page);
   // 픽스처가 의도한 자리에 «도달했는지» 먼저 단정한다 — 못 닿으면 J1 은 영구 초록이다.
-  expect(claims, "도달: 단정 배지").toBeGreaterThan(0);
+  expect(await absenceBranchReached(page), "도달: not_in_notice 배지").toBe(true);
   expect(attachments, "도달: 첨부 3건").toBe(3);
   expect(violatesAbsenceClaimWithAttachments({ absenceClaimCount: claims, attachmentRowCount: attachments })).toBe(false);
 });

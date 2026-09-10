@@ -567,6 +567,27 @@ def test_checklist_states() -> None:
     # C형에서도 「못 뽑으면 못 뽑았다고 말한다」가 지켜져야 한다. 표본 18·19(파산자산)가 이 분기를 탄다.
     # `not_found` 분기의 같은 단언과 별개다 — 상태 코드만 보면 문구가 바뀌어도 초록이 된다.
     check("B1 C형 못 뽑았다고 말한다", "찾지 못했습니다" in str(c_type["headline"]), str(c_type["headline"]))
+    # 🔴 C형은 첨부가 있어도 첨부로 «보내지» 않는다. 표본에서 첨부에도 목록이 없었기 때문이다
+    # (known-pitfalls.md:51). 첨부로 보내면 없는 목록을 찾으라고 앱 밖으로 내보내는 거짓 안내다.
+    check(
+        "B1 C형 첨부로 보내지 않음",
+        "첨부 공고문을 확인" not in str(c_type["headline"]),
+        str(c_type["headline"]),
+    )
+    # 그러나 첨부가 화면에 렌더되므로 그 사실은 언급해야 한다 — 안 하면 말과 화면이 어긋난다.
+    check("B1 C형 첨부 존재 언급", "첨부 1건" in str(c_type["headline"]), str(c_type["headline"]))
+    # 🔴 표본 수치로 이 공고의 첨부를 예측하지 않는다. 표본 2건은 일반화하기에 작고,
+    # 화면이 「표본에서는 없었습니다」라고 하면 이 공고 첨부에 대한 예측이 된다.
+    # 유형 수준의 사례 진술은 profile["detail"] 이 맡는다(2026-09-10 판정 P0-D).
+    check("B1 C형 음성 — 표본 수치로 예측하지 않음", "표본" not in str(c_type["headline"]), str(c_type["headline"]))
+    check("B1 C형 음성 — 원문 전체를 단정하지 않음", "원문에 없" not in str(c_type["headline"]), str(c_type["headline"]))
+    # 음성 대조: 첨부가 «없는» C형은 첨부를 언급하지 않는다.
+    c_no_attach = server.build_doc_checklist(empty, "파산자산", [])
+    check(
+        "B1 C형 음성 — 첨부 없으면 첨부를 말하지 않음",
+        "첨부" not in str(c_no_attach["headline"]) and "찾지 못했습니다" in str(c_no_attach["headline"]),
+        str(c_no_attach["headline"]),
+    )
     check(
         "B1 C형 음성 — 준비를 단정하지 않음",
         "준비를 진행" not in str(c_type["headline"]),
@@ -574,6 +595,48 @@ def test_checklist_states() -> None:
     )
     extracted = server.build_doc_checklist(server.split_sections(BULLET_CONDITION_NOTICE), "국유재산", [])
     check("B1 A형 추출됨", extracted["status"] == "extracted", str(extracted["status"]))
+    # 🔴 부분 추출을 완전한 것처럼 말하지 않는다. 추출은 닫힌 어휘 기준이라 그 밖은 못 뽑는다.
+    # 화면 게이트 N2 가 같은 것을 재지만 그쪽은 픽스처를 태운다 — 서버가 실제로 이 note 를
+    # 만드는지는 여기서만 증명된다.
+    check(
+        "B1 A형 인식 범위 한정 안내",
+        any("인식 범위가 한정적" in str(note) for note in extracted["notes"]),
+        str(extracted["notes"]),
+    )
+    # 음성 대조: 추출하지 못한 상태에는 이 note 를 붙이지 않는다(붙이면 없는 목록의 범위를 말한다).
+    check(
+        "B1 음성 — 못 뽑은 상태엔 범위 한정 안내 없음",
+        not any("인식 범위가 한정적" in str(note) for note in c_type["notes"]),
+        str(c_type["notes"]),
+    )
+    # 🔴 섞인 표(실서류명 + 구분명)에도 총평 경고가 붙어야 한다. 전건 generic 만 보던 때는
+    # 실서류명 한 줄 때문에 나머지 구분명 줄까지 실제 서류명으로 읽혔다.
+    mixed_html = section(
+        "제출서류",
+        "<table><tr><th>구분</th><th>서류명</th></tr>"
+        "<tr><td>매수신청</td><td>인감증명서</td></tr>"
+        "<tr><td>공동입찰서류</td><td>공동입찰서류</td></tr></table>",
+    )
+    mixed = server.build_doc_checklist(server.split_sections(mixed_html), "국유재산", [])
+    mixed_generic = [row for row in mixed["tableRows"] if row["generic"]]
+    check("B1 섞인 표 도달 — generic 과 실서류명이 공존", 0 < len(mixed_generic) < len(mixed["tableRows"]), f"{len(mixed_generic)}/{len(mixed['tableRows'])}")
+    check(
+        "B1 섞인 표 총평 경고",
+        any("구분명" in str(note) for note in mixed["notes"]),
+        str(mixed["notes"]),
+    )
+    # 음성 대조: generic 이 하나도 없는 표에는 총평 경고를 붙이지 않는다.
+    real_only_html = section(
+        "제출서류",
+        "<table><tr><th>구분</th><th>서류명</th></tr><tr><td>매수신청</td><td>인감증명서</td></tr></table>",
+    )
+    real_only = server.build_doc_checklist(server.split_sections(real_only_html), "국유재산", [])
+    check(
+        "B1 음성 — 실서류명만이면 총평 경고 없음",
+        not any("구분명" in str(note) for note in real_only["notes"]),
+        str(real_only["notes"]),
+    )
+
     # 음성 대조: 어떤 상태에서도 참고용 문구가 빠지면 안 된다.
     for name, checklist in (("B형", b_type), ("C형", c_type), ("A형", extracted)):
         check(f"B1 {name} 참고용 문구", "참고용" in str(checklist["reference"]), name)
@@ -1164,6 +1227,29 @@ def test_public_data_endpoint_scheme_wiring() -> None:
         lambda: server.call_public_data("real_estate_detail", {"cltrMngNo": API_CLTR_MNG_NO}, "DUMMY-KEY"),
     )
     check("C3 배선 음성 serviceKey 는 그대로 실린다", "serviceKey=DUMMY-KEY" in urls[0], urls[0][:120])
+
+
+def test_item_detail_uncertain_flag() -> None:
+    """물건상세는 pbctCdtnNo 가 없으면 온비드가 500 을 준다(known-pitfalls.md:62-65).
+
+    링크를 지우지 않고 확신을 낮춰 내보낸다. 화면이 그 플래그로 주의 표기를 붙이는지는
+    tests/screen.spec.js N6 이 재고, 서버가 플래그를 «세우는지»는 여기서 잰다.
+    """
+    notice_url = (
+        "https://www.onbid.co.kr/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController"
+        "/mvmnPbancDtl.do?onbidPbancNo=886933&onbidCltrno=1413572"
+    )
+    urls = server.build_related_urls(notice_url, {"onbidPbancNo": "886933", "onbidCltrno": "1413572"})
+    check("C4 도달 — itemDetail 이 열렸다", bool(urls.get("itemDetail")), str(sorted(urls)))
+    check("C4 pbctCdtnNo 없으면 확신 낮춤", urls.get("itemDetailUncertain") is True, str(urls.get("itemDetailUncertain")))
+    check("C4 링크 자체는 남는다", "mvmnCltrDtl.do" in str(urls.get("itemDetail")), str(urls.get("itemDetail"))[:80])
+    # 음성 대조 — pbctCdtnNo 가 있으면 플래그를 붙이지 않는다.
+    with_cdtn = server.build_related_urls(
+        notice_url + "&pbctCdtnNo=5988631",
+        {"onbidPbancNo": "886933", "onbidCltrno": "1413572", "pbctCdtnNo": "5988631"},
+    )
+    check("C4 도달 음성 — pbctCdtnNo 가 실렸다", "pbctCdtnNo=5988631" in str(with_cdtn.get("itemDetail")), str(with_cdtn.get("itemDetail"))[:100])
+    check("C4 음성 — 있으면 플래그 없음", "itemDetailUncertain" not in with_cdtn, str(sorted(with_cdtn)))
 
 
 def main() -> int:
