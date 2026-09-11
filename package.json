@@ -4,7 +4,7 @@
   "description": "KAMCO Startup TechBlaze - OnBid Public Asset Doc Agent",
   "scripts": {
     "test": "npm run test:unit && npm run test:e2e",
-    "test:unit": "python3 tests/test_docs_extraction.py",
+    "test:unit": "python3 tests/test_docs_extraction.py && python3 tests/test_screen_strings.py",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
