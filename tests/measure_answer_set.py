@@ -89,6 +89,10 @@ def cond_ok(extracted: str, answer: str) -> bool:
     return answer.startswith("기타:") and extracted in answer
 
 
+def stages(value: str) -> set[str]:
+    return {part for part in re.split(r"[·/,]", value or "") if part}
+
+
 def score(answer: dict, got: list[tuple[str, str, str]]) -> dict[str, object]:
     items = answer.get("items", [])
     traps = {norm(str(e.get("text", ""))) for e in answer.get("excluded", [])}
@@ -100,7 +104,9 @@ def score(answer: dict, got: list[tuple[str, str, str]]) -> dict[str, object]:
         if match:
             hit.append(item["name"])
             used.update(match)
-            if a_stage != "불명" and all(got[i][2] not in (a_stage, "불명") for i in match):
+            # 추출기는 「낙찰 후·계약 시」처럼 단계 둘을 한 값에 담는다. 통째로 비교하면 어느 정답
+            # 단계와도 안 맞아 옳게 분류한 것까지 불일치로 센다(2026-09-11 독립 검수 S3). 쪼개서 본다.
+            if a_stage != "불명" and all(a_stage not in stages(got[i][2]) and "불명" not in stages(got[i][2]) for i in match):
                 stage_off.append(f"{item['name'][:18]}(정답 {a_stage} · 추출 {got[match[0]][2]})")
         elif any(norm(n) and norm(n) in a_name for n, _, _ in got):
             name_only.append(item["name"])
