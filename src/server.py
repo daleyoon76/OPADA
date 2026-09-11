@@ -222,6 +222,26 @@ DOC_SOURCE_BY_ASSET_TYPE = (
     ("수탁재산", "B"),
     ("파산자산", "C"),
 )
+KNOWN_ASSET_TYPES = tuple(name for name, _ in DOC_SOURCE_BY_ASSET_TYPE)
+
+# 공고상세 페이지 머리의 재산유형 배지(<li class="op_cm_badge type01">국유재산</li>).
+# 공고상세에는 물건상세의 hidden input(scrnCltrPrptDivNm)이 없고, 「재산유형」 라벨을
+# 찾으면 좌측 메뉴의 라벨이 먼저 걸려 메뉴 문구 「중메뉴 펼치기」가 재산유형으로 나갔다.
+# 표본 공고상세 23/23 이 그랬고, 배지 type01 은 23/23 정답이었다(2026-09-11 실측).
+ASSET_TYPE_BADGE_RE = re.compile(
+    r"<li[^>]*class=(?:\"[^\"]*\bop_cm_badge\b[^\"]*\btype01\b[^\"]*\"|'[^']*\bop_cm_badge\b[^']*\btype01\b[^']*')[^>]*>(.*?)</li>",
+    re.I | re.S,
+)
+
+
+def asset_type_badge(text: str) -> str:
+    match = ASSET_TYPE_BADGE_RE.search(text)
+    return clean_text(match.group(1)) if match else ""
+
+
+def known_asset_type(value: str) -> str:
+    """알려진 재산유형 이름을 담은 값만 통과시킨다. 메뉴 문구가 재산유형으로 새지 않게 막는 가드다."""
+    return value if value and any(name in value for name in KNOWN_ASSET_TYPES) else ""
 
 DOC_SOURCE_PROFILES = {
     "A": {
@@ -1706,10 +1726,12 @@ def build_notice(raw_url: str) -> dict[str, object]:
     )
 
     # 온비드 좌측 내비게이션에도 "재산유형" 라벨이 있어 values_after_label이 메뉴 문구를
-    # 먼저 집는다. 상세 페이지 hidden input이 정확하므로 그쪽을 먼저 본다.
+    # 먼저 집는다. 물건상세는 hidden input, 공고상세는 머리 배지가 정확하므로 그쪽을 먼저 본다.
+    # 라벨 값은 알려진 재산유형일 때만 받는다 — 메뉴 문구가 화면 세 곳에 찍히던 경로를 막는다.
     asset_type = (
         inputs.get("scrnCltrPrptDivNm")
-        or values_after_label(text, "재산유형")
+        or asset_type_badge(text)
+        or known_asset_type(values_after_label(text, "재산유형"))
         or inputs.get("ctgrFullNm")
         or api_value(api_entries, "prptDvsnNm", "prptDivNm", "cltrPrptDivNm", "ctgrFullNm", "cltrPrptDvsnNm")
         or "재산유형 확인"

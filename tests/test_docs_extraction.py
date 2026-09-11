@@ -9,6 +9,7 @@ docstring 에만 두면 로그를 받은 사람이 무엇이 연기됐는지 알
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,8 @@ import server  # noqa: E402
 
 FAILURES: list[str] = []
 PASSED = 0
+# 실행된 모든 단정의 이름. 축 커버리지를 «선언»이 아니라 여기서 센다.
+CHECK_NAMES: list[str] = []
 
 # 이 게이트가 프로덕션 호출부를 대신 «연기»한 심볼. 여기 있는 것은 이 파일이 검증하지 못한다.
 PLAYED: tuple[tuple[str, str], ...] = (
@@ -81,6 +84,8 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "한 줄이라도 http 로 되돌리기",
         "Y",
     ),
+    ("C4", "물건상세 링크 확신 낮춤", "pbctCdtnNo 없음 → itemDetailUncertain · 있으면 없음", "플래그 조건 삭제", "Y"),
+    ("C5", "재산유형 공고상세", "메뉴 문구 차단 · 배지 type01 · hidden input 우선 · C형까지 흐름", "배지 호출 삭제 · 가드 삭제", "Y"),
 )
 
 
@@ -96,6 +101,7 @@ def print_header() -> None:
 
 def check(name: str, condition: bool, detail: str = "") -> None:
     global PASSED
+    CHECK_NAMES.append(name)
     if condition:
         PASSED += 1
     else:
@@ -715,13 +721,13 @@ def test_notice_outline() -> None:
     )
     outline = server.extract_notice_outline(sections)
     titles = [entry["title"] for entry in outline]
-    check("목차 번호 제목", titles == ["1. 입찰방법", "2. 대금 납부"], str(titles))
-    check("목차 본문 연결", outline[0]["body"] == "온비드를 이용한 인터넷 공매입니다.", str(outline[0]))
+    check("B5 목차 번호 제목", titles == ["1. 입찰방법", "2. 대금 납부"], str(titles))
+    check("B5 목차 본문 연결", outline[0]["body"] == "온비드를 이용한 인터넷 공매입니다.", str(outline[0]))
     # 음성 대조 3종: 서술문·첨부 파일명·중복은 목차가 아니다.
-    check("목차 음성 서술문", all("연기될 수 있습니다" not in title for title in titles), str(titles))
-    check("목차 음성 첨부 파일명", all(".hwp" not in title for title in titles), str(titles))
-    check("목차 음성 중복 제거", len(titles) == len(set(titles)), str(titles))
-    check("목차 음성 절 없음", server.extract_notice_outline({}) == [], "")
+    check("B5 목차 음성 서술문", all("연기될 수 있습니다" not in title for title in titles), str(titles))
+    check("B5 목차 음성 첨부 파일명", all(".hwp" not in title for title in titles), str(titles))
+    check("B5 목차 음성 중복 제거", len(titles) == len(set(titles)), str(titles))
+    check("B5 목차 음성 절 없음", server.extract_notice_outline({}) == [], "")
 
 
 def test_glossary() -> None:
@@ -1239,22 +1245,68 @@ def test_item_detail_uncertain_flag() -> None:
         "https://www.onbid.co.kr/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController"
         "/mvmnPbancDtl.do?onbidPbancNo=886933&onbidCltrno=1413572"
     )
-    urls = server.build_related_urls(notice_url, {"onbidPbancNo": "886933", "onbidCltrno": "1413572"})
+    # 2026-09-10 판은 인자를 둘만 넘겨 TypeError 로 죽는 코드였다. 실행 목록에 빠져 있어 하루 동안 아무도 몰랐다.
+    urls = server.build_related_urls(notice_url, {}, {"onbidPbancNo": "886933", "onbidCltrno": "1413572", "pbctNo": "10032196"})
     check("C4 도달 — itemDetail 이 열렸다", bool(urls.get("itemDetail")), str(sorted(urls)))
     check("C4 pbctCdtnNo 없으면 확신 낮춤", urls.get("itemDetailUncertain") is True, str(urls.get("itemDetailUncertain")))
     check("C4 링크 자체는 남는다", "mvmnCltrDtl.do" in str(urls.get("itemDetail")), str(urls.get("itemDetail"))[:80])
     # 음성 대조 — pbctCdtnNo 가 있으면 플래그를 붙이지 않는다.
     with_cdtn = server.build_related_urls(
         notice_url + "&pbctCdtnNo=5988631",
-        {"onbidPbancNo": "886933", "onbidCltrno": "1413572", "pbctCdtnNo": "5988631"},
+        {},
+        {"onbidPbancNo": "886933", "onbidCltrno": "1413572", "pbctNo": "10032196", "pbctCdtnNo": "5988631"},
     )
     check("C4 도달 음성 — pbctCdtnNo 가 실렸다", "pbctCdtnNo=5988631" in str(with_cdtn.get("itemDetail")), str(with_cdtn.get("itemDetail"))[:100])
     check("C4 음성 — 있으면 플래그 없음", "itemDetailUncertain" not in with_cdtn, str(sorted(with_cdtn)))
 
 
+# ---------------------------------------------------------------------------
+# C5. 재산유형 — 공고상세에서 좌측 메뉴 문구가 새지 않는다
+# ---------------------------------------------------------------------------
+# 온비드 좌측 메뉴 조각(pbanc_04.html 원문에서 잘라 공백만 줄였다). 「재산유형」 옆의 접근성 문구
+# 「중메뉴 펼치기」를 values_after_label 이 값으로 읽는다. 공고상세 23/23 이 이 값을 냈다(2026-09-11).
+NAV_ASSET_LABEL = (
+    "<div class=\"tit_box01\"><a href='javascript:void(0)'><span class=\"tit01\">재산유형</span>"
+    "<span class=\"ico_chevron_down_small\"><span class=\"a11y_blind\">중메뉴 펼치기</span></span></a></div>"
+    "<ul class=\"depth3\"><li name=\"OP131\"><span class=\"tit01\">압류재산</span></li></ul>"
+)
+
+
+def asset_badge(name: str) -> str:
+    return f"<ul><li class=\"op_cm_badge type01\">{name}</li><li class=\"op_cm_badge type02\">임대</li></ul>"
+
+
+def test_asset_type_notice_detail() -> None:
+    # 도달 증거 — 픽스처가 실제로 결함 분기(메뉴 문구)를 탄다. 못 닿으면 아래 단정은 영구 초록이다.
+    check("C5 도달 — 메뉴 조각에서 라벨 값이 「중메뉴 펼치기」", server.values_after_label(NAV_ASSET_LABEL, "재산유형") == "중메뉴 펼치기",
+          server.values_after_label(NAV_ASSET_LABEL, "재산유형"))
+    # 판정 함수 직접 호출
+    check("C5 배지 type01 을 읽는다", server.asset_type_badge(NAV_ASSET_LABEL + asset_badge("국유재산")) == "국유재산")
+    check("C5 음성 — 배지가 없으면 빈 값", server.asset_type_badge(NAV_ASSET_LABEL) == "")
+    check("C5 음성 — type02(처분방식) 배지를 재산유형으로 읽지 않는다",
+          server.asset_type_badge("<li class=\"op_cm_badge type02\">임대</li>") == "")
+    check("C5 가드 — 메뉴 문구는 재산유형이 아니다", server.known_asset_type("중메뉴 펼치기") == "")
+    check("C5 가드 음성 — 알려진 재산유형은 통과", server.known_asset_type("기타일반재산") == "기타일반재산")
+
+    # 배선 — build_notice 가 실제로 그 순서로 부르는가
+    badged = notice_from_html(NAV_ASSET_LABEL + asset_badge("국유재산"))
+    check("C5 배선 공고상세 배지를 싣는다", badged.get("assetType") == "국유재산", str(badged.get("assetType")))
+    nav_only = notice_from_html(NAV_ASSET_LABEL)
+    check("C5 배선 🔴 메뉴 문구가 화면으로 새지 않는다", nav_only.get("assetType") != "중메뉴 펼치기", str(nav_only.get("assetType")))
+    check("C5 배선 못 읽으면 「재산유형 확인」", nav_only.get("assetType") == "재산유형 확인", str(nav_only.get("assetType")))
+    # 우선순위 — 물건상세 hidden input 이 있으면 그것이 이긴다(시연 경로 회귀 방지).
+    hidden = '<input type="hidden" id="scrnCltrPrptDivNm" name="scrnCltrPrptDivNm" value="공유재산">'
+    both = notice_from_html(hidden + NAV_ASSET_LABEL + asset_badge("국유재산"))
+    check("C5 배선 물건상세 hidden input 이 배지보다 먼저", both.get("assetType") == "공유재산", str(both.get("assetType")))
+    # 재산유형이 A/B/C 판정으로 이어진다 — 파산자산 배지면 C형이어야 한다.
+    bankrupt = notice_from_html(NAV_ASSET_LABEL + asset_badge("파산자산"))
+    code = ((bankrupt.get("docChecklist") or {}).get("profile") or {}).get("code")
+    check("C5 배선 재산유형이 C형 판정까지 흐른다", code == "C", str(code))
+
+
 def main() -> int:
     print_header()
-    for test in (
+    tests = (
         test_sections,
         test_doc_names,
         test_condition_carry,
@@ -1280,17 +1332,33 @@ def main() -> int:
         test_gateway_error_envelope_wiring,
         test_public_data_endpoint_scheme,
         test_public_data_endpoint_scheme_wiring,
-    ):
+        test_item_detail_uncertain_flag,
+        test_asset_type_notice_detail,
+    )
+    for test in tests:
         test()
+    # 🔴 정의만 하고 실행 목록에 안 넣은 test_ 함수를 잡는다. 2026-09-11 에 C4(test_item_detail_uncertain_flag)가
+    # 정의만 된 채 하루 동안 한 번도 돌지 않았고, 그 사이 «213/213» 이 그 단정까지 증명한 것처럼 보고됐다.
+    defined = sorted(n for n, v in globals().items() if n.startswith("test_") and callable(v))
+    registered = {t.__name__ for t in tests}
+    check("Z1 test_ 함수가 전부 실행 목록에 있다", not [n for n in defined if n not in registered],
+          str([n for n in defined if n not in registered]))
     total = PASSED + len(FAILURES)
     for failure in FAILURES:
         print(f"FAIL {failure}")
-    uncovered = [f"{code} {name}" for code, name, _case, _mut, covered in AXES if covered != "Y"]
+    # 축 커버리지를 «실행된 단정 이름»에서 센다. 표의 「커버 Y」는 손으로 적은 선언이라 되읽으면
+    # 항진명제다(화면 게이트 2026-09-09 리뷰 P0-1 과 같은 결함 · 이 파일에도 있었다).
+    ran = {code for code, *_ in AXES if any(re.match(rf"{re.escape(code)}(\s|$)", n) for n in CHECK_NAMES)}
+    uncovered = [f"{code} {name}" for code, name, *_ in AXES if code not in ran]
+    declared_but_not_run = [code for code, *_rest, covered in AXES if covered == "Y" and code not in ran]
     print(
-        f"{PASSED}/{total} 통과 · 연기 {len(PLAYED)}개 · 축 {len(AXES)}개 중 미커버 {len(uncovered)}개"
+        f"{PASSED}/{total} 통과 · 연기 {len(PLAYED)}개 · 축 {len(AXES)}개 중 단정이 한 번도 안 돈 축 {len(uncovered)}개"
     )
-    print(f"미커버 축: {', '.join(uncovered) if uncovered else '없음'}. "
+    print(f"안 돈 축: {', '.join(uncovered) if uncovered else '없음'}. "
           "화면 축은 tests/screen.spec.js, 표본 축은 tests/measure_sample_23.py 가 맡는다.")
+    if declared_but_not_run:
+        print(f"🔴 표가 「커버 Y」라고 적었는데 단정이 한 번도 안 돈 축: {', '.join(declared_but_not_run)}")
+        return 1
     return 1 if FAILURES else 0
 
 
