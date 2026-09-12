@@ -1518,7 +1518,13 @@ async function runAnalysis() {
   try {
     currentStage = 1;
     renderPipeline();
-    const response = await fetch(`/api/analyze?url=${encodeURIComponent(getNoticeInput())}`);
+    // ngrok 무료 계정은 브라우저 UA로 오는 요청에 경고 인터스티셜(HTML)을 끼워 넣는다.
+    // 같은 origin의 이 fetch도 그 대상이라, 헤더 없이는 JSON 대신 HTML을 받아 파싱이 깨진다
+    // (2026-09-12 실측 — curl로 재현). 이 헤더는 ngrok 문서가 정한 공식 우회 방법이고,
+    // ngrok을 안 거칠 때는 우리 서버가 그냥 무시하는 헤더라 부작용이 없다.
+    const response = await fetch(`/api/analyze?url=${encodeURIComponent(getNoticeInput())}`, {
+      headers: { "ngrok-skip-browser-warning": "true" },
+    });
     const payload = await response.json();
     if (requestId !== analysisRequestId) return;
     if (!response.ok || !payload.ok) {
