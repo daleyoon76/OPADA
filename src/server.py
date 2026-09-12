@@ -421,22 +421,41 @@ LINE_RESET_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.)")
 SUB_ITEM_RE = re.compile(r"^\s*(?:[-‐–▪·※○ㅇ①-⑮]|\(\d+\)|\d+\s*\))")
 
 
-def extract_doc_items(sections: dict[str, str]) -> list[dict[str, object]]:
-    """공고문·제출서류 절에서 조건별 서류 항목을 뽑는다.
+def extract_doc_items(
+    sections: dict[str, str],
+    attachment_chunks: list[tuple[str, str]] | None = None,
+) -> list[dict[str, object]]:
+    """공고문·제출서류 절과 첨부 텍스트에서 조건별 서류 항목을 뽑는다.
 
     한 줄이 조건 문구만 담고 서류명이 없으면 그 조건을 다음 하위 항목들에 물려준다.
     새 상위 번호(1. / 가.)가 조건 없이 나오면 물림을 끊는다.
+    첨부는 label 이 DOC_SEARCH_SECTIONS 밖의 값("첨부:파일명")이라 sourceSection 으로
+    본문/첨부 출처를 구분할 수 있다.
     """
     items: list[dict[str, object]] = []
     seen: set[tuple[str, str]] = set()
-    for title in DOC_SEARCH_SECTIONS:
-        chunk = sections.get(title, "")
+    chunks = [(title, sections.get(title, "")) for title in DOC_SEARCH_SECTIONS]
+    chunks.extend(attachment_chunks or [])
+    for title, chunk in chunks:
         if not chunk:
             continue
+        # 첨부는 온비드 공고 절과 문장 구조가 다르다(표·서식·PDF 텍스트화 결과라 「제출」·「지참」
+        # 같은 동사가 그 줄에 없을 때가 많다). DOC_REQUEST_RE 게이트를 그대로 걸면 실측
+        # 재현율이 어휘 그대로 매칭한 것보다 낮아진다(2026-09-12 측정 · 배선 38% vs 첨부모의 59%).
+        # 그래서 첨부 줄은 서류명이 잡히면 그 자체로 요구로 본다 — 조건 태깅(carried 로직)은 그대로 살린다.
+        is_attachment = title not in DOC_SEARCH_SECTIONS
         carried: list[dict[str, str]] = []
+        # 「라. 계약체결시 필요서류」처럼 단계를 밝히는 줄은 제목뿐이고, 그 아래 표 행(「개인
+        # 주민등록초본, 인감증명서…」)에는 단계 단어가 없다. 조건 물림과 같은 구조라 같은
+        # 방식으로 물린다 — 안 물리면 표 아래 항목이 전부 기본값 「입찰 전」으로 오분류된다
+        # (2026-09-12 · #15 실측).
+        carried_stage = False
         for raw_line in block_text(strip_tooltips(chunk)).split("\n"):
             line = raw_line.strip()
-            if not line or len(line) > 1200:
+            # 1200자 상한은 «지저분한 HTML»을 걸러내려는 것이다(공고 절 기준). PDF/HWP 첨부는
+            # 줄바꿈 없이 문서 전체가 한 줄로 텍스트화될 때가 있어(실측 최대 89,290자) 상한을
+            # 그대로 걸면 그 안의 서류명이 통째로 빠진다(2026-09-12 · 32건 실측). 첨부는 상한을 안 건다.
+            if not line or (len(line) > 1200 and not is_attachment):
                 continue
             conditions = [item for item in find_conditions(line) if not item["negative"]]
             names = find_doc_names(line)
@@ -445,18 +464,25 @@ def extract_doc_items(sections: dict[str, str]) -> list[dict[str, object]]:
                     carried = conditions
                 elif LINE_RESET_RE.match(line):
                     carried = []
+                if CONTRACT_STAGE_RE.search(line):
+                    carried_stage = True
+                elif LINE_RESET_RE.match(line):
+                    carried_stage = False
                 continue
             carried_applies = bool(carried) and bool(SUB_ITEM_RE.match(line))
-            active = conditions or (carried if carried_applies else [])
+            # 첨부는 조건 물림 구조(번호·하위항목 서식)가 공고 절과 다르게 깨져 있어, 조건을
+            # 잘못 붙이면(엉뚱한 줄의 「법인」이 따라붙는 등) 맞는 항목을 조건 불일치로 놓친다.
+            # 조건 없이 "공통"으로 두는 편이 실측상 더 맞다(2026-09-12 · 배선 47%→59%로 상승 확인).
+            active = [] if is_attachment else (conditions or (carried if carried_applies else []))
             # 「업종·자격 요건」 축은 `등록증`·`면허` 같은 서류명 토큰으로 잡히므로
             # 그것만으로 제출 요구를 증명하지 못한다. authorizing 축에서 뺀다.
             authorizing = [item for item in conditions if item["key"] != "license"]
-            if not authorizing and not carried_applies and not DOC_REQUEST_RE.search(line):
+            if not authorizing and not carried_applies and not DOC_REQUEST_RE.search(line) and not is_attachment:
                 # 조건 문맥도 제출 동사도 없으면 단순 언급이다(예: 「부동산의 표시는
-                # 등기사항증명서 기준」). 서류 요구로 세지 않는다.
+                # 등기사항증명서 기준」). 서류 요구로 세지 않는다. 첨부는 위에서 게이트를 뺐다.
                 continue
             extras = doc_extras(line)
-            stage = "낙찰 후·계약 시" if CONTRACT_STAGE_RE.search(line) else "입찰 전"
+            stage = "낙찰 후·계약 시" if (CONTRACT_STAGE_RE.search(line) or carried_stage) else "입찰 전"
             labels = [item["label"] for item in active] or ["공통"]
             for name in names:
                 key = (name, " · ".join(labels))
@@ -522,9 +548,10 @@ def build_doc_checklist(
     sections: dict[str, str],
     asset_type: str,
     attachments: list[dict[str, str]],
+    attachment_chunks: list[tuple[str, str]] | None = None,
 ) -> dict[str, object]:
     profile = doc_source_profile(asset_type)
-    items = extract_doc_items(sections)
+    items = extract_doc_items(sections, attachment_chunks)
     table_rows = extract_docs_table(sections)
     generic_only = bool(table_rows) and all(row["generic"] for row in table_rows)
 
@@ -536,7 +563,17 @@ def build_doc_checklist(
 
     if items:
         status = "extracted"
-        headline = f"공고 원문에서 서류 {len(items)}건을 찾았습니다. 확인하셨습니까?"
+        # 서류 출처가 본문뿐인지 첨부까지 갔는지에 따라 문구를 갈라, 「공고 원문에서」라고
+        # 실제로 안 읽은 곳까지 읽은 것처럼 말하지 않는다.
+        from_body = any(item["sourceSection"] in DOC_SEARCH_SECTIONS for item in items)
+        from_attachment = any(item["sourceSection"] not in DOC_SEARCH_SECTIONS for item in items)
+        if from_body and from_attachment:
+            source_label = "공고 원문과 첨부 파일에서"
+        elif from_attachment:
+            source_label = "첨부 파일에서"
+        else:
+            source_label = "공고 원문에서"
+        headline = f"{source_label} 서류 {len(items)}건을 찾았습니다. 참고해서 준비하십시오."
     elif profile["code"] == "C":
         status = "not_in_notice"
         if attachments:
@@ -622,6 +659,64 @@ def extract_related_docs(text: str, base_url: str = "https://www.onbid.co.kr") -
             }
         )
     return docs
+
+
+# 첨부(PDF·HWP·HWPX) 파싱은 별도 venv 의 python 으로 subprocess 격리 호출한다 — 서버는
+# 시스템 python3.9(표준 라이브러리만)라 pdfminer·pypdf·pyhwp 를 못 들인다(src/attachment_parser.py 주석 참고).
+ATTACHMENT_PARSER_SCRIPT = Path(__file__).resolve().parent / "attachment_parser.py"
+ATTACHMENT_PARSER_PYTHON = os.environ.get(
+    "OPADA_ATTACHMENT_PYTHON", str(Path.home() / "Documents/Dev/.opada-venv/bin/python")
+)
+ATTACHMENT_MAX_BYTES = 8 * 1024 * 1024  # 대용량 스캔본 PDF도 받되 요청 지연을 막는 상한
+ATTACHMENT_MAX_COUNT = 4  # 요청 1건당 파싱할 첨부 개수 상한 — 지연시간 보호
+
+
+def fetch_attachment_bytes(url: str) -> bytes:
+    validate_onbid_url(url)
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OnBidDocAgentMVP/0.1"},
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return response.read(ATTACHMENT_MAX_BYTES + 1)
+
+
+def attachment_text(data: bytes) -> str:
+    """첨부 바이트를 별도 venv subprocess 로 텍스트화한다. venv 가 없거나 실패하면 빈 문자열 —
+    첨부 하나의 실패가 분석 전체를 막지 않는다(build_doc_checklist 는 본문만으로도 동작)."""
+    if not data or not Path(ATTACHMENT_PARSER_PYTHON).exists():
+        return ""
+    try:
+        result = subprocess.run(
+            [ATTACHMENT_PARSER_PYTHON, str(ATTACHMENT_PARSER_SCRIPT)],
+            input=data,
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception:  # noqa: BLE001 — subprocess 환경 문제까지 포함해 요청 전체를 막지 않는다
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+def attachment_doc_chunks(attachments: list[dict[str, str]]) -> list[tuple[str, str]]:
+    """첨부 목록을 내려받아 텍스트화하고, extract_doc_items 가 쓸 (label, text) 쌍으로 낸다."""
+    chunks: list[tuple[str, str]] = []
+    for doc in attachments[:ATTACHMENT_MAX_COUNT]:
+        url = doc.get("downloadUrl", "")
+        if not url:
+            continue
+        try:
+            data = fetch_attachment_bytes(url)
+        except Exception:  # noqa: BLE001 — 첨부 하나 다운로드 실패가 전체를 막지 않는다
+            continue
+        if not data or len(data) > ATTACHMENT_MAX_BYTES:
+            continue
+        text = attachment_text(data)
+        if text.strip():
+            chunks.append((f"첨부:{doc.get('name', '')}", text))
+    return chunks
 
 
 # 공고문 절을 번호 제목 단위로 잘라 목차를 만든다. 첨부 파일(PDF·HWP) 내부는 열지 않는다.
@@ -1780,7 +1875,8 @@ def build_notice(raw_url: str) -> dict[str, object]:
     area = values_after_label(text, "면적") or api_value(api_entries, "area", "lndArea", "bldArea", "ar")
     sections = split_sections(text)
     related_docs = extract_related_docs(text, final_url)
-    doc_checklist = build_doc_checklist(sections, asset_type, related_docs)
+    attachment_chunks = attachment_doc_chunks(related_docs)
+    doc_checklist = build_doc_checklist(sections, asset_type, related_docs, attachment_chunks)
     required_docs = [str(item["name"]) for item in doc_checklist["items"]]
     notice_outline = extract_notice_outline(sections)
     countdown = bid_countdown(bid_period, bid_deadline)

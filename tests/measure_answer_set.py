@@ -3,11 +3,14 @@
 기존 지표(measure_sample_23.py)는 「서류를 1건 이상 뽑았는가」라는 이진값이다. 1건만 맞히고 10건을
 놓쳐도 성공으로 센다. 그 이진값이 정확도로 오독되지 않게, 이 측정기는 «다른 줄로» 항목 단위를 센다.
 
-두 경로를 잰다.
+세 경로를 잰다.
 - 현행   : 온비드 HTML 본문만 읽는 지금의 build_doc_checklist()
 - 첨부모의: 위 + 첨부 텍스트 각 줄에 find_doc_names() 를 그대로 태운 것.
             파서 설계가 정해지기 전의 «가장 순진한» 경로다. 오탐이 얼마나 들어오는지 보려는 것이지
             제품 경로가 아니다. 이름에 «모의»를 박아 둔다.
+- 배선   : 2026-09-12 부터의 실제 제품 경로. build_doc_checklist(sections, asset_type, attachments,
+            attachment_chunks) 에 첨부 텍스트를 조건·단계 로직까지 통째로 태운다(extract_doc_items 확장).
+            "첨부모의"와 달리 조건도 함께 뽑히므로 상한이 아니라 실측이다.
 
 대조 규칙 (2026-09-11 v2 · v1 은 이름 «정확 일치»라 조건이 이름에 녹은 서술형 정답을 전부 놓쳤다)
 - 정답은 「법정대리인의 인감증명서(또는 본인서명사실확인서)」처럼 조건이 이름에 녹은 서술형이다.
@@ -63,6 +66,23 @@ def extract_current(idx: int, asset_type: str) -> list[tuple[str, str, str]]:
     sections = server.split_sections(html)
     attachments = server.extract_related_docs(html)
     checklist = server.build_doc_checklist(sections, asset_type, attachments)
+    out: list[tuple[str, str, str]] = []
+    for item in checklist.get("items", []):
+        stage = re.sub(r"\s+", "", str(item.get("stage", "")))
+        for cond in item.get("conditions") or ["공통"]:
+            out.append((str(item.get("name", "")), COND_MAP.get(cond, cond), stage))
+    return out
+
+
+def extract_wired(idx: int, asset_type: str) -> list[tuple[str, str, str]]:
+    html = (SURVEY / "html" / f"pbanc_{idx:02d}.html").read_text(errors="replace")
+    sections = server.split_sections(html)
+    attachments = server.extract_related_docs(html)
+    attachment_chunks = [
+        (f"첨부:{path.name}", path.read_text(errors="replace"))
+        for path in sorted((SURVEY / "text").glob(f"{idx:02d}_*.txt"))
+    ]
+    checklist = server.build_doc_checklist(sections, asset_type, attachments, attachment_chunks)
     out: list[tuple[str, str, str]] = []
     for item in checklist.get("items", []):
         stage = re.sub(r"\s+", "", str(item.get("stage", "")))
@@ -129,8 +149,8 @@ def main() -> int:
         return 1
     samples = {s["idx"]: s for s in json.loads((SURVEY / "samples.json").read_text())}
 
-    totals = {"현행": [0, 0, 0, 0, 0, 0], "첨부모의": [0, 0, 0, 0, 0, 0]}  # want hit name_only extra trap stage_off
-    any_hit = {"현행": 0, "첨부모의": 0}
+    totals = {"현행": [0, 0, 0, 0, 0, 0], "배선": [0, 0, 0, 0, 0, 0], "첨부모의": [0, 0, 0, 0, 0, 0]}  # want hit name_only extra trap stage_off
+    any_hit = {"현행": 0, "배선": 0, "첨부모의": 0}
     counted = 0
     for idx in EXPECTED_IDX:
         path = ANSWERS / f"{idx:02d}.json"
@@ -140,10 +160,11 @@ def main() -> int:
         answer = json.loads(path.read_text())
         asset_type = samples[idx]["prptDvsnNm"]
         current = extract_current(idx, asset_type)
+        wired = extract_wired(idx, asset_type)
         naive = current + [t for t in extract_attach_naive(idx) if t[0] not in {n for n, _, _ in current}]
         counted += 1
         print(f"\n#{idx:02d} {asset_type} · 위치 {answer.get('location')} · 정답 {len(answer.get('items', []))}건")
-        for label, got in (("현행", current), ("첨부모의", naive)):
+        for label, got in (("현행", current), ("배선", wired), ("첨부모의", naive)):
             r = score(answer, got)
             t = totals[label]
             for k, v in enumerate((r["want"], r["hit"], len(r["name_only"]), len(r["extra"]), len(r["extra_trap"]), len(r["stage_off"]))):

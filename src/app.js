@@ -962,7 +962,9 @@ const docSourceBadge = {
 };
 
 const docChecklistStatusBadge = {
-  extracted: ["추출됨", "safe"],
+  // 초록(safe)을 쓰지 않는다 — 검증이 아니라 참고용 목록이라 "자격 충족"으로 읽히면 안 된다
+  // (캠코 정인기 차장 조건, 2026-09-07 · P0, 2026-09-12 상호작용 감사).
+  extracted: ["추출됨", "neutral"],
   attachment_only: ["본문 미기재", "warn"],
   not_in_notice: ["원문에 없음", "warn"],
   not_found: ["추출 실패", "warn"],
@@ -1040,6 +1042,7 @@ function renderDocChecklist() {
       ${badge(statusLabel, statusType)}
       <strong>${checklist.headline}</strong>
     </div>
+    <p class="doc-reference">${checklist.reference || ""}</p>
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
     ${groupsHtml || `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`}
@@ -1056,7 +1059,6 @@ function renderDocChecklist() {
         : ""
     }
     <ul class="doc-notes">${(checklist.notes || []).map((note) => `<li>${note}</li>`).join("")}</ul>
-    <p class="small-text doc-reference">${checklist.reference || ""}</p>
   </section>`;
 }
 

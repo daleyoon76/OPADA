@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+import attachment_parser  # noqa: E402
 import server  # noqa: E402
 
 FAILURES: list[str] = []
@@ -38,6 +39,13 @@ PLAYED: tuple[tuple[str, str], ...] = (
         "게이트웨이의 실제 응답과 실제 인증키는 이 파일이 검증하지 못한다",
     ),
     ("public_data_service_key()", "C1 배선 축에서만 — 실제 인증키 대신 더미 문자열을 넣는다"),
+    (
+        "fetch_attachment_bytes()·attachment_text()·subprocess(venv)",
+        "A10 축에서만 — 실제 다운로드·venv subprocess 호출 대신 attachment_chunks 를 직접 만들어 "
+        "extract_doc_items·build_doc_checklist 에 넣는다. src/attachment_parser.py 의 실제 PDF·HWP·HWPX "
+        "파싱은 이 파일도 tests/measure_answer_set.py 도 자동으로 검증하지 않는다 — 2026-09-12 표본 59건 "
+        "수동 스모크 테스트(성공 52 · 스캔본 등 빈 텍스트 7 · 크래시 0)로만 확인했다. 자동화는 다음 과제.",
+    ),
 )
 
 # 축 → 케이스 → 킬러 변이 → 커버(Y/N/영구불가)
@@ -51,6 +59,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
     ("A7", "A/B/C 사전판정", "재산유형 → 코드", "표 비우기", "Y"),
     ("A8", "첨부 다운로드", "fn_chkPdfRead 5인자 · 빈 파라미터", "인자 무시 · 빈값 가드 해제", "Y"),
     ("A9", "온비드 표", "구분명만/공고문 확인", "generic 끄기", "Y"),
+    (
+        "A10",
+        "첨부 텍스트 배선",
+        "게이트 우회·1200자 상한 해제·조건 무시(공통)·단계 물림·headline 출처 구분 — 모두 본문은 그대로임을 함께 확인",
+        "is_attachment 가드 삭제 · 상한 원복 · 조건 우회 삭제 · carried_stage 삭제 · headline 분기 삭제",
+        "Y",
+    ),
     ("B1", "추출 정직성", "구분명만 → 못 뽑았다 표시(not_found·C형) · 코치 배선", "옛 판정 복원 · headline 교체", "Y"),
     ("B2", "최저입찰가 비공개", "HideDivCd != 0001", "코드 무시", "Y"),
     ("B3", "마감 D-day", "시작 전/진행/임박/마감", "상태 고정", "Y"),
@@ -467,6 +482,87 @@ def test_attachments() -> None:
         "<span class=\"txt01\">공고문.pdf</span></a>"
     )
     check("A8 도달 증거 채우면 추출", len(filled) == 1 and "hashCrpsNo=COGFDOFI" in filled[0]["downloadUrl"], str(filled))
+
+
+# ---------------------------------------------------------------------------
+# A10. 첨부 텍스트 배선 — 첨부는 본문과 게이트가 다르다(제출 동사 없어도·1200자 넘어도
+# 잡되, 조건은 안 붙인다). 본문 축(A1·A5)은 그대로임을 같은 테스트에서 다시 확인한다.
+# ---------------------------------------------------------------------------
+def test_attachment_wiring() -> None:
+    # attachment_parser.detect_kind() — 배선 단정과 별개로 판정 함수 자체를 직접 부른다.
+    check("A10 detect_kind pdf", attachment_parser.detect_kind(b"%PDF-1.4 ...") == "pdf", "")
+    check("A10 detect_kind zip(hwpx)", attachment_parser.detect_kind(b"PK\x03\x04...") == "zip", "")
+    check("A10 detect_kind hwp(ole2)", attachment_parser.detect_kind(b"\xd0\xcf\x11\xe0...") == "hwp", "")
+    try:
+        attachment_parser.detect_kind(b"random-garbage")
+        check("A10 detect_kind 미확인 형식 예외", False, "예외가 안 났다")
+    except ValueError:
+        check("A10 detect_kind 미확인 형식 예외", True, "")
+
+    # 게이트 우회: 제출 동사도 조건도 없는 줄이지만 첨부라서 뽑혀야 한다.
+    # 같은 줄을 본문(공고문 절)에 넣으면 A1·A5 가 이미 세운 「단순 언급 제외」 그대로 안 뽑혀야 한다.
+    # 「사업자등록증」 자체가 license 축(`등록증`)에 걸리지만 A5 규칙상 license 단독은 authorizing이
+    # 아니라서 본문에서는 막힌다 — 그 성질을 그대로 이용한 음성 대조다.
+    plain_mention = "사업자등록증"
+    body_only = server.extract_doc_items(server.split_sections(section("공고문", f"<p>{plain_mention}</p>")))
+    check("A10 음성 본문은 그대로 게이트 유지", body_only == [], str(body_only))
+
+    attach_items = server.extract_doc_items({}, [("첨부:붙임1.hwp", plain_mention)])
+    names = {item["name"] for item in attach_items}
+    check("A10 양성 첨부는 제출 동사 없어도 추출", "사업자등록증" in names, str(sorted(names)))
+    check("A10 sourceSection 첨부 라벨", attach_items[0]["sourceSection"] == "첨부:붙임1.hwp", str(attach_items[0]))
+
+    # 조건 무시: 줄에 명시적 조건(공동입찰)이 있어도 첨부 항목의 condition은 "공통"이어야 한다
+    # (조건 물림 구조가 첨부에서 자주 깨져 오귀속을 만들기 때문 — 2026-09-12 실측으로 정한 규칙).
+    condition_line = "공동입찰 참가자는 인감증명서를 지참하십시오."
+    cond_ignored = server.extract_doc_items({}, [("첨부:붙임2.hwp", condition_line)])
+    seal_item = next(item for item in cond_ignored if item["name"] == "인감증명서")
+    check("A10 조건 무시 → 공통", seal_item["conditions"] == ["공통"], str(seal_item["conditions"]))
+    # 음성 대조: 같은 줄이 본문에 있으면 여전히 조건이 "공동입찰"로 붙어야 한다(본문 로직 불변 증명).
+    cond_kept = server.extract_doc_items(server.split_sections(section("공고문", f"<p>{condition_line}</p>")))
+    seal_body = next(item for item in cond_kept if item["name"] == "인감증명서")
+    check("A10 음성 본문은 조건 유지", seal_body["conditions"] == ["공동입찰"], str(seal_body["conditions"]))
+
+    # 1200자 상한 해제: 서류명이 긴 줄 안에 묻혀 있어도(첨부는 줄바꿈 없는 텍스트가 흔하다) 잡혀야 한다.
+    long_line = ("가" * 1300) + " 사업자등록증 제출"
+    long_attach = server.extract_doc_items({}, [("첨부:긴줄.pdf", long_line)])
+    check("A10 양성 첨부 1200자 초과 줄도 추출", any(i["name"] == "사업자등록증" for i in long_attach), str(long_attach))
+    # 음성 대조: 같은 길이의 줄이 본문 절에 있으면 여전히 상한에 걸려 안 잡혀야 한다(상한을 완전히
+    # 지운 게 아니라 첨부에서만 뺐음을 증명).
+    long_body = server.extract_doc_items(server.split_sections(section("공고문", f"<p>{long_line}</p>")))
+    check("A10 음성 본문은 1200자 상한 유지", long_body == [], str(long_body))
+
+    # 단계 물림: 단계를 밝히는 줄은 제목뿐이고 서류명은 다음 줄에 있는 표 구조.
+    stage_chunk = "라. 계약체결시 필요서류\n개인 주민등록초본, 인감증명서"
+    stage_items = server.extract_doc_items({}, [("첨부:계약서류.pdf", stage_chunk)])
+    stage_names = {item["name"]: item["stage"] for item in stage_items}
+    check(
+        "A10 양성 단계 물림",
+        stage_names.get("주민등록초본") == "낙찰 후·계약 시" and stage_names.get("인감증명서") == "낙찰 후·계약 시",
+        str(stage_names),
+    )
+    # 음성 대조: 다음 최상위 번호(마.)로 넘어가면 물림이 끊겨야 한다.
+    reset_chunk = "라. 계약체결시 필요서류\n마. 다른 절\n개인 주민등록초본"
+    reset_items = server.extract_doc_items({}, [("첨부:계약서류.pdf", reset_chunk)])
+    reset_stage = next((i["stage"] for i in reset_items if i["name"] == "주민등록초본"), None)
+    check("A10 음성 새 번호로 단계 물림 끊김", reset_stage == "입찰 전", str(reset_stage))
+
+    # headline 출처 구분: 본문만/첨부만/둘 다 섞임을 각각 다른 문구로 말해야 한다.
+    body_sections = server.split_sections(section("제출서류", "<p>사업자등록증 사본을 제출하십시오.</p>"))
+    body_only_checklist = server.build_doc_checklist(body_sections, "공유재산", [])
+    check("A10 headline 본문만", body_only_checklist["headline"].startswith("공고 원문에서"), body_only_checklist["headline"])
+
+    attach_only_checklist = server.build_doc_checklist({}, "공유재산", [], [("첨부:붙임1.hwp", "인감증명서 지참")])
+    check("A10 headline 첨부만", attach_only_checklist["headline"].startswith("첨부 파일에서"), attach_only_checklist["headline"])
+
+    mixed_checklist = server.build_doc_checklist(
+        body_sections, "공유재산", [], [("첨부:붙임1.hwp", "인감증명서 지참")]
+    )
+    check("A10 headline 본문+첨부 혼합", mixed_checklist["headline"].startswith("공고 원문과 첨부 파일에서"), mixed_checklist["headline"])
+
+    # 하위호환: attachment_chunks 를 아예 안 넘긴 기존 3-인자 호출도 그대로 동작해야 한다.
+    legacy_checklist = server.build_doc_checklist(body_sections, "공유재산", [])
+    check("A10 하위호환 3-인자 호출", legacy_checklist["status"] == "extracted", str(legacy_checklist["status"]))
 
 
 # ---------------------------------------------------------------------------
@@ -1314,6 +1410,7 @@ def main() -> int:
         test_extras,
         test_profile,
         test_attachments,
+        test_attachment_wiring,
         test_generic_table_is_not_success,
         test_checklist_states,
         test_minimum_bid,

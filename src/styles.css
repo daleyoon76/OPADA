@@ -12,6 +12,7 @@
   --soft-green: #e5f2ec;
   --soft-blue: #e8eef7;
   --soft-amber: #fff0dc;
+  --soft-neutral: #e9ece9;
   --shadow: 0 12px 30px rgba(25, 43, 37, 0.08);
 }
 
@@ -694,7 +695,9 @@ a:hover {
 .progress i {
   display: block;
   height: 100%;
-  background: var(--green);
+  /* 참고용 자가 체크 진행률이다 — 100%가 자격 충족처럼 안 보이게 초록 대신 중립색을 쓴다
+     (캠코 정인기 차장 조건, 2026-09-07 · 준비 보드 5개 중 "제출서류 확인"도 여기 섞여 있다). */
+  background: var(--muted);
 }
 
 .board-layout {
@@ -1091,6 +1094,13 @@ a:hover {
   color: var(--green);
 }
 
+/* 검증(validation)이 아니라 참고용임을 배지 색으로도 드러낸다 — 서류 체크리스트처럼
+   "다 초록이면 자격 충족"으로 읽히면 안 되는 자리에 쓴다(캠코 정인기 차장 조건, 2026-09-07). */
+.badge.neutral {
+  background: var(--soft-neutral);
+  color: var(--muted);
+}
+
 .risk-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1234,7 +1244,8 @@ a:hover {
 }
 
 .doc-group li {
-  border-left: 2px solid var(--soft-green);
+  /* 확인됨/문제없음으로 읽히지 않게 중립 회색으로 둔다(P0, 2026-09-12 상호작용 감사). */
+  border-left: 2px solid var(--line);
   margin-bottom: 8px;
   padding-left: 9px;
 }
@@ -1273,9 +1284,14 @@ a:hover {
 }
 
 .doc-reference {
-  border-top: 1px dashed var(--line);
-  margin-top: 9px;
-  padding-top: 7px;
+  /* 패널 맨 위, 배지 바로 아래로 옮겼다(P0, 2026-09-12) — 참고용이라는 제약이 가장 안 보이는
+     자리에 있던 것을 고쳤다. 상자로 감싸 눈에 띄게 한다. */
+  background: var(--soft-neutral);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 13px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
 }
 
 .attachment-row {
