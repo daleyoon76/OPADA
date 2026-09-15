@@ -72,6 +72,7 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
     ("B4", "비용 항목", "원문값만·세율 미계산", "세율 삽입", "Y"),
     ("B5", "공고문 목차", "번호 제목/서술문·파일명", "필터 삭제", "Y"),
     ("B6", "용어 안내", "재산유형·처분방식 뜻", "사전 비우기", "Y"),
+    ("B6-1", "용어 안내 확장", "온비드 자료실 136건 병합 · 2글자 소음어 제외 · 실제 매칭", "확장 사전 병합 삭제", "Y"),
     ("B7", "코치 직접제출 배선", "A형 실형태(서류 1건↑ + 항목 method 없음 + 표 직접제출)", "표 보조 근거 삭제 · 항목 가드 삭제", "Y"),
     ("B8", "입찰방법 값 추출", "공동/대리 값 분리 · 값 없음 · 툴팁만", "절 전체 훑기 · 창 경계 삭제", "Y"),
     ("B9", "공동입찰 축 배선", "화면 값 `or` 확장 · 기존 근거 보존", "or → 덮어쓰기 · 화면 값 무시", "Y"),
@@ -844,6 +845,26 @@ def test_glossary() -> None:
         "B6 음성 사전 전체에 보증금 비교 없음",
         all("보증금" not in meaning for meaning in server.TERM_GLOSSARY.values()),
         str([t for t, m in server.TERM_GLOSSARY.items() if "보증금" in m]),
+    )
+
+    # B6-1 — 온비드 자료실 확장분(ONBID_GLOSSARY_TERMS)이 실제로 병합·필터링·매칭되는지.
+    check(
+        "B6-1 확장 사전 136건 병합",
+        len(server.ONBID_GLOSSARY_TERMS) == 136,
+        str(len(server.ONBID_GLOSSARY_TERMS)),
+    )
+    check(
+        "B6-1 확장 사전이 TERM_GLOSSARY에 실제로 들어감",
+        all(term in server.TERM_GLOSSARY for term in server.ONBID_GLOSSARY_TERMS),
+        "",
+    )
+    short_terms = [term for term in server.ONBID_GLOSSARY_TERMS if len(term) <= 2]
+    check("B6-1 음성 2글자 이하 소음어 제외", short_terms == [], str(short_terms))
+    expanded_hit = server.build_glossary("", "", "감정가격 산정 기준 공고")
+    check(
+        "B6-1 양성 확장 용어가 build_glossary로 실제 매칭",
+        any(entry["term"] == "감정가격" for entry in expanded_hit),
+        str(expanded_hit),
     )
 
 
