@@ -13,6 +13,7 @@
   --soft-blue: #e8eef7;
   --soft-amber: #fff0dc;
   --soft-neutral: #e9ece9;
+  --soft-red: #fbe2e2;
   --shadow: 0 12px 30px rgba(25, 43, 37, 0.08);
 }
 
@@ -1099,6 +1100,18 @@ a:hover {
 .badge.neutral {
   background: var(--soft-neutral);
   color: var(--muted);
+}
+
+/* 마감 D-3 이하(urgent)만 별도 강조 — 색상 대비를 --amber보다 강한 --red로, 크기와 굵기를 키워
+   "이미 지난 마감"(warn)과 "임박한 마감"을 시각적으로 구분한다(2026-09-07 캠코 회의 후속조치 3). */
+.badge.urgent {
+  background: var(--soft-red);
+  color: var(--red);
+  border: 1px solid var(--red);
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .risk-grid {

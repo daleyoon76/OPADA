@@ -1094,6 +1094,60 @@ function renderNoticeOutline() {
     : `<p class="small-text">공고문 절에서 항목 구분을 찾지 못했습니다. 첨부 공고문을 확인하십시오.</p>`;
 }
 
+// 온비드 자료실 이용설명서(입찰자용 매뉴얼)와 유튜브 안내 영상 링크다(2026-09-14 확인).
+// 온비드 화면·유튜브 어디에도 공공누리 표시가 없어 원문을 옮기지 않고 링크로만 연결한다.
+const REFERENCE_LINKS = [
+  {
+    title: "차세대 온비드 이용 매뉴얼(입찰자용)",
+    note: "PDF 11개 · 화면별 분책(회원가입·물건·공고·입찰하기 등)",
+    url: "https://www.onbid.co.kr/op/btbdguid/utlzdescdata/utlzdescdata/UtlzDescDataInqController/mvmnUtlzDescDataDtl.do?gnrBtbdLstNo=102905",
+  },
+  {
+    title: "차세대 온비드 이용 매뉴얼(입찰자용)_모바일",
+    note: "PDF 11개 · 모바일 화면 기준",
+    url: "https://www.onbid.co.kr/op/btbdguid/utlzdescdata/utlzdescdata/UtlzDescDataInqController/mvmnUtlzDescDataDtl.do?gnrBtbdLstNo=102893",
+  },
+  {
+    title: "차세대 온비드 퀵가이드(입찰자용)",
+    note: "PDF 1개",
+    url: "https://www.onbid.co.kr/op/btbdguid/utlzdescdata/utlzdescdata/UtlzDescDataInqController/mvmnUtlzDescDataDtl.do?gnrBtbdLstNo=102829",
+  },
+  {
+    title: "빠른입찰 이용가이드",
+    note: "PDF 1개",
+    url: "https://www.onbid.co.kr/op/btbdguid/utlzdescdata/utlzdescdata/UtlzDescDataInqController/mvmnUtlzDescDataDtl.do?gnrBtbdLstNo=110214",
+  },
+  {
+    title: "[일반회원] 간편인증 매뉴얼",
+    note: "PDF 1개",
+    url: "https://www.onbid.co.kr/op/btbdguid/utlzdescdata/utlzdescdata/UtlzDescDataInqController/mvmnUtlzDescDataDtl.do?gnrBtbdLstNo=102819",
+  },
+  {
+    title: "온비드 공식 유튜브 채널",
+    note: "이용 안내 영상 모음",
+    url: "https://www.youtube.com/channel/UCkzxJZSiJThYL34ajiCyVJQ/featured",
+  },
+  {
+    title: "온비드 이용 안내 재생목록 (1)",
+    note: "유튜브 재생목록",
+    url: "https://www.youtube.com/watch?v=ZNlKLr9ViAE&list=PLIFzprTkgcSpFf-QpLb-CQIQ26ywfvN5h",
+  },
+  {
+    title: "온비드 이용 안내 재생목록 (2)",
+    note: "유튜브 재생목록",
+    url: "https://www.youtube.com/watch?v=oC6xBZMImuA&list=PLIFzprTkgcSpcXUE-4OBqQE0Tr69n6JgW",
+  },
+];
+
+function renderReferenceLinks() {
+  const host = byId("reference-list");
+  if (!host) return;
+  host.innerHTML = `${REFERENCE_LINKS.map(
+    (item) =>
+      `<div class="compact-row"><strong><a href="${item.url}" target="_blank" rel="noreferrer">${item.title}</a></strong><p>${item.note}</p></div>`
+  ).join("")}<p class="small-text">온비드가 제공하는 원문 자료입니다. 내용은 온비드 화면에서 직접 확인하십시오.</p>`;
+}
+
 function renderGlossary() {
   const host = byId("glossary-list");
   if (!host) return;
@@ -1108,7 +1162,7 @@ function renderGlossary() {
 function countdownBadge() {
   const countdown = sampleNotice.countdown;
   if (!countdown?.label) return "";
-  const type = countdown.state === "urgent" || countdown.state === "closed" ? "warn" : "safe";
+  const type = countdown.state === "urgent" ? "urgent" : countdown.state === "closed" ? "warn" : "safe";
   return `${badge(countdown.label, type)} <span class="small-text">${countdown.deadline} 마감 · 알림 발송은 하지 않습니다</span>`;
 }
 
@@ -1556,6 +1610,7 @@ function init() {
   byId("notice-url").value = sampleNotice.sourceUrl;
   analyzedInputValue = "";
   renderAll();
+  renderReferenceLinks();
 
   document.querySelectorAll(".tab").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.view));
