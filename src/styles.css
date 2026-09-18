@@ -1280,9 +1280,21 @@ a:hover {
   padding-top: 9px;
 }
 
+.doc-group > summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.doc-group[open] > summary {
+  margin-bottom: 9px;
+}
+
 .doc-group h4 {
   font-size: 14px;
-  margin: 0 0 7px;
+  margin: 0;
 }
 
 .doc-group ul {

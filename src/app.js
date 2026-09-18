@@ -984,6 +984,26 @@ function docExtraChips(item) {
     .join("");
 }
 
+// 서류 조건 축 10개(server.py CONDITION_AXES) 중 신청인 유형과 직접 연결되는 것은
+// corp(법인)·person(개인) 두 축뿐이다. 나머지(대리입찰·공동입찰·지역제한 등)는 사용자
+// 유형과 무관해 판단 대상에서 뺀다 — 축이 없는 그룹은 항상 펼침으로 둔다.
+const DOC_GROUP_CONDITION_USER_TYPES = {
+  corp: ["corp"],
+  person: ["person", "sole", "founder"],
+};
+
+function getDocGroupUserTypes(group) {
+  const conditionKeys = new Set();
+  (group.items || []).forEach((item) => {
+    (item.conditionKeys || []).forEach((key) => conditionKeys.add(key));
+  });
+  const userTypes = new Set();
+  conditionKeys.forEach((key) => {
+    (DOC_GROUP_CONDITION_USER_TYPES[key] || []).forEach((type) => userTypes.add(type));
+  });
+  return [...userTypes];
+}
+
 function renderDocSourceNotice() {
   const checklist = sampleNotice.docChecklist;
   const profile = checklist?.profile;
@@ -1011,11 +1031,15 @@ function renderDocChecklist() {
     statusLabel = "본문에 없음";
   }
   const groups = Array.isArray(checklist.groups) ? checklist.groups : [];
+  const userType = getSelectedUserType();
 
   const groupsHtml = groups
-    .map(
-      (group) => `<section class="doc-group">
-        <h4>${group.condition}</h4>
+    .map((group) => {
+      const groupUserTypes = getDocGroupUserTypes(group);
+      const isRelevant = !groupUserTypes.length || groupUserTypes.includes(userType);
+      const itemCount = Array.isArray(group.items) ? group.items.length : 0;
+      return `<details class="doc-group"${isRelevant ? " open" : ""}>
+        <summary><h4>${group.condition}</h4>${badge(`${itemCount}개 서류`, "neutral")}</summary>
         <ul>
           ${group.items
             .map(
@@ -1032,8 +1056,8 @@ function renderDocChecklist() {
             )
             .join("")}
         </ul>
-      </section>`,
-    )
+      </details>`;
+    })
     .join("");
 
   host.innerHTML = `<section class="doc-panel">
