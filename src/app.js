@@ -738,6 +738,7 @@ function resetTaskState() {
     return;
   }
   window.localStorage.removeItem(taskStorageKeyFor(sampleNotice));
+  saveRecentNotice();
   renderReport();
   renderWatchlist();
 }
