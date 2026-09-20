@@ -601,6 +601,10 @@ function noticeKey(notice) {
     .replace(/\s+/g, "-");
 }
 
+function taskStorageKeyFor(notice) {
+  return `${taskStorageKey}::${noticeKey(notice)}`;
+}
+
 function currentNoticeCard() {
   const summary = getTaskSummary();
   return {
@@ -706,7 +710,7 @@ function getApplicableTasks() {
 function getTaskState() {
   const tasks = getApplicableTasks();
   try {
-    const saved = JSON.parse(window.localStorage.getItem(taskStorageKey) || "{}");
+    const saved = JSON.parse(window.localStorage.getItem(taskStorageKeyFor(sampleNotice)) || "{}");
     return tasks.reduce((acc, task) => {
       acc[task.id] = typeof saved[task.id] === "boolean" ? saved[task.id] : task.defaultDone;
       return acc;
@@ -721,8 +725,9 @@ function getTaskState() {
 
 function saveTaskState(state) {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(taskStorageKey) || "{}");
-    window.localStorage.setItem(taskStorageKey, JSON.stringify({ ...saved, ...state }));
+    const key = taskStorageKeyFor(sampleNotice);
+    const saved = JSON.parse(window.localStorage.getItem(key) || "{}");
+    window.localStorage.setItem(key, JSON.stringify({ ...saved, ...state }));
   } catch {
     // Local storage is a convenience for the prototype; the checklist still works in-session.
   }
@@ -732,7 +737,7 @@ function resetTaskState() {
   if (!window.confirm("진행 상황을 초기화할까요?")) {
     return;
   }
-  window.localStorage.removeItem(taskStorageKey);
+  window.localStorage.removeItem(taskStorageKeyFor(sampleNotice));
   renderReport();
   renderWatchlist();
 }
@@ -1611,7 +1616,6 @@ async function runAnalysis() {
     currentStage = pipelineSteps.length - 1;
     replaceNotice(payload.notice);
     analyzedInputValue = getNoticeInput();
-    window.localStorage.removeItem(taskStorageKey);
     saveRecentNotice();
     renderAll();
     byId("analysis-result").scrollIntoView({ block: "center", behavior: "smooth" });
@@ -1680,6 +1684,7 @@ function init() {
     const state = getTaskState();
     state[taskId] = event.target.checked;
     saveTaskState(state);
+    saveRecentNotice();
     renderReport();
     renderWatchlist();
     document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)?.focus();
