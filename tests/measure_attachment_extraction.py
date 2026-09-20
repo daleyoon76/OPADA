@@ -10,6 +10,11 @@
 뽑음)을 구분해서 보고한다. 감정평가 표지값처럼 유형 자체가 없는 idx(재산유형상
 감정평가서 미첨부)는 "해당없음 정답 유지"로 따로 센다 — 유형이 없는 idx를 분모에서
 빼면 재현율이 부풀려진다.
+
+제출서류는 두 경로를 나란히 잰다(2026-09-20). "1. 제출서류"는 이 디렉터리의
+독립 프로토타입(`extract_submission_docs` · 절 앵커+윈도)이고, "1-production"은
+실제 서비스에 배선된 `server.extract_doc_items`(줄 단위 · 창 없음)다. 두 경로는
+정밀도·재현율 트레이드오프가 달라 같은 줄로 합산하지 않는다.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from attachment_extractors.qualification_numbers import extract_qualification_nu
 from attachment_extractors.appraisal_cover import extract_appraisal_cover  # noqa: E402
 from attachment_extractors.forms import extract_forms  # noqa: E402
 from attachment_extractors.clause_boundaries import extract_clause_boundaries  # noqa: E402
+import server  # noqa: E402
 
 TEXT_DIR = Path(os.environ.get("OPADA_SURVEY_TEXT_DIR", Path.home() / "Documents/Dev/.opada-survey/text"))
 ANSWER_KEY_PATH = REPO_ROOT / "tests/fixtures/attachment_answer_key.json"
@@ -92,16 +98,22 @@ def main() -> None:
 
     answer_key = json.loads(ANSWER_KEY_PATH.read_text(encoding="utf-8"))
     results: dict[str, dict] = {t: {} for t in
-                                 ["submission_docs", "qualification_numbers", "appraisal_cover", "forms", "clause_boundaries"]}
+                                 ["submission_docs", "submission_docs_production",
+                                  "qualification_numbers", "appraisal_cover", "forms", "clause_boundaries"]}
 
     for idx in TARGET_IDX:
         text = load_idx_texts(idx)
         gt = answer_key[idx]
 
-        # 1. 제출서류
+        # 1. 제출서류 — 프로토타입(절 앵커+윈도)
         extracted_docs = normalize_set(extract_submission_docs(text))
         truth_docs = flatten_gt_docs(gt["submission_docs"]) if gt["submission_docs"]["present"] else set()
         results["submission_docs"][idx] = score_set(extracted_docs, truth_docs)
+
+        # 1-production. 제출서류 — 실제 서비스 배선(server.extract_doc_items, 줄 단위 · 창 없음)
+        production_items = server.extract_doc_items({}, [(f"첨부:{idx}", text)])
+        extracted_production = normalize_set([it["name"] for it in production_items])
+        results["submission_docs_production"][idx] = score_set(extracted_production, truth_docs)
 
         # 2. 자격요건 수치
         extracted_nums = normalize_set(extract_qualification_numbers(text))
@@ -162,7 +174,8 @@ def print_report(results: dict, answer_key: dict) -> None:
     print("=" * 70)
 
     for type_name, label in [
-        ("submission_docs", "1. 제출서류"),
+        ("submission_docs", "1. 제출서류 (프로토타입 · 절 앵커+윈도)"),
+        ("submission_docs_production", "1-production. 제출서류 (실제 서비스 배선 · 줄 단위)"),
         ("qualification_numbers", "2. 자격요건 수치"),
         ("forms", "4. 서식 존재확인"),
     ]:
