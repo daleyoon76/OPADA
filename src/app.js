@@ -890,10 +890,10 @@ function renderCoachPanel(coach, options = {}) {
   // 같은 화면이고, 색을 보는 사람에게도 문구가 사실과 어긋난 채 남는다.
   const llmConnected = coach?.llmStatus === "connected";
   const coachMode = llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검";
-  const facts = (coach?.confirmedFacts || []).slice(0, options.board ? 2 : 4);
+  const facts = (coach?.confirmedFacts || []).slice(0, 4);
   const checks = (coach?.unresolvedChecks || []).slice(0, 3);
   const questions = (coach?.askAgency || []).slice(0, 2);
-  const factsHtml = !options.board && facts
+  const factsHtml = facts
     .map((fact) => `<div><b>${fact.label}</b><strong>${fact.value}</strong></div>`)
     .join("");
   const checksHtml = checks
@@ -919,11 +919,19 @@ function renderCoachPanel(coach, options = {}) {
             (llmConnected ? "AI가 미해결 항목만 골랐습니다." : "규칙 기반으로 미해결 항목만 골랐습니다.")
       }</strong>
     </div>
-    <p>${options.board ? "아래 체크리스트에서 AI 우선 확인 표시가 붙은 항목부터 처리하세요." : coach?.plainSummary || "이미 보이는 값은 반복하지 않고, 실제 준비 전에 남는 빈칸만 분리합니다."}</p>
-    ${factsHtml ? `<div class="coach-facts">${factsHtml}</div>` : ""}
+    <p>${options.board ? "아래 체크리스트에서 확인 필요 항목 표시가 붙은 항목부터 처리하세요." : coach?.plainSummary || "이미 보이는 값은 반복하지 않고, 실제 준비 전에 남는 빈칸만 분리합니다."}</p>
+    ${
+      factsHtml
+        ? `<div class="coach-facts">
+          <b>AI가 탐지한 내용</b>
+          <p class="small-text">공고 원문에서 읽은 값입니다. 실제 값과 다르면 원문을 다시 확인하세요.</p>
+          ${factsHtml}
+        </div>`
+        : ""
+    }
     ${checksHtml ? `<div class="coach-checks">${checksHtml}</div>` : ""}
     ${
-      questionsHtml && !options.board
+      questionsHtml
         ? `<div class="coach-questions">
           <b>내가 담당기관에 물어볼 문장</b>
           <ul>${questionsHtml}</ul>
@@ -953,7 +961,7 @@ function renderTaskAiNudge(aiMatch) {
   const check = aiMatch.check;
   return `<div class="task-ai-nudge">
     <div>
-      ${badge("AI 우선 확인", "safe")}
+      ${badge("확인 필요 항목", "safe")}
       <strong>${check.title}</strong>
     </div>
     <p>${check.action || check.reason || "이 항목을 먼저 확인하세요."}</p>
