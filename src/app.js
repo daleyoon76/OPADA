@@ -913,14 +913,14 @@ function renderCoachPanel(coach, options = {}) {
   return `<section class="${panelClass}">
     <div class="coach-head">
       ${badge(coachMode, llmConnected ? "safe" : "warn")}
-      <strong>${
+      ${
         options.board
-          ? llmConnected
-            ? "AI가 먼저 볼 빈칸을 체크리스트에 연결했습니다."
-            : "규칙 기반으로 먼저 볼 빈칸을 체크리스트에 연결했습니다."
-          : coach?.headline ||
-            (llmConnected ? "AI가 미해결 항목만 골랐습니다." : "규칙 기반으로 미해결 항목만 골랐습니다.")
-      }</strong>
+          ? ""
+          : `<strong>${
+              coach?.headline ||
+              (llmConnected ? "AI가 미해결 항목만 골랐습니다." : "규칙 기반으로 미해결 항목만 골랐습니다.")
+            }</strong>`
+      }
     </div>
     <p>${options.board ? "아래 체크리스트에서 확인 필요 항목 표시가 붙은 항목부터 처리하세요." : coach?.plainSummary || "이미 보이는 값은 반복하지 않고, 실제 준비 전에 남는 빈칸만 분리합니다."}</p>
     ${
