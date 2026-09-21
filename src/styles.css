@@ -898,6 +898,17 @@ a:hover {
   text-decoration: underline;
 }
 
+.text-action.is-disabled {
+  color: var(--muted);
+  cursor: default;
+  font-weight: 400;
+}
+
+.text-action.is-disabled:hover,
+.text-action.is-disabled:focus {
+  text-decoration: none;
+}
+
 .task-item details {
   margin: 8px 0 0 28px;
   color: var(--muted);
@@ -1059,6 +1070,7 @@ a:hover {
 .watch-section-title h3 {
   margin: 0;
   font-size: 16px;
+  flex-shrink: 0;
 }
 
 .watch-section-title p {
@@ -1068,11 +1080,11 @@ a:hover {
 }
 
 .watch-item strong,
-.watch-item span:not(.star-placeholder) {
+.watch-item span:not(.star-placeholder):not(.badge) {
   display: block;
 }
 
-.watch-item span:not(.star-placeholder),
+.watch-item span:not(.star-placeholder):not(.badge),
 .watch-item p {
   color: var(--muted);
   font-size: 12px;
@@ -1080,6 +1092,13 @@ a:hover {
 
 .watch-item p {
   margin: 0;
+}
+
+.watch-actions .text-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 4px;
 }
 
 .watch-actions {
@@ -1116,9 +1135,10 @@ a:hover {
 }
 
 .star-placeholder {
-  border-color: #f0c68a;
+  border-color: var(--line);
   background: #ffffff;
-  color: var(--amber);
+  color: var(--muted);
+  opacity: 0.6;
 }
 
 .empty-state {

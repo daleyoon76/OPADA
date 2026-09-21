@@ -615,6 +615,9 @@ function currentNoticeCard() {
     next: summary.nextTask?.action || "공고 원문 확인",
     status: formatProgress(summary),
     sourceUrl: sampleNotice.sourceUrl,
+    // 관심 공고 카드에 마감 상태 배지를 보이려면 저장 시점의 countdown 값이 필요하다.
+    // 분석을 다시 하지 않는 한 갱신되지 않으므로, 저장 시점 기준이라는 한계가 있다.
+    countdown: sampleNotice.countdown || null,
     viewedAt: new Date().toISOString(),
   };
 }
@@ -1595,20 +1598,28 @@ function renderWatchlist() {
 
 function watchItemHtml(item, options = {}) {
   const statusType = item.status?.includes("필요") || item.status?.includes("미") ? "warn" : "safe";
+  const favoriteLabel = item.favorite ? "관심 공고에서 해제" : "관심 공고에 추가";
   const favoriteButton = options.showFavorite
-    ? `<button class="star-button ${item.favorite ? "is-on" : ""}" type="button" data-favorite-id="${item.id}" aria-pressed="${item.favorite ? "true" : "false"}" title="${item.favorite ? "관심 공고에서 해제" : "관심 공고에 추가"}">${item.favorite ? "★" : "☆"}</button>`
+    ? `<button class="star-button ${item.favorite ? "is-on" : ""}" type="button" data-favorite-id="${item.id}" aria-pressed="${item.favorite ? "true" : "false"}" title="${favoriteLabel}" aria-label="${favoriteLabel}">${item.favorite ? "★" : "☆"}</button>`
     : `<span class="star-placeholder" aria-hidden="true">★</span>`;
+  // countdown은 카드가 저장된 시점(공고를 분석했을 때)의 마감 상태다. 다시 분석하지
+  // 않으면 갱신되지 않으므로 "지금 이 순간"의 마감 여부와 다를 수 있다.
+  const countdown = item.countdown;
+  const countdownType = countdown?.state === "urgent" ? "urgent" : countdown?.state === "closed" ? "warn" : "safe";
   return `<article class="watch-item">
     ${favoriteButton}
     <div>
       <strong>${item.title || item.notice}${item.sample ? ` ${badge("예시", "warn")}` : ""}</strong>
       <span>${item.notice}</span>
       <span>${item.type}</span>
+      ${countdown?.label ? badge(countdown.label, countdownType) : ""}
     </div>
     <p>${item.next}</p>
     <div class="watch-actions">
       ${badge(item.status, statusType)}
-      <a class="text-action" href="${item.sourceUrl || "https://www.onbid.co.kr/"}" target="_blank" rel="noreferrer">원문</a>
+      ${item.sample
+        ? `<span class="text-action is-disabled" aria-disabled="true">예시 항목(원문 없음)</span>`
+        : `<a class="text-action" href="${item.sourceUrl || "https://www.onbid.co.kr/"}" target="_blank" rel="noreferrer">원문</a>`}
     </div>
   </article>`;
 }
@@ -1787,8 +1798,19 @@ function init() {
       const favoriteTarget = event.target.closest("[data-favorite-id]");
       if (favoriteTarget) {
         const favoriteId = favoriteTarget.dataset.favoriteId;
+        // 즐겨찾기한 항목은 "관심 공고"·"최근 살펴본 공고" 두 섹션에 같은 id의 버튼이
+        // 동시에 존재할 수 있다. querySelector 하나만 쓰면 항상 문서상 첫 번째(관심 공고
+        // 섹션)로 포커스가 튀어, 사용자가 실제로 클릭한 섹션과 달라진다. 클릭한 섹션의
+        // 위치(인덱스)를 기억해 재렌더 후 같은 자리부터 우선 찾는다.
+        const sections = Array.from(document.querySelectorAll("#watchlist-table .watch-section"));
+        const clickedSectionIndex = sections.indexOf(favoriteTarget.closest(".watch-section"));
         toggleFavoriteNotice(favoriteId);
-        document.querySelector(`[data-favorite-id="${CSS.escape(favoriteId)}"]`)?.focus();
+        const newSections = document.querySelectorAll("#watchlist-table .watch-section");
+        const sameSection = newSections[clickedSectionIndex];
+        const nextFocus =
+          sameSection?.querySelector(`[data-favorite-id="${CSS.escape(favoriteId)}"]`) ||
+          document.querySelector(`[data-favorite-id="${CSS.escape(favoriteId)}"]`);
+        nextFocus?.focus();
       }
       return;
     }
