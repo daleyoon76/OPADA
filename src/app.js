@@ -427,6 +427,10 @@ let analysisRequestId = 0;
 let analysisError = null;
 let analyzedInputValue = "";
 let boardGenerated = false;
+// 서류 체크박스를 누를 때마다 전체 화면을 다시 그리는데, <details> 는 재생성될 때
+// 기본값(닫힘)으로 돌아간다. 사용자가 연속으로 여러 서류를 체크할 수 있도록 이 상태를
+// 따로 기억해뒀다가 다시 그릴 때 반영한다.
+let docChecklistOpen = false;
 const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
@@ -605,6 +609,48 @@ function taskStorageKeyFor(notice) {
   return `${taskStorageKey}::${noticeKey(notice)}`;
 }
 
+const docStorageKey = "onbid-public-asset-doc-agent-docs-v1";
+
+function docStorageKeyFor(notice) {
+  return `${docStorageKey}::${noticeKey(notice)}`;
+}
+
+// 조건별 그룹(공동입찰·대리입찰·공통 등)에 같은 서류명이 중복으로 나열되므로,
+// 체크 상태와 진행률은 「행」이 아니라 「고유 서류명」 기준으로 센다.
+function getUniqueDocNames() {
+  const groups = Array.isArray(sampleNotice.docChecklist?.groups) ? sampleNotice.docChecklist.groups : [];
+  const names = new Set();
+  groups.forEach((group) => {
+    (group.items || []).forEach((item) => {
+      if (item.name) names.add(item.name);
+    });
+  });
+  return [...names];
+}
+
+function getDocState() {
+  const names = getUniqueDocNames();
+  const saved = readJsonStorage(docStorageKeyFor(sampleNotice), {});
+  return names.reduce((acc, name) => {
+    acc[name] = Boolean(saved[name]);
+    return acc;
+  }, {});
+}
+
+function saveDocState(state) {
+  const key = docStorageKeyFor(sampleNotice);
+  const saved = readJsonStorage(key, {});
+  writeJsonStorage(key, { ...saved, ...state });
+}
+
+function getDocSummary() {
+  const state = getDocState();
+  const names = getUniqueDocNames();
+  const doneCount = names.filter((name) => state[name]).length;
+  const totalCount = names.length;
+  return { state, names, doneCount, totalCount, percent: totalCount ? Math.round((doneCount / totalCount) * 100) : 0 };
+}
+
 function currentNoticeCard() {
   const summary = getTaskSummary();
   return {
@@ -741,6 +787,7 @@ function resetTaskState() {
     return;
   }
   window.localStorage.removeItem(taskStorageKeyFor(sampleNotice));
+  window.localStorage.removeItem(docStorageKeyFor(sampleNotice));
   saveRecentNotice();
   renderReport();
   renderWatchlist();
@@ -1107,13 +1154,8 @@ function renderDocSourceNotice() {
 }
 
 function renderDocChecklist() {
-  const host = byId("doc-checklist");
-  if (!host) return;
   const checklist = sampleNotice.docChecklist;
-  if (!checklist) {
-    host.innerHTML = "";
-    return;
-  }
+  if (!checklist) return "";
   const profile = checklist.profile || {};
   let [statusLabel, statusType] = docChecklistStatusBadge[checklist.status] || ["확인 필요", "warn"];
   // 첨부를 열지 않았으면 「원문에 없음」이라고 말할 수 없다. 우리가 확인한 것은 본문뿐이고,
@@ -1123,6 +1165,7 @@ function renderDocChecklist() {
   }
   const groups = Array.isArray(checklist.groups) ? checklist.groups : [];
   const userType = getSelectedUserType();
+  const docState = getDocState();
 
   const groupsHtml = groups
     .map((group) => {
@@ -1134,8 +1177,11 @@ function renderDocChecklist() {
         <ul>
           ${group.items
             .map(
-              (item) => `<li>
-                <strong>${item.name}</strong>
+              (item) => `<li class="${docState[item.name] ? "is-checked" : ""}">
+                <label class="doc-check">
+                  <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}>
+                  <strong>${item.name}</strong>
+                </label>
                 <span class="doc-chips">${docExtraChips(item)}</span>
                 ${
                   item.howto
@@ -1151,12 +1197,23 @@ function renderDocChecklist() {
     })
     .join("");
 
-  host.innerHTML = `<section class="doc-panel">
+  const docSummary = getDocSummary();
+
+  return `<section class="doc-panel">
     <div class="doc-head">
       ${badge(docSourceBadge[profile.code] || docSourceBadge.unknown, profile.code === "A" ? "safe" : "warn")}
       ${badge(statusLabel, statusType)}
       <strong>${checklist.headline}</strong>
     </div>
+    ${
+      docSummary.totalCount
+        ? `<div class="doc-progress">
+          <strong>${docSummary.doneCount}/${docSummary.totalCount}개 서류 준비 완료</strong>
+          <span class="progress" role="progressbar" aria-label="서류 준비 진행률" aria-valuemin="0" aria-valuemax="${docSummary.totalCount}" aria-valuenow="${docSummary.doneCount}"><i style="width:${docSummary.percent}%"></i></span>
+          <p class="small-text">같은 이름의 서류는 어느 그룹에서 체크해도 함께 반영됩니다. 실제로는 "공통" + 내 입찰 방식(단독/공동/대리) 서류만 준비하면 됩니다.</p>
+        </div>`
+        : ""
+    }
     <p class="doc-reference">${checklist.reference || ""}</p>
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
@@ -1385,7 +1442,6 @@ function renderReport() {
     byId("question-list").innerHTML = "";
     byId("source-notes").innerHTML = "";
     byId("board-coach").innerHTML = "";
-    byId("doc-checklist").innerHTML = "";
     byId("attachment-list").innerHTML = "";
     byId("notice-outline").innerHTML = "";
     byId("glossary-list").innerHTML = "";
@@ -1412,7 +1468,7 @@ function renderReport() {
     ? renderCoachPanel(coach, { board: true })
     : "";
 
-  renderDocChecklist();
+  const docChecklistHtml = renderDocChecklist();
   renderAttachments();
   renderNoticeOutline();
   renderGlossary();
@@ -1453,6 +1509,14 @@ function renderReport() {
           ${badge(taskSummary.state[task.id] ? "완료" : task.due, taskSummary.state[task.id] ? "safe" : "warn")}
           <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a>
         </div>
+        ${
+          task.id === "documents" && docChecklistHtml
+            ? `<details id="doc-checklist-details" ${docChecklistOpen ? "open" : ""}>
+          <summary>서류 준비 체크리스트 (${getDocSummary().doneCount}/${getDocSummary().totalCount})</summary>
+          <div id="doc-checklist" class="doc-checklist">${docChecklistHtml}</div>
+        </details>`
+            : ""
+        }
         <details ${shouldOpenDetails ? "open" : ""}>
           <summary>담당기관에 물어볼 문장</summary>
           ${aiMatch?.check?.reason ? `<p><b>AI가 짚은 빈칸</b>: ${aiMatch.check.reason}</p>` : ""}
@@ -1774,15 +1838,45 @@ function init() {
 
   document.addEventListener("change", (event) => {
     const taskId = event.target?.dataset?.taskId;
-    if (!taskId) return;
-    const state = getTaskState();
-    state[taskId] = event.target.checked;
-    saveTaskState(state);
+    if (taskId) {
+      const state = getTaskState();
+      state[taskId] = event.target.checked;
+      saveTaskState(state);
+      saveRecentNotice();
+      renderReport();
+      renderWatchlist();
+      document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)?.focus();
+      return;
+    }
+    const docName = event.target?.dataset?.docName;
+    if (!docName) return;
+    const docState = getDocState();
+    docState[docName] = event.target.checked;
+    saveDocState(docState);
+    // 서류를 전부 체크하면 "제출서류 확인" 항목을 도와서 체크해준다. 다만 이후 사용자가
+    // 그 항목을 직접 풀거나 켜는 것은 그대로 존중한다 — 서류가 미완이라고 강제로
+    // 되돌리지 않는다(한 방향 보조 동작).
+    const docSummary = getDocSummary();
+    if (docSummary.totalCount > 0 && docSummary.doneCount === docSummary.totalCount) {
+      const taskState = getTaskState();
+      taskState.documents = true;
+      saveTaskState(taskState);
+    }
     saveRecentNotice();
     renderReport();
     renderWatchlist();
-    document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)?.focus();
+    document.querySelector(`[data-doc-name="${CSS.escape(docName)}"]`)?.focus();
   });
+
+  document.addEventListener(
+    "toggle",
+    (event) => {
+      if (event.target?.id === "doc-checklist-details") {
+        docChecklistOpen = event.target.open;
+      }
+    },
+    true,
+  );
 
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-copy-summary]")) {

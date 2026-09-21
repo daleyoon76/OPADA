@@ -1368,14 +1368,50 @@ a:hover {
 }
 
 .doc-group li {
-  /* 확인됨/문제없음으로 읽히지 않게 중립 회색으로 둔다(P0, 2026-09-12 상호작용 감사). */
+  /* 확인됨/문제없음으로 읽히지 않게 중립 회색으로 둔다(P0, 2026-09-12 상호작용 감사).
+     체크박스(.doc-check)는 이것과 별개로 "내가 준비했다"는 사용자 자가 표시다. */
   border-left: 2px solid var(--line);
   margin-bottom: 8px;
   padding-left: 9px;
 }
 
+.doc-group li.is-checked {
+  opacity: 0.6;
+}
+
 .doc-group li strong {
   display: block;
+}
+
+.doc-check {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+.doc-check input {
+  accent-color: var(--green);
+  height: 18px;
+  width: 18px;
+}
+
+.doc-check strong {
+  display: block;
+}
+
+.doc-progress {
+  margin: 8px 0 10px;
+}
+
+.doc-progress > strong {
+  display: block;
+  font-size: 13px;
+}
+
+.doc-progress .small-text {
+  margin: 4px 0 0;
 }
 
 .doc-chips {
