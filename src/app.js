@@ -938,8 +938,82 @@ function renderCoachPanel(coach, options = {}) {
         </div>`
         : ""
     }
+    ${options.board ? renderCoachAsk() : ""}
     <p class="small-text">${coach?.safeBoundary || "입찰 여부, 법률 판단, 수익성 판단은 제공하지 않습니다."}</p>
   </section>`;
+}
+
+function renderCoachAsk() {
+  return `<div class="coach-ask">
+    <b>궁금한 점을 물어보세요</b>
+    <p class="small-text">공고 원문으로 답할 수 있으면 바로 답하고, 안 되면 담당기관 문의로 안내합니다.</p>
+    <div class="coach-ask-row">
+      <input type="text" id="coach-question-input" placeholder="예: 계약 체결 후 며칠 안에 잔금을 내야 하나요?" maxlength="200">
+      <button type="button" class="secondary small-button" data-ask-question>질문하기</button>
+    </div>
+    <div id="coach-question-result" class="coach-ask-result" aria-live="polite"></div>
+  </div>`;
+}
+
+function renderQuestionAnswer(answer) {
+  if (!answer?.connected) {
+    return `<div class="coach-ask-answer">
+      ${badge("AI 연결 안 됨", "warn")}
+      <p>이 질문에는 지금 자동으로 답할 수 없습니다. 담당기관에 문의하세요.</p>
+    </div>`;
+  }
+  if (answer.answerable && answer.answer) {
+    return `<div class="coach-ask-answer">
+      ${badge("공고 원문 기반 답변", "safe")}
+      <p>${answer.answer}</p>
+    </div>`;
+  }
+  return `<div class="coach-ask-answer">
+    ${badge("담당기관 문의 필요", "warn")}
+    <p>이 질문은 공고 원문만으로 답하기 어렵습니다. 담당기관에 문의하세요.</p>
+  </div>`;
+}
+
+async function askNoticeQuestion() {
+  const input = byId("coach-question-input");
+  const result = byId("coach-question-result");
+  if (!input || !result) return;
+  const question = input.value.trim();
+  if (!question) {
+    result.innerHTML = `<p class="small-text">질문을 입력하세요.</p>`;
+    return;
+  }
+  result.innerHTML = `<p class="small-text">답변을 찾는 중입니다...</p>`;
+  try {
+    const response = await window.fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        notice: {
+          title: sampleNotice.title,
+          assetType: sampleNotice.assetType,
+          dispositionLabel: sampleNotice.dispositionLabel,
+          bidMethod: sampleNotice.bidMethod,
+          bidPeriod: sampleNotice.bidPeriod,
+          bidDeadline: sampleNotice.bidDeadline,
+          minimumBidPrice: sampleNotice.minimumBidPrice,
+          appraisalPrice: sampleNotice.appraisalPrice,
+          agency: sampleNotice.agency,
+          contact: sampleNotice.contact,
+        },
+        docs: (sampleNotice.requiredDocs || []).slice(0, 10),
+      }),
+    });
+    const payload = await response.json();
+    if (!payload.ok) {
+      result.innerHTML = `<p class="small-text">${payload.error || "질문을 처리하지 못했습니다. 담당기관에 문의하세요."}</p>`;
+      return;
+    }
+    result.innerHTML = renderQuestionAnswer(payload.result);
+  } catch {
+    result.innerHTML = `<p class="small-text">질문을 처리하지 못했습니다. 담당기관에 문의하세요.</p>`;
+  }
 }
 
 function renderAiReadySummary(coach) {
@@ -1702,6 +1776,10 @@ function init() {
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-copy-summary]")) {
       copySummary();
+      return;
+    }
+    if (event.target.closest("[data-ask-question]")) {
+      askNoticeQuestion();
       return;
     }
     const target = event.target.closest("[data-jump]");

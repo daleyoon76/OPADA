@@ -1698,6 +1698,115 @@ def build_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     return rule_based
 
 
+def question_prompt(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object]:
+    return {
+        "role": "온비드 공공자산 입찰 준비 코치",
+        "instruction": (
+            "사용자가 이 공고에 대해 직접 질문했다. 아래 notice 필드와 requiredDocs 안에서 "
+            "확실히 답할 수 있으면 answerable을 true로 하고, 근거가 된 값 그대로 answer에 담는다. "
+            "notice 필드만으로 답할 수 없거나 추측·해석이 필요하면 answerable을 false로 하고 "
+            "answer는 빈 문자열로 둔다. 모르는데 지어내지 않는다. "
+            "입찰 참여 권유, 가격 결정 권유, 수익성 판단, 법률/권리관계 판단은 하지 않는다. "
+            "'보장', '추천', '수익성' 같은 표현을 쓰지 않는다. "
+            "답은 한국어 1~2문장으로 짧게 쓴다. 반드시 JSON 객체만 반환한다."
+        ),
+        "notice": {
+            "title": notice.get("title", ""),
+            "assetType": notice.get("assetType", ""),
+            "disposition": notice.get("dispositionLabel", ""),
+            "bidMethod": notice.get("bidMethod", ""),
+            "bidPeriod": notice.get("bidPeriod", ""),
+            "bidDeadline": notice.get("bidDeadline", ""),
+            "price": notice.get("minimumBidPrice", "") or notice.get("bidDeposit", ""),
+            "appraisalPrice": notice.get("appraisalPrice", ""),
+            "agency": notice.get("agency", ""),
+            "contact": notice.get("contact", ""),
+            "requiredDocs": docs[:10],
+        },
+        "question": question,
+        "schema": {
+            "answerable": True,
+            "answer": "공고 내용에 근거한 답변 또는 빈 문자열",
+            "sourceField": "근거로 쓴 notice 필드 이름 또는 빈 문자열",
+        },
+    }
+
+
+def vertex_answer_question(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object] | None:
+    config = vertex_config()
+    if not config["project"]:
+        return None
+    token = vertex_access_token()
+    if not token:
+        return None
+    location = config["location"]
+    host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+    endpoint = (
+        f"https://{host}/v1/projects/{urllib.parse.quote(config['project'], safe='')}"
+        f"/locations/{urllib.parse.quote(location, safe='')}/publishers/google/models/"
+        f"{urllib.parse.quote(config['model'], safe='')}:generateContent"
+    )
+    request_body = {
+        "contents": [
+            {"role": "user", "parts": [{"text": json.dumps(question_prompt(notice, docs, question), ensure_ascii=False)}]}
+        ],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 400, "responseMimeType": "application/json"},
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8", "Authorization": f"Bearer {token}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        parsed = parse_gemini_json(json.loads(raw))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    return sanitize_ai_text(parsed) if parsed else None
+
+
+def gemini_answer_question(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object] | None:
+    api_key = gemini_api_key()
+    if not api_key:
+        return None
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip() or "gemini-2.5-flash-lite"
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
+    request_body = {
+        "contents": [
+            {"role": "user", "parts": [{"text": json.dumps(question_prompt(notice, docs, question), ensure_ascii=False)}]}
+        ],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 400, "responseMimeType": "application/json"},
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        parsed = parse_gemini_json(json.loads(raw))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    return sanitize_ai_text(parsed) if parsed else None
+
+
+def answer_notice_question(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object]:
+    # 모델에 붙지 않았으면 「AI 가 확인했다」고 말하지 않는다(coach 의 llmStatus 와 같은 원칙).
+    result = vertex_answer_question(notice, docs, question) or gemini_answer_question(notice, docs, question)
+    if isinstance(result, dict) and isinstance(result.get("answerable"), bool):
+        return {
+            "connected": True,
+            "answerable": bool(result.get("answerable")),
+            "answer": str(result.get("answer") or "").strip(),
+            "sourceField": str(result.get("sourceField") or "").strip(),
+        }
+    return {"connected": False, "answerable": False, "answer": "", "sourceField": ""}
+
+
 def bid_deadline_passed(bid_period: str, bid_deadline: str) -> tuple[bool, str]:
     """입찰 마감일시가 분석 시각 기준으로 지났는지 순수 날짜 비교로 판정한다.
 
@@ -2235,6 +2344,29 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(500, {"ok": False, "error": f"분석 중 오류가 발생했습니다: {exc}"})
             return
         super().do_GET()
+
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/ask":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length > 0 else b""
+                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                question = str(payload.get("question") or "").strip()[:500]
+                notice = payload.get("notice") if isinstance(payload.get("notice"), dict) else {}
+                docs_raw = payload.get("docs") if isinstance(payload.get("docs"), list) else []
+                docs = [str(item) for item in docs_raw][:10]
+                if not question:
+                    self.send_json(400, {"ok": False, "error": "질문을 입력하세요."})
+                    return
+                result = answer_notice_question(notice, docs, question)
+                self.send_json(200, {"ok": True, "result": result})
+            except (ValueError, urllib.error.URLError, TimeoutError) as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:
+                self.send_json(500, {"ok": False, "error": f"질문 처리 중 오류가 발생했습니다: {exc}"})
+            return
+        self.send_json(404, {"ok": False, "error": "not found"})
 
 
 def main() -> None:

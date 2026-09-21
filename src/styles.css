@@ -512,6 +512,44 @@ textarea {
   padding: 0;
 }
 
+.coach-ask {
+  margin-top: 10px;
+  border-top: 1px solid rgba(107, 32, 21, 0.18);
+  padding-top: 10px;
+}
+
+.coach-ask b {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.coach-ask-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.coach-ask-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.coach-ask-result {
+  margin-top: 8px;
+}
+
+.coach-ask-answer {
+  border: 1px solid rgba(107, 32, 21, 0.2);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  padding: 9px 10px;
+}
+
+.coach-ask-answer p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
 .coach-panel li {
   margin: 4px 0;
 }
