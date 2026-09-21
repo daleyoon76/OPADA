@@ -1327,6 +1327,12 @@ a:hover {
   gap: 6px;
 }
 
+.doc-head strong {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .doc-panel > p {
   color: var(--muted);
   margin: 7px 0 0;
