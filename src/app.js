@@ -489,6 +489,15 @@ function badge(text, type = "safe") {
   return `<span class="badge ${type}">${text}</span>`;
 }
 
+// server.py의 NOTICE_VALUE_FALLBACK 과 같은 문구다 — 입찰기간·최저입찰가격을 추출하지
+// 못했을 때 화면 여러 곳에 흩어져 있던 실패 문구를 이 값 하나로 맞춘다(2026-09-22 UI 정리).
+const NOTICE_VALUE_FALLBACK = "원문 확인 필요";
+
+function fieldValue(value) {
+  const isFallback = value === NOTICE_VALUE_FALLBACK;
+  return `<strong class="field-value${isFallback ? " is-fallback" : ""}">${value}</strong>`;
+}
+
 function normalizedText(value) {
   return String(value || "")
     .toLowerCase()
@@ -909,10 +918,10 @@ function renderAnalysisResult() {
     <p class="small-text">${sampleNotice.pageType || "온비드 페이지"}${publicData ? ` · ${publicDataLabel(publicData)}` : ""}</p>
     <p>${fit.body}</p>
     <div class="preview-grid">
-      <div><b>공고/물건명</b><strong>${sampleNotice.title}</strong></div>
-      <div><b>유형</b><strong>${sampleNotice.assetType} / ${sampleNotice.dispositionLabel}</strong></div>
-      <div><b>입찰기간</b><strong>${sampleNotice.bidPeriod || sampleNotice.bidDeadline || "원문 확인"}</strong></div>
-      <div><b>최저입찰가격</b><strong>${sampleNotice.minimumBidPrice || "원문 확인"}</strong></div>
+      <div><span class="field-label">공고/물건명</span>${fieldValue(sampleNotice.title)}</div>
+      <div><span class="field-label">유형</span>${fieldValue(`${sampleNotice.assetType} · ${sampleNotice.dispositionLabel}`)}</div>
+      <div><span class="field-label">입찰기간</span>${fieldValue(sampleNotice.bidPeriod || sampleNotice.bidDeadline || NOTICE_VALUE_FALLBACK)}</div>
+      <div><span class="field-label">최저입찰가격</span>${fieldValue(sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK)}</div>
     </div>
     <p class="deadline-line">${countdownBadge()}</p>
     <p class="small-text freshness-note">온비드 원문 기준이며, 최대 30분 지연될 수 있습니다. 마감이 가까우면 원문에서 다시 확인하십시오.</p>
@@ -944,7 +953,7 @@ function renderCoachPanel(coach, options = {}) {
   const checks = (coach?.unresolvedChecks || []).slice(0, 3);
   const questions = (coach?.askAgency || []).slice(0, 2);
   const factsHtml = facts
-    .map((fact) => `<div><b>${fact.label}</b><strong>${fact.value}</strong></div>`)
+    .map((fact) => `<div><span class="field-label">${fact.label}</span>${fieldValue(fact.value)}</div>`)
     .join("");
   const checksHtml = checks
     .map(
@@ -1108,14 +1117,20 @@ const docChecklistStatusBadge = {
   not_found: ["추출 실패", "warn"],
 };
 
+// preview-grid·coach-facts와 같은 field-label/field-value 클래스를 재사용한다 — 칩 폭에
+// 맞춰 CSS(.doc-chip .field-label/.field-value)가 크기만 눌러 준다(2026-09-22 UI 정리).
+function docLabeledChip(label, value) {
+  return value ? `<span class="field-label">${label}</span> <span class="field-value">${value}</span>` : "";
+}
+
 function docExtraChips(item) {
   return [
     item.stage,
     item.copy,
     item.count,
-    item.validity && `유효기간 ${item.validity}`,
-    item.method && `제출 ${item.method}`,
-    item.due && `기한 ${item.due}`,
+    item.validity && docLabeledChip("유효기간", item.validity),
+    item.method && docLabeledChip("제출", item.method),
+    item.due && docLabeledChip("기한", item.due),
   ]
     .filter(Boolean)
     .map((chip) => `<span class="doc-chip">${chip}</span>`)
@@ -1393,7 +1408,6 @@ function renderReport() {
   const taskSummary = getTaskSummary();
   const aiAssignments = getAiTaskAssignments(taskSummary.tasks);
   const firstAiTask = taskSummary.tasks.find((task) => aiAssignments.has(task.id));
-  const firstAiMatch = firstAiTask ? aiAssignments.get(firstAiTask.id) : null;
 
   if (blockingMessage) {
     const sourceLink = byId("source-url-link");
@@ -1474,7 +1488,6 @@ function renderReport() {
   renderGlossary();
 
   byId("board-status").innerHTML = [
-    [aiAssignments.size ? "AI 우선 액션" : "다음 액션", firstAiMatch?.check?.title || firstAiTask?.title || taskSummary.nextTask?.title || "원문 확인"],
     ["진행률", formatProgress(taskSummary)],
   ]
     .map(
@@ -1496,17 +1509,26 @@ function renderReport() {
         (task) => {
         const aiMatch = aiAssignments.get(task.id);
         const shouldOpenDetails = aiMatch && firstAiTask?.id === task.id;
+        // 입찰기간·최저입찰가격 카드만 원문 확인 필요/실제 값 구분을 표시한다 —
+        // 다른 카드(서류·담당기관 등)의 action 은 애초에 이 대체 문구로 채워지지 않는다.
+        const isNoticeValueTask = task.id === "bid-period" || task.id === "price";
+        const actionClass = isNoticeValueTask
+          ? task.action === NOTICE_VALUE_FALLBACK
+            ? "is-fallback"
+            : "is-extracted"
+          : "";
+        const dueTone = taskSummary.state[task.id] ? "safe" : task.due === NOTICE_VALUE_FALLBACK ? "neutral" : "warn";
         return `<article class="task-item ${taskSummary.state[task.id] ? "is-done" : ""} ${aiMatch ? "has-ai-nudge" : ""}">
         <label class="task-check">
           <input type="checkbox" data-task-id="${task.id}" ${taskSummary.state[task.id] ? "checked" : ""}>
           <span>
             <strong>${task.title}</strong>
-            <em>${task.action}</em>
+            <em class="${actionClass}">${task.action}</em>
           </span>
         </label>
         ${renderTaskAiNudge(aiMatch)}
         <div class="task-meta">
-          ${badge(taskSummary.state[task.id] ? "완료" : task.due, taskSummary.state[task.id] ? "safe" : "warn")}
+          ${badge(taskSummary.state[task.id] ? "완료" : task.due, dueTone)}
           <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a>
         </div>
         ${
@@ -1519,7 +1541,7 @@ function renderReport() {
         }
         <details ${shouldOpenDetails ? "open" : ""}>
           <summary>담당기관에 물어볼 문장</summary>
-          ${aiMatch?.check?.reason ? `<p><b>AI가 짚은 빈칸</b>: ${aiMatch.check.reason}</p>` : ""}
+          ${aiMatch?.check?.reason ? `<p><b>확인이 필요한 이유</b>: ${aiMatch.check.reason}</p>` : ""}
           <p><b>문의 문장</b>: ${task.question}</p>
           <p>${task.detail}</p>
           <p class="small-text">근거: ${task.source}</p>
@@ -1541,8 +1563,12 @@ function renderReport() {
     ["공고번호", sampleNotice.noticeId],
     ["공고기관", sampleNotice.agency],
     ["입찰방식", sampleNotice.bidMethod],
-    ["최저입찰가격", sampleNotice.minimumBidPrice || "원문 확인"],
-    // 못 읽었으면 「원문 확인」이다. 「불가능」·「해당없음」으로 접거나 행을 숨기지 않는다 —
+    [
+      "최저입찰가격",
+      sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK,
+      sampleNotice.minimumBidPrice ? "" : "is-fallback",
+    ],
+    // 공동입찰은 못 읽었으면 「원문 확인」이다. 「불가능」·「해당없음」으로 접거나 행을 숨기지 않는다 —
     // 숨기면 사용자가 「해당 없다」로 읽는다.
     ["공동입찰", sampleNotice.jointBidAllowed || "원문 확인"],
     // 명도책임은 압류재산 공고문에만 나온다(표본 3/23). 값이 없으면 행을 만들지 않는다 —
@@ -1552,9 +1578,9 @@ function renderReport() {
       : []),
   ]
     .map(
-      ([label, value]) => `<div class="fact-row">
+      ([label, value, valueClass = ""]) => `<div class="fact-row">
         <span>${label}</span>
-        <strong>${value}</strong>
+        <strong class="${valueClass}">${value}</strong>
       </div>`,
     )
     .join("");
@@ -1563,10 +1589,16 @@ function renderReport() {
     ...sampleNotice.alerts.map((item) => ({ ...item, type: "알림" })),
     ...sampleNotice.costs.map((item) => ({ ...item, type: "비용" })),
   ]
-    .map((item) => `<details class="compact-row">
-      <summary><span>${item.type}</span><strong>${item.title}: ${item.value}</strong></summary>
+    .map((item) => {
+      // 「입찰기간」 알림만 원문 확인 필요/실제 값 구분을 표시한다 — 다른 알림·비용 항목의
+      // value 는 이 대체 문구로 채워지지 않는다.
+      const valueClass =
+        item.title === "입찰기간" ? (item.value === NOTICE_VALUE_FALLBACK ? "is-fallback" : "is-extracted") : "";
+      return `<details class="compact-row">
+      <summary><span>${item.type}</span><strong>${item.title}: <span class="${valueClass}">${item.value}</span></strong></summary>
       <p>${item.note}</p>
-    </details>`)
+    </details>`;
+    })
     .join("");
 
   byId("question-list").innerHTML = sampleNotice.risks

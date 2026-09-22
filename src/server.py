@@ -811,6 +811,10 @@ def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> li
 # 찍는다(2026-09-07 물건상세 HTML 실측). 공개 여부는 이용기관이 정한다(캠코 회의 확인).
 PRICE_UNDISCLOSED = "비공개"
 
+# 입찰기간·최저입찰가격을 추출하지 못했을 때 화면 다섯 곳(작업 카드 action/due, AI 코치
+# facts, 상단 알림, 분석 직후 미리보기)에 제각각 뜨던 실패 문구를 하나로 합친다(2026-09-22 UI 정리).
+NOTICE_VALUE_FALLBACK = "원문 확인 필요"
+
 
 def minimum_bid_value(inputs: dict[str, str], raw_value: str) -> str:
     hide_code = (inputs.get("lowstBidPrcHideDivCd") or "").strip()
@@ -1232,7 +1236,7 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
     disposition = notice.get("dispositionLabel", "")
     checklist = notice.get("docChecklist") if isinstance(notice.get("docChecklist"), dict) else {}
     price_label = "최저입찰가격"
-    price_value = notice.get("minimumBidPrice") or notice.get("bidDeposit") or "공고 원문 확인"
+    price_value = notice.get("minimumBidPrice") or notice.get("bidDeposit") or NOTICE_VALUE_FALLBACK
     docs_detail = " / ".join(docs[:2]) if docs else str(checklist.get("headline") or "공고 원문과 첨부 확인")
     final_url = notice["sourceUrl"]
 
@@ -1252,8 +1256,8 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
         {
             "id": "bid-period",
             "title": "입찰기간 확인",
-            "action": notice.get("bidPeriod") or "입찰기간 원문 확인",
-            "due": notice.get("bidDeadline") or "입찰 전",
+            "action": notice.get("bidPeriod") or NOTICE_VALUE_FALLBACK,
+            "due": notice.get("bidDeadline") or NOTICE_VALUE_FALLBACK,
             "detail": "입찰 시작/마감, 개찰일시, 매각결정일시는 물건별로 다릅니다. 캘린더에 옮기기 전에 원문을 다시 확인합니다.",
             "question": "입찰 마감, 개찰, 낙찰 후 후속 일정이 각각 언제인지 담당기관에 확인합니다.",
             "source": "온비드 상세 페이지 > 입찰기간/입찰일정",
@@ -1308,8 +1312,8 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
 def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, object]:
     asset_type = str(notice.get("assetType") or "재산유형 확인")
     disposition = str(notice.get("dispositionLabel") or "처분방식 확인")
-    bid_period = str(notice.get("bidPeriod") or notice.get("bidDeadline") or "입찰기간 원문 확인")
-    price = str(notice.get("minimumBidPrice") or notice.get("bidDeposit") or "가격/보증금 원문 확인")
+    bid_period = str(notice.get("bidPeriod") or notice.get("bidDeadline") or NOTICE_VALUE_FALLBACK)
+    price = str(notice.get("minimumBidPrice") or notice.get("bidDeposit") or NOTICE_VALUE_FALLBACK)
     contact = str(notice.get("contact") or notice.get("agency") or "담당기관 확인")
     checklist = notice.get("docChecklist") if isinstance(notice.get("docChecklist"), dict) else {}
     checklist_items = checklist.get("items", []) if isinstance(checklist, dict) else []
@@ -1342,7 +1346,7 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     has_docs = bool(docs)
 
     confirmed_facts = [
-        {"label": "공고 유형", "value": f"{asset_type} / {disposition}"},
+        {"label": "공고 유형", "value": f"{asset_type} · {disposition}"},
         {"label": "입찰기간", "value": bid_period},
         {"label": "가격 기준", "value": price},
         {"label": "담당기관", "value": contact},
@@ -2241,7 +2245,7 @@ def build_notice(raw_url: str) -> dict[str, object]:
     notice["alerts"].extend([
         {
             "title": "입찰기간",
-            "value": bid_period or bid_deadline or "원문 기준 확인",
+            "value": bid_period or bid_deadline or NOTICE_VALUE_FALLBACK,
             "note": "입찰 시작/마감 시각을 캘린더에 옮기기 전 원문을 재확인합니다.",
             "status": "warn",
         },
