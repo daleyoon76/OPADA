@@ -442,6 +442,10 @@ textarea {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 10px;
+  background: var(--soft-amber);
+  border: 1px solid rgba(245, 144, 30, 0.3);
+  border-radius: var(--radius-md);
+  padding: 10px 11px;
 }
 
 .coach-facts div {
@@ -457,10 +461,16 @@ textarea {
   margin-bottom: 3px;
 }
 
+.coach-facts div b {
+  font-weight: 600;
+}
+
 .coach-facts strong {
   display: block;
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 700;
   line-height: 1.35;
+  color: var(--ink);
 }
 
 .coach-checks {
@@ -472,7 +482,7 @@ textarea {
 .coach-check {
   border: 1px solid rgba(107, 32, 21, 0.2);
   border-radius: var(--radius-md);
-  background: #ffffff;
+  background: var(--soft-neutral);
   padding: 10px 11px;
 }
 
