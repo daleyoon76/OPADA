@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>AI 가이드형 준비 보드 — 검토용 정적 초안(그린 테마)</title>
+<link rel="stylesheet" href="../../../src/styles.css">
+<style>
+  /* 색상 테마 탐색용 오버라이드. src/styles.css 는 건드리지 않았고,
+     같은 변수 이름을 이 문서 안에서만 다시 선언해 녹색 계열로 바꿨다.
+     20번 파일(기존 테마)과 구조·문구는 완전히 같고 색만 다르다. */
+  :root {
+    --ink: #0f2e1b;
+    --muted: #3f7a52;
+    --line: #cfe8d6;
+    --bg: #f3faf4;
+    --panel: #fbfefc;
+    --green: #2f7d4f;
+    --green-dark: #1f5736;
+    --blue: #146c43;
+    --amber: #3f8f6a;
+    --red: #991b1b;
+    --soft-green: #e6f4ea;
+    --soft-blue: #e3f3ea;
+    --soft-amber: #eaf7ee;
+    --soft-neutral: #eef3ea;
+    --soft-red: #fef2f2;
+    --shadow: 0 12px 30px rgba(47, 125, 79, 0.12);
+  }
+  /* 이 블록은 이 초안 파일에만 쓰는 스타일이다. */
+  .mock-banner {
+    max-width: 920px;
+    margin: 0 auto 18px;
+    padding: 10px 14px;
+    background: #eaf7ee;
+    border: 1px solid #9fd4b4;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .mock-wrap { max-width: 920px; margin: 0 auto; }
+  .mock-new-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    background: #c0392b;
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .mock-ask-promoted {
+    margin: 0 0 18px;
+    border: 1px dashed var(--amber);
+    border-radius: var(--radius-md, 10px);
+    background: #f3fbf6;
+    padding: 13px 15px;
+  }
+  .mock-ask-promoted b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .mock-panel-reco {
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="mock-banner">
+  이 화면은 실제 서비스가 아닙니다. 20번 초안과 구조·문구는 같고, 색상 테마만 녹색 계열로 바꿔 본 탐색용 정적 초안입니다.
+  실제 데이터·버튼 동작은 연결돼 있지 않고, <span class="mock-new-tag">신규</span> 표시가 AI 가이드형 설계에서 새로 바뀌거나 강조한 부분입니다.
+</div>
+
+<main class="mock-wrap">
+  <section class="panel">
+    <div class="section-title">
+      <p class="eyebrow">Step 2</p>
+      <h2>내 준비 보드</h2>
+    </div>
+
+    <div class="report-hero">
+      <h3>부산광역시 금정구 서동 37-17 외 1필지</h3>
+      <p>국유재산 매각 / 개인 / 창업 공간 검토</p>
+      <p class="small-text">온비드 분석 · 원문 우선</p>
+      <p><span class="badge safe">목적 확인</span> <span class="badge neutral">마감 D-12</span></p>
+    </div>
+
+    <section class="coach-panel board">
+      <div class="coach-head">
+        <span class="badge safe">AI 안내</span>
+        <span class="mock-new-tag">신규</span>
+      </div>
+      <p><strong>이 공고는 국유재산 매각 공고입니다. 먼저 입찰기간과 보증금부터 확인해 보시죠.</strong><br>
+      그다음 제출서류를 챙기시면 됩니다. 궁금한 점은 아래에서 언제든 물어보세요.</p>
+      <div class="coach-facts">
+        <b>AI가 탐지한 내용</b>
+        <p class="small-text">공고 원문에서 읽은 값입니다. 실제 값과 다르면 원문을 다시 확인하세요.</p>
+        <div><span class="field-label">공고유형</span><span class="field-value">국유재산 · 매각</span></div>
+        <div><span class="field-label">담당기관</span><span class="field-value">한국자산관리공사 부산경남지역본부</span></div>
+      </div>
+      <p class="small-text">입찰 여부, 법률 판단, 수익성 판단은 제공하지 않습니다.</p>
+    </section>
+
+    <div class="mock-ask-promoted">
+      <b>궁금한 점을 물어보세요 <span class="mock-new-tag">신규 위치</span></b>
+      <p class="small-text">공고 원문으로 답할 수 있으면 바로 답하고, 안 되면 담당기관 문의로 안내합니다. (기존 코치 패널 하단에 있던 걸 독립 카드로 꺼냈습니다)</p>
+      <div class="coach-ask-row">
+        <input type="text" placeholder="예: 계약 체결 후 며칠 안에 잔금을 내야 하나요?" disabled>
+        <button type="button" class="secondary small-button" disabled>질문하기</button>
+      </div>
+    </div>
+
+    <div class="board-status">
+      <div class="status-card">
+        <b>진행률</b>
+        <strong>1 / 5 완료</strong>
+        <span class="progress"><i style="width:20%"></i></span>
+      </div>
+    </div>
+
+    <div class="board-layout">
+      <section class="task-panel">
+        <div class="panel-heading">
+          <div>
+            <h3>다음 액션</h3>
+            <p>체크하면 진행률과 다음 우선순위가 바뀝니다.</p>
+          </div>
+          <button class="secondary small-button" type="button">초기화</button>
+        </div>
+        <div class="task-list">
+          <article class="task-item has-ai-nudge">
+            <label class="task-check">
+              <input type="checkbox" disabled>
+              <span><strong>입찰기간 확인</strong><em class="is-extracted">2026-10-12 17:00 마감</em></span>
+            </label>
+            <div class="task-ai-nudge">
+              <div><strong><span class="mock-new-tag">신규</span> AI가 먼저 보라고 짚은 항목</strong></div>
+              <p>마감이 가장 임박한 항목입니다. 지금 화면에서는 다른 항목과 나란히 있어 눈에 안 띄지만, 신규 설계에서는 목록 맨 위로 올리고 이 표시를 더 크게 키웁니다.</p>
+            </div>
+            <div class="task-meta">
+              <span class="badge neutral">D-12</span>
+              <a class="text-action" href="#">온비드 원문</a>
+            </div>
+          </article>
+          <article class="task-item">
+            <label class="task-check">
+              <input type="checkbox" disabled>
+              <span><strong>제출서류 확인</strong><em>고유 서류 8개 중 0개 준비</em></span>
+            </label>
+            <div class="task-meta">
+              <span class="badge warn">미완료</span>
+              <a class="text-action" href="#">온비드 원문</a>
+            </div>
+          </article>
+          <article class="task-item">
+            <label class="task-check">
+              <input type="checkbox" disabled>
+              <span><strong>보증금·비용 확인</strong><em>원문 확인 필요</em></span>
+            </label>
+            <div class="task-meta">
+              <span class="badge warn">미완료</span>
+              <a class="text-action" href="#">온비드 원문</a>
+            </div>
+          </article>
+        </div>
+      </section>
+      <aside class="context-panel">
+        <h3>공고 요약</h3>
+        <div class="fact-list">
+          <div class="fact-row"><span>재산유형</span><strong>국유재산</strong></div>
+          <div class="fact-row"><span>처분방식</span><strong>매각</strong></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="support-grid">
+      <details class="support-panel" open>
+        <summary>마감·비용 요약 <span class="mock-panel-reco">← AI 코치가 추천 <span class="mock-new-tag">신규</span></span></summary>
+        <div class="compact-list"><p class="small-text">입찰보증금 10%, 잔대금은 계약 후 60일 이내 납부(원문 기준)</p></div>
+      </details>
+      <details class="support-panel">
+        <summary>담당기관에 물어볼 문장 모음 <span class="mock-panel-reco">← AI 코치가 추천 <span class="mock-new-tag">신규</span></span></summary>
+        <div class="compact-list"><p class="small-text">공동입찰이 가능한가요?</p></div>
+      </details>
+      <details class="support-panel">
+        <summary>공고 첨부파일</summary>
+        <div class="compact-list"></div>
+      </details>
+      <details class="support-panel">
+        <summary>공고문 항목 보기</summary>
+        <div class="compact-list"></div>
+      </details>
+      <details class="support-panel">
+        <summary>용어 안내</summary>
+        <div class="compact-list"></div>
+      </details>
+      <details class="support-panel">
+        <summary>참고자료 (온비드 자료실)</summary>
+        <div class="compact-list"></div>
+      </details>
+    </div>
+  </section>
+</main>
+</body>
+</html>
