@@ -966,6 +966,9 @@ function renderCoachPanel(coach, options = {}) {
     .join("");
   const questionsHtml = questions.map((question) => `<li>${question}</li>`).join("");
 
+  const boardLead = llmConnected
+    ? "제가 체크리스트를 먼저 훑어서 아직 확인이 필요한 항목에 표시를 남겨 두었습니다. 표시가 붙은 항목부터 먼저 봐 주세요."
+    : "정해진 규칙으로 체크리스트를 먼저 훑어서 아직 확인이 필요한 항목에 표시를 남겨 두었습니다. 표시가 붙은 항목부터 먼저 봐 주세요.";
   return `<section class="${panelClass}">
     <div class="coach-head">
       ${badge(coachMode, llmConnected ? "safe" : "warn")}
@@ -974,11 +977,11 @@ function renderCoachPanel(coach, options = {}) {
           ? ""
           : `<strong>${
               coach?.headline ||
-              (llmConnected ? "AI가 미해결 항목만 골랐습니다." : "규칙 기반으로 미해결 항목만 골랐습니다.")
+              (llmConnected ? "제가 미해결 항목만 골랐습니다." : "정해진 규칙으로 미해결 항목만 골랐습니다.")
             }</strong>`
       }
     </div>
-    <p>${options.board ? "아래 체크리스트에서 확인 필요 항목 표시가 붙은 항목부터 처리하세요." : coach?.plainSummary || "이미 보이는 값은 반복하지 않고, 실제 준비 전에 남는 빈칸만 분리합니다."}</p>
+    <p>${options.board ? boardLead : coach?.plainSummary || "이미 보이는 값은 반복하지 않고, 실제 준비 전에 남는 빈칸만 분리합니다."}</p>
     ${
       factsHtml
         ? `<div class="coach-facts">
@@ -997,9 +1000,18 @@ function renderCoachPanel(coach, options = {}) {
         </div>`
         : ""
     }
-    ${options.board ? renderCoachAsk() : ""}
     <p class="small-text">${coach?.safeBoundary || "입찰 여부, 법률 판단, 수익성 판단은 제공하지 않습니다."}</p>
   </section>`;
+}
+
+function renderCoachAskCard() {
+  return `<div class="coach-ask-card">
+    <div class="coach-ask-head">
+      ${badge("AI 코치", "safe")}
+      <strong>AI 코치에게 물어보기</strong>
+    </div>
+    ${renderCoachAsk()}
+  </div>`;
 }
 
 function renderCoachAsk() {
@@ -1456,6 +1468,7 @@ function renderReport() {
     byId("question-list").innerHTML = "";
     byId("source-notes").innerHTML = "";
     byId("board-coach").innerHTML = "";
+    byId("board-coach-ask").innerHTML = "";
     byId("attachment-list").innerHTML = "";
     byId("notice-outline").innerHTML = "";
     byId("glossary-list").innerHTML = "";
@@ -1481,6 +1494,7 @@ function renderReport() {
   byId("board-coach").innerHTML = coach
     ? renderCoachPanel(coach, { board: true })
     : "";
+  byId("board-coach-ask").innerHTML = coach ? renderCoachAskCard() : "";
 
   const docChecklistHtml = renderDocChecklist();
   renderAttachments();

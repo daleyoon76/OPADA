@@ -528,6 +528,26 @@ textarea {
   padding-top: 10px;
 }
 
+.coach-ask-card {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  padding: 13px 15px;
+}
+
+.coach-ask-card .coach-ask-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.coach-ask-card .coach-ask {
+  margin-top: 8px;
+}
+
 .coach-ask b {
   display: block;
   margin-bottom: 3px;
@@ -827,6 +847,10 @@ a:hover {
   background: #f5f7ec;
 }
 
+.task-item.is-done .task-ai-nudge {
+  display: none;
+}
+
 .task-item.has-ai-nudge {
   border-color: #c8d1a0;
 }
@@ -884,7 +908,7 @@ a:hover {
 }
 
 .task-ai-nudge strong {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .task-ai-nudge p {
