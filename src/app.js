@@ -943,87 +943,26 @@ function renderAnalysisResult() {
   `;
 }
 
-function renderCoachPanel(coach, options = {}) {
-  const panelClass = options.board ? "coach-panel board" : "coach-panel";
+function renderBoardCoach(coach) {
   // 모델에 붙지 않았으면 「AI 가 했다」고 말하지 않는다. 색만 바꾸면 색을 못 보는 사람에게는
   // 같은 화면이고, 색을 보는 사람에게도 문구가 사실과 어긋난 채 남는다.
   const llmConnected = coach?.llmStatus === "connected";
-  const coachMode = llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검";
-  const facts = (coach?.confirmedFacts || []).slice(0, 4);
-  const checks = (coach?.unresolvedChecks || []).slice(0, 3);
-  const questions = (coach?.askAgency || []).slice(0, 2);
-  const factsHtml = facts
-    .map((fact) => `<div><span class="field-label">${fact.label}</span>${fieldValue(fact.value)}</div>`)
-    .join("");
-  const checksHtml = checks
-    .map(
-      (item) => `<article class="coach-check">
-        <strong>${item.title}</strong>
-        <p>${options.board ? item.action : item.reason}</p>
-        ${options.board ? "" : `<em>${item.action}</em>`}
-      </article>`,
-    )
-    .join("");
-  const questionsHtml = questions.map((question) => `<li>${question}</li>`).join("");
-
-  const boardLead = llmConnected
-    ? "제가 체크리스트를 먼저 훑어서 아직 확인이 필요한 항목에 표시를 남겨 두었습니다. 표시가 붙은 항목부터 먼저 봐 주세요."
-    : "정해진 규칙으로 체크리스트를 먼저 훑어서 아직 확인이 필요한 항목에 표시를 남겨 두었습니다. 표시가 붙은 항목부터 먼저 봐 주세요.";
-  return `<section class="${panelClass}">
-    <div class="coach-head">
-      ${badge(coachMode, llmConnected ? "safe" : "warn")}
-      ${
-        options.board
-          ? ""
-          : `<strong>${
-              coach?.headline ||
-              (llmConnected ? "제가 미해결 항목만 골랐습니다." : "정해진 규칙으로 미해결 항목만 골랐습니다.")
-            }</strong>`
-      }
-    </div>
-    <p>${options.board ? boardLead : coach?.plainSummary || "이미 보이는 값은 반복하지 않고, 실제 준비 전에 남는 빈칸만 분리합니다."}</p>
-    ${
-      factsHtml
-        ? `<div class="coach-facts">
-          <b>AI가 탐지한 내용</b>
-          <p class="small-text">공고 원문에서 읽은 값입니다. 실제 값과 다르면 원문을 다시 확인하세요.</p>
-          ${factsHtml}
-        </div>`
-        : ""
-    }
-    ${checksHtml ? `<div class="coach-checks">${checksHtml}</div>` : ""}
-    ${
-      questionsHtml
-        ? `<div class="coach-questions">
-          <b>내가 담당기관에 물어볼 문장</b>
-          <ul>${questionsHtml}</ul>
-        </div>`
-        : ""
-    }
-    <p class="small-text">${coach?.safeBoundary || "입찰 여부, 법률 판단, 수익성 판단은 제공하지 않습니다."}</p>
-  </section>`;
-}
-
-function renderCoachAskCard() {
-  return `<div class="coach-ask-card">
+  // 탐지값은 「공고 요약」, 확인 필요 항목은 할 일 카드, 문의 문장은 「물어볼 문장」 탭에 한 번씩만 둔다.
+  const lead = llmConnected
+    ? "확인이 필요한 할 일에 표시를 남겨 두었습니다. 궁금한 점은 여기에 물어보세요."
+    : "정해진 규칙으로 확인이 필요한 할 일에 표시를 남겨 두었습니다. 궁금한 점은 여기에 물어보세요.";
+  return `<section class="coach-ask-card">
     <div class="coach-ask-head">
-      ${badge("AI 코치", "safe")}
+      ${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "safe" : "warn")}
       <strong>AI 코치에게 물어보기</strong>
     </div>
-    ${renderCoachAsk()}
-  </div>`;
-}
-
-function renderCoachAsk() {
-  return `<div class="coach-ask">
-    <b>궁금한 점을 물어보세요</b>
-    <p class="small-text">공고 원문으로 답할 수 있으면 바로 답하고, 안 되면 담당기관 문의로 안내합니다.</p>
+    <p class="small-text">${lead}</p>
     <div class="coach-ask-row">
-      <input type="text" id="coach-question-input" placeholder="예: 계약 체결 후 며칠 안에 잔금을 내야 하나요?" maxlength="200">
+      <input type="text" id="coach-question-input" placeholder="예: 계약 체결 후 며칠 안에 잔금을 내야 하나요?" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
       <button type="button" class="secondary small-button" data-ask-question>질문하기</button>
     </div>
     <div id="coach-question-result" class="coach-ask-result" aria-live="polite"></div>
-  </div>`;
+  </section>`;
 }
 
 function renderQuestionAnswer(answer) {
@@ -1097,20 +1036,6 @@ function renderAiReadySummary(coach) {
     </div>
     <p>${checks.length ? `${checks.length}개 미해결 항목과 ${questionCount}개 담당기관 확인 질문을 준비했습니다.` : "공고별 준비 보드에서 다음 확인 항목을 정리합니다."}</p>
   </section>`;
-}
-
-function renderTaskAiNudge(aiMatch) {
-  if (!aiMatch?.check) {
-    return "";
-  }
-  const check = aiMatch.check;
-  return `<div class="task-ai-nudge">
-    <div>
-      ${badge("확인 필요 항목", "safe")}
-      <strong>${check.title}</strong>
-    </div>
-    <p>${check.action || check.reason || "이 항목을 먼저 확인하세요."}</p>
-  </div>`;
 }
 
 const docSourceBadge = {
@@ -1419,7 +1344,6 @@ function renderReport() {
   const blockingMessage = inputWarning || (analysisError ? { title: "공고 분석에 실패했습니다", body: analysisError } : null) || staleInputWarning;
   const taskSummary = getTaskSummary();
   const aiAssignments = getAiTaskAssignments(taskSummary.tasks);
-  const firstAiTask = taskSummary.tasks.find((task) => aiAssignments.has(task.id));
 
   if (blockingMessage) {
     const sourceLink = byId("source-url-link");
@@ -1468,7 +1392,6 @@ function renderReport() {
     byId("question-list").innerHTML = "";
     byId("source-notes").innerHTML = "";
     byId("board-coach").innerHTML = "";
-    byId("board-coach-ask").innerHTML = "";
     byId("attachment-list").innerHTML = "";
     byId("notice-outline").innerHTML = "";
     byId("glossary-list").innerHTML = "";
@@ -1482,19 +1405,15 @@ function renderReport() {
 
   byId("report-hero").innerHTML = `
     <h3>${sampleNotice.title}</h3>
-    <p>${sampleNotice.assetType} ${sampleNotice.dispositionLabel} / ${userTypeLabels[userType]} / ${focusLabels[getSelectedFocus()]}</p>
-    <p class="small-text">${sampleNotice.mode || "온비드 분석"}${
-      publicData ? ` · ${publicDataLabel(publicData)}` : ""
-    } · 원문 우선</p>
-    <p>${badge(fit.type === "mismatch" ? "목적 불일치" : "목적 확인", fit.type === "match" ? "safe" : "warn")} ${countdownBadge()}</p>
-    <p>${fit.body}</p>
+    <p class="hero-meta">${badge(fit.type === "mismatch" ? "목적 불일치" : "목적 확인", fit.type === "match" ? "safe" : "warn")} ${countdownBadge()}
+      <span class="small-text">${sampleNotice.assetType} ${sampleNotice.dispositionLabel} · ${userTypeLabels[userType]}${
+        publicData ? ` · ${publicDataLabel(publicData)}` : ""
+      }</span></p>
+    ${fit.type === "match" ? "" : `<p>${fit.body}</p>`}
   `;
 
   const coach = sampleNotice.aiCoach;
-  byId("board-coach").innerHTML = coach
-    ? renderCoachPanel(coach, { board: true })
-    : "";
-  byId("board-coach-ask").innerHTML = coach ? renderCoachAskCard() : "";
+  byId("board-coach").innerHTML = coach ? renderBoardCoach(coach) : "";
 
   const docChecklistHtml = renderDocChecklist();
   renderAttachments();
@@ -1505,7 +1424,7 @@ function renderReport() {
     ["진행률", formatProgress(taskSummary)],
   ]
     .map(
-      ([label, value]) => `<div class="status-card">
+      ([label, value]) => `<div class="status-card is-inline">
         <b>${label}</b>
         <strong>${value}</strong>
         ${
@@ -1522,7 +1441,6 @@ function renderReport() {
       .map(
         (task) => {
         const aiMatch = aiAssignments.get(task.id);
-        const shouldOpenDetails = aiMatch && firstAiTask?.id === task.id;
         // 입찰기간·최저입찰가격 카드만 원문 확인 필요/실제 값 구분을 표시한다 —
         // 다른 카드(서류·담당기관 등)의 action 은 애초에 이 대체 문구로 채워지지 않는다.
         const isNoticeValueTask = task.id === "bid-period" || task.id === "price";
@@ -1533,17 +1451,18 @@ function renderReport() {
           : "";
         const dueTone = taskSummary.state[task.id] ? "safe" : task.due === NOTICE_VALUE_FALLBACK ? "neutral" : "warn";
         return `<article class="task-item ${taskSummary.state[task.id] ? "is-done" : ""} ${aiMatch ? "has-ai-nudge" : ""}">
-        <label class="task-check">
-          <input type="checkbox" data-task-id="${task.id}" ${taskSummary.state[task.id] ? "checked" : ""}>
-          <span>
-            <strong>${task.title}</strong>
-            <em class="${actionClass}">${task.action}</em>
+        <div class="task-row">
+          <label class="task-check">
+            <input type="checkbox" data-task-id="${task.id}" ${taskSummary.state[task.id] ? "checked" : ""}>
+            <span>
+              <strong>${task.title}</strong>
+              <em class="${actionClass}">${task.action}</em>
+            </span>
+          </label>
+          <span class="task-badges">
+            ${aiMatch && !taskSummary.state[task.id] ? badge("확인 필요", "safe") : ""}
+            ${badge(taskSummary.state[task.id] ? "완료" : task.due, dueTone)}
           </span>
-        </label>
-        ${renderTaskAiNudge(aiMatch)}
-        <div class="task-meta">
-          ${badge(taskSummary.state[task.id] ? "완료" : task.due, dueTone)}
-          <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a>
         </div>
         ${
           task.id === "documents" && docChecklistHtml
@@ -1553,12 +1472,12 @@ function renderReport() {
         </details>`
             : ""
         }
-        <details ${shouldOpenDetails ? "open" : ""}>
-          <summary>담당기관에 물어볼 문장</summary>
-          ${aiMatch?.check?.reason ? `<p><b>확인이 필요한 이유</b>: ${aiMatch.check.reason}</p>` : ""}
+        <details>
+          <summary>자세히</summary>
+          ${aiMatch?.check ? `<p><b>${aiMatch.check.title}</b>: ${aiMatch.check.reason || aiMatch.check.action}</p>` : ""}
           <p><b>문의 문장</b>: ${task.question}</p>
           <p>${task.detail}</p>
-          <p class="small-text">근거: ${task.source}</p>
+          <p class="small-text">근거: ${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></p>
         </details>
       </article>`;
         },
@@ -1574,6 +1493,12 @@ function renderReport() {
       </article>`;
 
   byId("quick-facts").innerHTML = [
+    ["공고 유형", `${sampleNotice.assetType} · ${sampleNotice.dispositionLabel}`],
+    [
+      "입찰기간",
+      sampleNotice.bidPeriod || NOTICE_VALUE_FALLBACK,
+      sampleNotice.bidPeriod ? "" : "is-fallback",
+    ],
     ["공고번호", sampleNotice.noticeId],
     ["공고기관", sampleNotice.agency],
     ["입찰방식", sampleNotice.bidMethod],
@@ -1924,7 +1849,25 @@ function init() {
     true,
   );
 
+  document.addEventListener("keydown", (event) => {
+    // 한글 조합 중 Enter 는 조합 확정용이라 건너뛴다(안 그러면 같은 질문이 두 번 나간다).
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+    if (event.target?.id === "coach-question-input") {
+      event.preventDefault();
+      askNoticeQuestion();
+    }
+  });
+
   document.addEventListener("click", (event) => {
+    const supportTab = event.target.closest("[data-support-tab]");
+    if (supportTab) {
+      document.querySelectorAll("[data-support-tab]").forEach((tab) => {
+        const selected = tab === supportTab;
+        tab.setAttribute("aria-selected", String(selected));
+        byId(`panel-${tab.dataset.supportTab}`).hidden = !selected;
+      });
+      return;
+    }
     if (event.target.closest("[data-copy-summary]")) {
       copySummary();
       return;

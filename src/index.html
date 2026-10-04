@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" as="style" crossorigin="anonymous" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-    <link rel="stylesheet" href="./styles.css?v=20260922-coach-fact-color">
+    <link rel="stylesheet" href="./styles.css?v=20261004-board-compact">
   </head>
   <body>
     <header class="app-header">
@@ -95,15 +95,11 @@
           </div>
           <div id="report-hero" class="report-hero"></div>
           <div id="board-coach" class="board-coach"></div>
-          <div id="board-coach-ask" class="board-coach-ask"></div>
           <div class="board-status" id="board-status" aria-live="polite"></div>
           <div class="board-layout">
             <section class="task-panel" aria-labelledby="task-title">
               <div class="panel-heading">
-                <div>
-                  <h3 id="task-title">다음 액션</h3>
-                  <p>체크하면 진행률과 다음 우선순위가 바뀝니다.</p>
-                </div>
+                <h3 id="task-title">할 일</h3>
                 <button id="reset-tasks" class="secondary small-button" type="button">초기화</button>
               </div>
               <div id="task-list" class="task-list"></div>
@@ -119,36 +115,38 @@
               <p id="copy-feedback" class="copy-feedback" aria-live="polite"></p>
             </aside>
           </div>
-          <div class="support-grid">
-            <details class="support-panel" open>
-              <summary>마감·비용 요약</summary>
+          <section class="support-tabs" aria-label="자세히 보기">
+            <div class="support-tablist" role="tablist">
+              <button type="button" role="tab" id="tab-deadline-cost-list" aria-controls="panel-deadline-cost-list" aria-selected="true" data-support-tab="deadline-cost-list">마감·비용</button>
+              <button type="button" role="tab" id="tab-question-list" aria-controls="panel-question-list" aria-selected="false" data-support-tab="question-list">물어볼 문장</button>
+              <button type="button" role="tab" id="tab-attachment-list" aria-controls="panel-attachment-list" aria-selected="false" data-support-tab="attachment-list">첨부파일</button>
+              <button type="button" role="tab" id="tab-notice-outline" aria-controls="panel-notice-outline" aria-selected="false" data-support-tab="notice-outline">공고문 항목</button>
+              <button type="button" role="tab" id="tab-glossary-list" aria-controls="panel-glossary-list" aria-selected="false" data-support-tab="glossary-list">용어</button>
+              <button type="button" role="tab" id="tab-reference-list" aria-controls="panel-reference-list" aria-selected="false" data-support-tab="reference-list">참고자료</button>
+              <button type="button" role="tab" id="tab-source-notes" aria-controls="panel-source-notes" aria-selected="false" data-support-tab="source-notes">근거·안전 경계</button>
+            </div>
+            <div role="tabpanel" id="panel-deadline-cost-list" aria-labelledby="tab-deadline-cost-list" class="support-tabpanel">
               <div id="deadline-cost-list" class="compact-list"></div>
-            </details>
-            <details class="support-panel" open>
-              <summary>담당기관에 물어볼 문장 모음</summary>
+            </div>
+            <div role="tabpanel" id="panel-question-list" aria-labelledby="tab-question-list" class="support-tabpanel" hidden>
               <div id="question-list" class="compact-list"></div>
-            </details>
-            <details class="support-panel">
-              <summary>공고 첨부파일</summary>
+            </div>
+            <div role="tabpanel" id="panel-attachment-list" aria-labelledby="tab-attachment-list" class="support-tabpanel" hidden>
               <div id="attachment-list" class="compact-list"></div>
-            </details>
-            <details class="support-panel">
-              <summary>공고문 항목 보기</summary>
+            </div>
+            <div role="tabpanel" id="panel-notice-outline" aria-labelledby="tab-notice-outline" class="support-tabpanel" hidden>
               <div id="notice-outline" class="compact-list"></div>
-            </details>
-            <details class="support-panel">
-              <summary>용어 안내</summary>
+            </div>
+            <div role="tabpanel" id="panel-glossary-list" aria-labelledby="tab-glossary-list" class="support-tabpanel" hidden>
               <div id="glossary-list" class="compact-list"></div>
-            </details>
-            <details class="support-panel">
-              <summary>참고자료 (온비드 자료실)</summary>
+            </div>
+            <div role="tabpanel" id="panel-reference-list" aria-labelledby="tab-reference-list" class="support-tabpanel" hidden>
               <div id="reference-list" class="compact-list"></div>
-            </details>
-            <details class="support-panel">
-              <summary>근거와 안전 경계</summary>
+            </div>
+            <div role="tabpanel" id="panel-source-notes" aria-labelledby="tab-source-notes" class="support-tabpanel" hidden>
               <div id="source-notes" class="source-notes"></div>
-            </details>
-          </div>
+            </div>
+          </section>
         </section>
       </section>
 
@@ -168,6 +166,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260912-attach-wiring"></script>
+    <script src="./app.js?v=20261004-board-compact"></script>
   </body>
 </html>

@@ -338,8 +338,7 @@ textarea {
   margin: 6px 0 0;
 }
 
-.preview-top,
-.coach-head {
+.preview-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -348,8 +347,7 @@ textarea {
   margin-bottom: 10px;
 }
 
-.preview-top strong,
-.coach-head strong {
+.preview-top strong {
   font-size: 16px;
 }
 
@@ -444,90 +442,6 @@ textarea {
   font-size: 12px;
 }
 
-.coach-panel {
-  margin-top: 12px;
-  border-left: 3px solid var(--line);
-  border-radius: var(--radius-md);
-  background: #fffcf8;
-  padding: 12px 13px;
-}
-
-.coach-panel p {
-  margin: 7px 0 0;
-}
-
-.coach-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-  background: var(--soft-amber);
-  border: 1px solid rgba(245, 144, 30, 0.3);
-  border-radius: var(--radius-md);
-  padding: 10px 11px;
-}
-
-.coach-facts div {
-  border: none;
-  background: transparent;
-  padding: 0;
-}
-
-.coach-checks {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.coach-check {
-  border: 1px solid rgba(107, 32, 21, 0.2);
-  border-radius: var(--radius-md);
-  background: var(--soft-neutral);
-  padding: 10px 11px;
-}
-
-.coach-check strong {
-  display: block;
-  font-size: 14px;
-}
-
-.coach-check p {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.coach-check em {
-  display: block;
-  margin-top: 6px;
-  color: var(--green-dark);
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 700;
-}
-
-.coach-questions {
-  margin-top: 10px;
-  border-top: 1px solid rgba(107, 32, 21, 0.18);
-  padding-top: 10px;
-}
-
-.coach-questions b {
-  display: block;
-  margin-bottom: 5px;
-}
-
-.coach-questions ul {
-  margin: 0 0 0 18px;
-  padding: 0;
-}
-
-.coach-ask {
-  margin-top: 10px;
-  border-top: 1px solid rgba(107, 32, 21, 0.18);
-  padding-top: 10px;
-}
-
 .coach-ask-card {
   margin-top: 12px;
   border: 1px solid var(--line);
@@ -542,15 +456,6 @@ textarea {
   gap: 6px;
   font-size: 15px;
   font-weight: 700;
-}
-
-.coach-ask-card .coach-ask {
-  margin-top: 8px;
-}
-
-.coach-ask b {
-  display: block;
-  margin-bottom: 3px;
 }
 
 .coach-ask-row {
@@ -578,44 +483,6 @@ textarea {
 .coach-ask-answer p {
   margin: 6px 0 0;
   font-size: 12px;
-}
-
-.coach-panel li {
-  margin: 4px 0;
-}
-
-.coach-panel details {
-  margin-top: 9px;
-}
-
-.coach-panel summary {
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.coach-panel.board {
-  margin: 0 0 22px;
-  border-left-color: var(--line);
-  border-radius: var(--radius-md);
-  background: #fffcf8;
-  padding: 11px 13px;
-}
-
-.coach-panel.board .coach-head {
-  margin-bottom: 6px;
-}
-
-.coach-panel.board .coach-checks {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin-top: 9px;
-}
-
-.coach-panel.board .coach-check {
-  padding: 9px 10px;
-}
-
-.coach-panel.board .coach-check p {
-  margin-top: 4px;
 }
 
 .actions {
@@ -847,10 +714,6 @@ a:hover {
   background: #f5f7ec;
 }
 
-.task-item.is-done .task-ai-nudge {
-  display: none;
-}
-
 .task-item.has-ai-nudge {
   border-color: #c8d1a0;
 }
@@ -891,30 +754,6 @@ a:hover {
   justify-content: space-between;
   gap: 10px;
   margin: 8px 0 0 28px;
-}
-
-.task-ai-nudge {
-  margin: 9px 0 0 32px;
-  border: 1px solid #c8d1a0;
-  border-radius: var(--radius-sm);
-  background: #f3f6e8;
-  padding: 8px 10px;
-}
-
-.task-ai-nudge div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-ai-nudge strong {
-  font-size: 14px;
-}
-
-.task-ai-nudge p {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 .text-action {
@@ -1013,33 +852,6 @@ a:hover {
 
 .copy-feedback.is-warn {
   color: var(--amber);
-}
-
-.support-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 18px;
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-}
-
-.support-panel {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  padding: 12px 14px;
-}
-
-.support-panel > summary {
-  cursor: pointer;
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.support-panel[open] > summary {
-  margin-bottom: 10px;
-  color: var(--green-dark);
 }
 
 .compact-row {
@@ -1534,6 +1346,87 @@ a:hover {
   justify-content: space-between;
 }
 
+/* 준비 보드 간결형(2026-10-04) — 한 번에 보이는 정보를 줄이고 세부는 접거나 탭으로 넘긴다. */
+.report-hero .hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.status-card.is-inline {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+}
+
+.status-card.is-inline b,
+.status-card.is-inline strong {
+  margin: 0;
+  font-size: 13px;
+}
+
+.status-card.is-inline .progress {
+  margin-top: 0;
+}
+
+.task-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-badges {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.task-item {
+  padding: 10px 14px;
+}
+
+.support-tabs {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.support-tablist {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.support-tablist button {
+  flex-shrink: 0;
+  min-height: 36px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 12px;
+}
+
+.support-tablist button[aria-selected="true"] {
+  border-bottom-color: var(--green-dark);
+  color: var(--ink);
+}
+
+.support-tabpanel {
+  padding-top: 12px;
+}
+
 @media (max-width: 900px) {
   .app-header,
   .print-head {
@@ -1557,20 +1450,26 @@ a:hover {
   .risk-grid,
   .field-row,
   .preview-grid,
-  .coach-facts,
   .board-status,
   .board-layout,
-  .support-grid,
-  .coach-panel.board .coach-checks,
   .watch-summary,
   .watch-item {
     grid-template-columns: 1fr;
   }
 
-  .task-ai-nudge,
   .task-meta,
   .task-item details {
     margin-left: 0;
+  }
+
+  .task-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .task-badges {
+    justify-content: flex-start;
+    margin-left: 32px;
   }
 
   .notice-band {
@@ -1594,14 +1493,6 @@ a:hover {
   .report-hero {
     padding: 12px 13px;
     margin-bottom: 12px;
-  }
-
-  .coach-panel.board {
-    margin-bottom: 12px;
-  }
-
-  .coach-panel.board .coach-checks {
-    gap: 6px;
   }
 
   .board-status {
