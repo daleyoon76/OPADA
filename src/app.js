@@ -974,7 +974,7 @@ function renderQuestionAnswer(answer) {
   }
   if (answer.answerable && answer.answer) {
     return `<div class="coach-ask-answer">
-      ${badge("공고 원문 기반 답변", "safe")}
+      ${badge(answer.answerType === "board" ? "준비 보드 기반 안내" : "공고 원문 기반 답변", "safe")}
       <p>${answer.answer}</p>
     </div>`;
   }
@@ -982,6 +982,29 @@ function renderQuestionAnswer(answer) {
     ${badge("담당기관 문의 필요", "warn")}
     <p>이 질문은 공고 원문만으로 답하기 어렵습니다. 담당기관에 문의하세요.</p>
   </div>`;
+}
+
+// 질문할 «그 시점»의 준비 보드 상태. 「이제 뭘 해야 하나요?」 같은 질문은 이것 없이는 답할 근거가 없다.
+function getBoardSnapshot() {
+  const summary = getTaskSummary();
+  const assignments = getAiTaskAssignments(summary.tasks);
+  const docSummary = getDocSummary();
+  return {
+    tasks: summary.tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.action,
+      due: task.due,
+      done: Boolean(summary.state[task.id]),
+      needsCheck: assignments.get(task.id)?.check?.title || "",
+    })),
+    docs: {
+      done: docSummary.doneCount,
+      total: docSummary.totalCount,
+      pending: docSummary.names.filter((name) => !docSummary.state[name]),
+    },
+    userType: userTypeLabels[getSelectedUserType()],
+  };
 }
 
 async function askNoticeQuestion() {
@@ -1013,6 +1036,7 @@ async function askNoticeQuestion() {
           contact: sampleNotice.contact,
         },
         docs: (sampleNotice.requiredDocs || []).slice(0, 10),
+        board: getBoardSnapshot(),
       }),
     });
     const payload = await response.json();

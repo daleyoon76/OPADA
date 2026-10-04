@@ -1702,17 +1702,76 @@ def build_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     return rule_based
 
 
-def question_prompt(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object]:
+ANSWER_TYPES = ("notice", "board", "none")
+
+
+def _clip(value: object, limit: int = 120) -> str:
+    return clean_text(str(value or ""))[:limit]
+
+
+def sanitize_board_state(raw: object) -> dict[str, object]:
+    """화면이 보낸 준비 보드 상태를 프롬프트에 넣을 크기·모양으로 줄인다.
+
+    브라우저가 보낸 값이라 그대로 믿지 않는다 — 개수·길이를 자르고 모르는 키는 버린다.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    tasks = []
+    for item in raw.get("tasks") if isinstance(raw.get("tasks"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        tasks.append({
+            "id": _clip(item.get("id"), 40),
+            "title": _clip(item.get("title"), 60),
+            "status": _clip(item.get("status")),
+            "due": _clip(item.get("due"), 40),
+            "done": item.get("done") is True,
+            "needsCheck": _clip(item.get("needsCheck"), 80),
+        })
+        if len(tasks) >= 10:
+            break
+    docs = raw.get("docs") if isinstance(raw.get("docs"), dict) else {}
+    pending = docs.get("pending") if isinstance(docs.get("pending"), list) else []
+
+    def count(value: object) -> int:
+        return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 100 else 0
+
+    done_count = sum(1 for task in tasks if task["done"])
+    next_task = next((task["id"] for task in tasks if not task["done"]), "")
+    return {
+        # 진행률·다음 할 일은 화면이 보낸 숫자 대신 정리한 tasks 에서 다시 센다.
+        "progress": {"done": done_count, "total": len(tasks)},
+        "nextTaskId": next_task,
+        "tasks": tasks,
+        "docs": {
+            "done": count(docs.get("done")),
+            "total": count(docs.get("total")),
+            "pending": [_clip(name, 60) for name in pending[:10]],
+        },
+        "userType": _clip(raw.get("userType"), 40),
+    }
+
+
+def question_prompt(
+    notice: dict[str, object], docs: list[str], question: str, board: dict[str, object] | None = None
+) -> dict[str, object]:
     return {
         "role": "온비드 공공자산 입찰 준비 코치",
         "instruction": (
-            "사용자가 이 공고에 대해 직접 질문했다. 아래 notice 필드와 requiredDocs 안에서 "
-            "확실히 답할 수 있으면 answerable을 true로 하고, 근거가 된 값 그대로 answer에 담는다. "
-            "notice 필드만으로 답할 수 없거나 추측·해석이 필요하면 answerable을 false로 하고 "
-            "answer는 빈 문자열로 둔다. 모르는데 지어내지 않는다. "
+            "사용자가 이 공고의 준비 보드를 보면서 질문했다. 질문을 아래 셋 중 하나로 분류해 answerType 에 적는다. "
+            "(1) notice: 공고 사실(기간·가격·기관·서류 등)을 묻는 질문. notice 필드와 requiredDocs 안에서 "
+            "확실히 답할 수 있을 때만 근거 값 그대로 답하고, sourceField 에 notice 필드 이름을 적는다. "
+            "(2) board: 다음에 할 일·순서·진행 상황·무엇부터 할지를 묻는 질문. board 의 tasks 순서와 done, "
+            "needsCheck, docs.pending 만 근거로 다음에 손댈 준비 항목을 안내하고, sourceField 에 그 task id 를 적는다. "
+            "아직 끝내지 않은 첫 할 일(board.nextTaskId)부터 위에서 아래 순서로 진행하도록 권하고, "
+            "안내하는 첫 할 일의 needsCheck 가 비어 있지 않으면 그 내용을 반드시 한 번 짚는다. "
+            "board.tasks 가 비어 있으면 board 로 답하지 않는다. 모든 할 일이 끝났으면 원문과 담당기관 최종 확인을 안내한다. "
+            "(3) none: 위 근거로 답할 수 없거나 추측·해석이 필요한 질문. answerable 을 false, answer 를 빈 문자열로 둔다. "
+            "notice 와 board 는 answerable 을 true 로 한다. 모르는데 지어내지 않는다. "
+            "board 안내는 준비 순서에 대한 것이며 입찰 여부를 판단하는 말이 아니다. "
             "입찰 참여 권유, 가격 결정 권유, 수익성 판단, 법률/권리관계 판단은 하지 않는다. "
             "'보장', '추천', '수익성' 같은 표현을 쓰지 않는다. "
-            "답은 한국어 1~2문장으로 짧게 쓴다. 반드시 JSON 객체만 반환한다."
+            "답은 한국어 존댓말 1~3문장으로 짧게 쓴다. 반드시 JSON 객체만 반환한다."
         ),
         "notice": {
             "title": notice.get("title", ""),
@@ -1727,16 +1786,20 @@ def question_prompt(notice: dict[str, object], docs: list[str], question: str) -
             "contact": notice.get("contact", ""),
             "requiredDocs": docs[:10],
         },
+        "board": board or {},
         "question": question,
         "schema": {
             "answerable": True,
-            "answer": "공고 내용에 근거한 답변 또는 빈 문자열",
-            "sourceField": "근거로 쓴 notice 필드 이름 또는 빈 문자열",
+            "answerType": "notice | board | none",
+            "answer": "공고 내용 또는 준비 보드 상태에 근거한 답변, 또는 빈 문자열",
+            "sourceField": "근거로 쓴 notice 필드 이름 또는 task id, 또는 빈 문자열",
         },
     }
 
 
-def vertex_answer_question(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object] | None:
+def vertex_answer_question(
+    notice: dict[str, object], docs: list[str], question: str, board: dict[str, object] | None = None
+) -> dict[str, object] | None:
     config = vertex_config()
     if not config["project"]:
         return None
@@ -1752,7 +1815,7 @@ def vertex_answer_question(notice: dict[str, object], docs: list[str], question:
     )
     request_body = {
         "contents": [
-            {"role": "user", "parts": [{"text": json.dumps(question_prompt(notice, docs, question), ensure_ascii=False)}]}
+            {"role": "user", "parts": [{"text": json.dumps(question_prompt(notice, docs, question, board), ensure_ascii=False)}]}
         ],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 400, "responseMimeType": "application/json"},
     }
@@ -1771,7 +1834,9 @@ def vertex_answer_question(notice: dict[str, object], docs: list[str], question:
     return sanitize_ai_text(parsed) if parsed else None
 
 
-def gemini_answer_question(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object] | None:
+def gemini_answer_question(
+    notice: dict[str, object], docs: list[str], question: str, board: dict[str, object] | None = None
+) -> dict[str, object] | None:
     api_key = gemini_api_key()
     if not api_key:
         return None
@@ -1779,7 +1844,7 @@ def gemini_answer_question(notice: dict[str, object], docs: list[str], question:
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
     request_body = {
         "contents": [
-            {"role": "user", "parts": [{"text": json.dumps(question_prompt(notice, docs, question), ensure_ascii=False)}]}
+            {"role": "user", "parts": [{"text": json.dumps(question_prompt(notice, docs, question, board), ensure_ascii=False)}]}
         ],
         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 400, "responseMimeType": "application/json"},
     }
@@ -1798,17 +1863,33 @@ def gemini_answer_question(notice: dict[str, object], docs: list[str], question:
     return sanitize_ai_text(parsed) if parsed else None
 
 
-def answer_notice_question(notice: dict[str, object], docs: list[str], question: str) -> dict[str, object]:
+def normalize_question_answer(result: dict[str, object], board: dict[str, object] | None = None) -> dict[str, object]:
+    answer = str(result.get("answer") or "").strip()
+    answer_type = str(result.get("answerType") or "").strip()
+    if answer_type not in ANSWER_TYPES:
+        # 옛 스키마(answerType 없음)로 답하면 공고 사실 답변으로 본다.
+        answer_type = "notice" if result.get("answerable") else "none"
+    # 보드 상태를 받지 않았는데 「준비 보드 기반 안내」라고 하면 근거 없이 지어낸 것이다.
+    if answer_type == "board" and not (board or {}).get("tasks"):
+        answer_type = "none"
+    answerable = bool(result.get("answerable")) and answer_type != "none" and bool(answer)
+    return {
+        "connected": True,
+        "answerable": answerable,
+        "answerType": answer_type if answerable else "none",
+        "answer": answer if answerable else "",
+        "sourceField": str(result.get("sourceField") or "").strip() if answerable else "",
+    }
+
+
+def answer_notice_question(
+    notice: dict[str, object], docs: list[str], question: str, board: dict[str, object] | None = None
+) -> dict[str, object]:
     # 모델에 붙지 않았으면 「AI 가 확인했다」고 말하지 않는다(coach 의 llmStatus 와 같은 원칙).
-    result = vertex_answer_question(notice, docs, question) or gemini_answer_question(notice, docs, question)
+    result = vertex_answer_question(notice, docs, question, board) or gemini_answer_question(notice, docs, question, board)
     if isinstance(result, dict) and isinstance(result.get("answerable"), bool):
-        return {
-            "connected": True,
-            "answerable": bool(result.get("answerable")),
-            "answer": str(result.get("answer") or "").strip(),
-            "sourceField": str(result.get("sourceField") or "").strip(),
-        }
-    return {"connected": False, "answerable": False, "answer": "", "sourceField": ""}
+        return normalize_question_answer(result, board)
+    return {"connected": False, "answerable": False, "answerType": "none", "answer": "", "sourceField": ""}
 
 
 def bid_deadline_passed(bid_period: str, bid_deadline: str) -> tuple[bool, str]:
@@ -2363,7 +2444,8 @@ class Handler(SimpleHTTPRequestHandler):
                 if not question:
                     self.send_json(400, {"ok": False, "error": "질문을 입력하세요."})
                     return
-                result = answer_notice_question(notice, docs, question)
+                board = sanitize_board_state(payload.get("board"))
+                result = answer_notice_question(notice, docs, question, board)
                 self.send_json(200, {"ok": True, "result": result})
             except (ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self.send_json(400, {"ok": False, "error": str(exc)})

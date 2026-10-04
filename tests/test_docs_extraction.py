@@ -40,6 +40,11 @@ PLAYED: tuple[tuple[str, str], ...] = (
     ),
     ("public_data_service_key()", "C1 배선 축에서만 — 실제 인증키 대신 더미 문자열을 넣는다"),
     (
+        "vertex_answer_question()·gemini_answer_question()",
+        "D1 배선 축에서만 — 실제 모델 호출 대신 받은 인자를 캡처하고 정해 둔 응답을 돌려준다. "
+        "모델이 board 를 실제로 읽고 순서대로 안내하는지는 이 파일이 검증하지 못한다(수동 라이브 시험으로만 확인)",
+    ),
+    (
         "fetch_attachment_bytes()·attachment_text()·subprocess(venv)",
         "A10 축에서만 — 실제 다운로드·venv subprocess 호출 대신 attachment_chunks 를 직접 만들어 "
         "extract_doc_items·build_doc_checklist 에 넣는다. src/attachment_parser.py 의 실제 PDF·HWP·HWPX "
@@ -101,6 +106,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     ("C4", "물건상세 링크 확신 낮춤", "pbctCdtnNo 없음 → itemDetailUncertain · 있으면 없음", "플래그 조건 삭제", "Y"),
+    (
+        "D1",
+        "질문 하네스 보드 상태",
+        "개수·길이 상한 · 진행률 재계산 · 프롬프트에 board 탑재 · 보드 없이 board 답변 거부 · 옛 스키마 · 배선",
+        "board 가드 삭제 · 재계산 대신 화면 숫자 사용 · 프롬프트 board 키 삭제 · 라우트 전달 삭제",
+        "Y",
+    ),
     ("C5", "재산유형 공고상세", "메뉴 문구 차단 · 배지 type01 · hidden input 우선 · C형까지 흐름", "배지 호출 삭제 · 가드 삭제", "Y"),
 )
 
@@ -1421,6 +1433,61 @@ def test_asset_type_notice_detail() -> None:
     check("C5 배선 재산유형이 C형 판정까지 흐른다", code == "C", str(code))
 
 
+def test_question_board_state() -> None:
+    long = "가" * 500
+    raw = {
+        "tasks": [{"id": f"t{i}", "title": long, "status": "s", "due": "d", "done": i < 2, "needsCheck": ""} for i in range(15)]
+        + ["문자열은 버린다"],
+        "docs": {"done": True, "total": 999, "pending": [long] * 20},
+        "progress": {"done": 99, "total": 99},
+        "evil": "모르는 키",
+    }
+    board = server.sanitize_board_state(raw)
+    check("D1 할 일은 10개까지만 싣는다", len(board["tasks"]) == 10, str(len(board["tasks"])))
+    check("D1 제목 길이를 자른다", len(board["tasks"][0]["title"]) == 60)
+    check("D1 진행률은 화면 숫자가 아니라 정리한 tasks 에서 다시 센다", board["progress"] == {"done": 2, "total": 10},
+          str(board["progress"]))
+    check("D1 다음 할 일은 첫 미완료 항목이다", board["nextTaskId"] == "t2", board["nextTaskId"])
+    check("D1 bool·범위 밖 숫자는 0 으로 본다", board["docs"]["done"] == 0 and board["docs"]["total"] == 0)
+    check("D1 남은 서류는 10개까지", len(board["docs"]["pending"]) == 10)
+    check("D1 모르는 키는 버린다", "evil" not in board)
+    check("D1 dict 가 아니면 빈 보드", server.sanitize_board_state("x") == {} and server.sanitize_board_state(None) == {})
+    check("D1 done 은 True 일 때만 완료", server.sanitize_board_state({"tasks": [{"id": "a", "done": "true"}]})["tasks"][0]["done"] is False)
+
+    prompt = server.question_prompt({"title": "공고"}, [], "이제 뭘 해야 하나요?", board)
+    check("D1 프롬프트에 board 가 실린다", prompt.get("board", {}).get("nextTaskId") == "t2")
+    check("D1 프롬프트가 board 분류를 지시한다", "board" in prompt["instruction"] and "nextTaskId" in prompt["instruction"])
+
+    norm = server.normalize_question_answer
+    good = {"answerable": True, "answerType": "board", "answer": "공고 유형 확인부터 하세요.", "sourceField": "t2"}
+    check("D1 보드가 있으면 board 답변을 통과시킨다", norm(good, board)["answerType"] == "board")
+    check("D1 보드 없이 온 board 답변은 none 으로 버린다",
+          norm(good, {})["answerType"] == "none" and norm(good, None)["answer"] == "")
+    check("D1 옛 스키마(answerType 없음) answerable → notice",
+          norm({"answerable": True, "answer": "10월 15일입니다."}, {})["answerType"] == "notice")
+    check("D1 답이 비면 answerable 이어도 none", norm({"answerable": True, "answerType": "notice", "answer": ""}, board)["answerable"] is False)
+    check("D1 none 이면 sourceField 도 비운다",
+          norm({"answerable": False, "answerType": "none", "answer": "x", "sourceField": "t1"}, board)["sourceField"] == "")
+
+    # 배선 — 라우트가 board 를 정리해서 모델 호출까지 넘기는가
+    captured: list[object] = []
+    original = (server.vertex_answer_question, server.gemini_answer_question)
+    server.vertex_answer_question = lambda n, d, q, b=None: captured.append(b) or dict(good)
+    server.gemini_answer_question = lambda n, d, q, b=None: None
+    try:
+        result = server.answer_notice_question({}, [], "이제 뭘 해야 하나요?", board)
+    finally:
+        server.vertex_answer_question, server.gemini_answer_question = original
+    check("D1 배선: board 가 모델 호출까지 전달된다", captured and captured[0] is board, str(captured[:1]))
+    check("D1 배선: 결과에 answerType 이 실린다", result.get("answerType") == "board" and result["connected"] is True)
+    route = Path(server.__file__).read_text(encoding="utf-8")
+    route_block = route[route.index('parsed.path == "/api/ask"'):route.index('self.send_json(404')]
+    route_code = "\n".join(line.split("#")[0] for line in route_block.splitlines())
+    check("D1 배선: /api/ask 가 sanitize_board_state 를 거쳐 board 를 넘긴다",
+          'sanitize_board_state(payload.get("board"))' in route_code
+          and "answer_notice_question(notice, docs, question, board)" in route_code)
+
+
 def main() -> int:
     print_header()
     tests = (
@@ -1452,6 +1519,7 @@ def main() -> int:
         test_public_data_endpoint_scheme_wiring,
         test_item_detail_uncertain_flag,
         test_asset_type_notice_detail,
+        test_question_board_state,
     )
     for test in tests:
         test()
