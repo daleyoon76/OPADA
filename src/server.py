@@ -921,6 +921,26 @@ def vertex_config() -> dict[str, str]:
     return {"project": project, "location": location, "model": model or "gemini-2.5-flash-lite"}
 
 
+VERTEX_429_BACKOFF = (1.0, 2.0)
+
+
+def vertex_read(request: urllib.request.Request, timeout: int) -> str:
+    """Vertex 응답 본문을 읽는다. 429(공유 처리량 일시 초과)만 짧게 기다렸다 다시 시도한다.
+
+    2026-10-04 실측 — 같은 요청 6회 중 1회가 429 였고, 그대로 두면 화면이 「AI 연결 안 됨」으로 떨어졌다.
+    다른 오류는 재시도하지 않는다(인증·요청 오류는 다시 보내도 같다).
+    """
+    for wait in (*VERTEX_429_BACKOFF, None):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or wait is None:
+                raise
+            time.sleep(wait)
+    raise urllib.error.URLError("unreachable")
+
+
 def vertex_access_token() -> str:
     global _VERTEX_TOKEN, _VERTEX_TOKEN_EXPIRES_AT
     if _VERTEX_TOKEN and time.time() < _VERTEX_TOKEN_EXPIRES_AT:
@@ -1678,8 +1698,7 @@ def vertex_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obj
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        raw = vertex_read(request, timeout=30)
         parsed = parse_gemini_json(json.loads(raw))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None
@@ -1826,8 +1845,7 @@ def vertex_answer_question(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            raw = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        raw = vertex_read(request, timeout=20)
         parsed = parse_gemini_json(json.loads(raw))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None

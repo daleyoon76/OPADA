@@ -35,7 +35,8 @@ PLAYED: tuple[tuple[str, str], ...] = (
     ("화면 렌더", "이 파일은 화면을 연기하지 않는다. 화면 축은 tests/screen.spec.js 다"),
     (
         "urllib.request.urlopen()",
-        "C1·C2·C3 배선 축에서만 — 실제 HTTP 대신 픽스처 본문을 돌려주고 요청 URL 을 캡처한다. "
+        "C1·C2·C3·D2 축에서만 — 실제 HTTP 대신 픽스처 본문(D2 는 정해 둔 HTTP 429/500)을 돌려주고 요청 URL 을 캡처한다. "
+        "D2 는 time.sleep 도 기록만 하고 실제로 기다리지 않는다. "
         "게이트웨이의 실제 응답과 실제 인증키는 이 파일이 검증하지 못한다",
     ),
     ("public_data_service_key()", "C1 배선 축에서만 — 실제 인증키 대신 더미 문자열을 넣는다"),
@@ -111,6 +112,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "질문 하네스 보드 상태",
         "개수·길이 상한 · 진행률 재계산 · 프롬프트에 board 탑재 · 보드 없이 board 답변 거부 · 옛 스키마 · 배선",
         "board 가드 삭제 · 재계산 대신 화면 숫자 사용 · 프롬프트 board 키 삭제 · 라우트 전달 삭제",
+        "Y",
+    ),
+    (
+        "D2",
+        "Vertex 429 재시도",
+        "429 1회 후 성공 · 429 연속이면 포기 · 500 은 즉시 포기 · 질문·코치 호출부 배선",
+        "429 분기 삭제 · 재시도 횟수 0 · 질문 호출부를 urlopen 직접 호출로 되돌리기",
         "Y",
     ),
     ("C5", "재산유형 공고상세", "메뉴 문구 차단 · 배지 type01 · hidden input 우선 · C형까지 흐름", "배지 호출 삭제 · 가드 삭제", "Y"),
@@ -1488,6 +1496,76 @@ def test_question_board_state() -> None:
           and "answer_notice_question(notice, docs, question, board)" in route_code)
 
 
+class _FakeResponse:
+    def __init__(self, body: str) -> None:
+        self._body = body.encode("utf-8")
+        self.headers = type("H", (), {"get_content_charset": staticmethod(lambda: "utf-8")})()
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+
+def _with_fake_vertex(codes: list[int], action):
+    """urlopen 을 «codes 순서대로 HTTP 오류, 그다음 성공» 으로 바꾸고 sleep 을 기록만 한다."""
+    import urllib.error
+    calls: list[int] = []
+    sleeps: list[float] = []
+    body = json.dumps({"candidates": [{"content": {"parts": [{"text": json.dumps(
+        {"answerable": True, "answerType": "notice", "answer": "10월 15일입니다.", "sourceField": "bidDeadline"},
+        ensure_ascii=False)}]}}]}, ensure_ascii=False)
+
+    def fake_urlopen(request, timeout=0):
+        calls.append(1)
+        if len(calls) <= len(codes):
+            raise urllib.error.HTTPError("u", codes[len(calls) - 1], "err", {}, None)
+        return _FakeResponse(body)
+
+    original = (server.urllib.request.urlopen, server.time.sleep)
+    server.urllib.request.urlopen = fake_urlopen
+    server.time.sleep = sleeps.append
+    try:
+        try:
+            result = action()
+        except Exception as exc:  # noqa: BLE001 — 포기했는지만 본다
+            result = exc
+    finally:
+        server.urllib.request.urlopen, server.time.sleep = original
+    return result, len(calls), sleeps
+
+
+def test_vertex_429_retry() -> None:
+    import urllib.error
+    req = lambda: server.vertex_read(server.urllib.request.Request("https://example.invalid", data=b"{}"), 5)  # noqa: E731
+    result, n, sleeps = _with_fake_vertex([429], req)
+    check("D2 429 한 번 뒤 성공하면 본문을 돌려준다", isinstance(result, str) and n == 2 and sleeps == [1.0], f"{n} {sleeps}")
+    result, n, sleeps = _with_fake_vertex([429, 429, 429], req)
+    check("D2 429 가 계속되면 3번째에서 포기한다", isinstance(result, urllib.error.HTTPError) and n == 3, f"{n} {result!r}")
+    result, n, sleeps = _with_fake_vertex([500], req)
+    check("D2 429 가 아니면 다시 보내지 않는다", isinstance(result, urllib.error.HTTPError) and n == 1 and sleeps == [], f"{n}")
+
+    # 배선 — 질문 경로가 실제로 재시도 도우미를 거치는가
+    original = (server.vertex_config, server.vertex_access_token)
+    server.vertex_config = lambda: {"project": "p", "location": "global", "model": "m"}
+    server.vertex_access_token = lambda: "t"
+    try:
+        result, n, _ = _with_fake_vertex([429], lambda: server.vertex_answer_question({}, [], "마감?", {}))
+    finally:
+        server.vertex_config, server.vertex_access_token = original
+    check("D2 배선: 질문 호출이 429 뒤 재시도해서 답을 받는다",
+          isinstance(result, dict) and result.get("answer") == "10월 15일입니다." and n == 2, f"{n} {result!r}")
+    code = Path(server.__file__).read_text(encoding="utf-8")
+    coach = code[code.index("def vertex_ai_coach("):code.index("def ", code.index("def vertex_ai_coach(") + 10)]
+    coach_code = "\n".join(line.split("#")[0] for line in coach.splitlines())
+    check("D2 배선: 코치 호출도 vertex_read 를 거친다",
+          "vertex_read(request" in coach_code and "urlopen(" not in coach_code)
+
+
 def main() -> int:
     print_header()
     tests = (
@@ -1520,6 +1598,7 @@ def main() -> int:
         test_item_detail_uncertain_flag,
         test_asset_type_notice_detail,
         test_question_board_state,
+        test_vertex_429_retry,
     )
     for test in tests:
         test()
