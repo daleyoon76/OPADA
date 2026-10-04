@@ -1472,6 +1472,12 @@ a:hover {
     margin-left: 32px;
   }
 
+  /* 390px 에서 탭 7개 중 3개가 화면 밖에 숨었다(r1 P1-2) — 가로 스크롤 대신 줄을 바꾼다. */
+  .support-tablist {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
   .notice-band {
     align-items: flex-start;
     padding: 9px 10px;

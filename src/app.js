@@ -958,7 +958,7 @@ function renderBoardCoach(coach) {
     </div>
     <p class="small-text">${lead}</p>
     <div class="coach-ask-row">
-      <input type="text" id="coach-question-input" placeholder="예: 계약 체결 후 며칠 안에 잔금을 내야 하나요?" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
+      <input type="text" id="coach-question-input" placeholder="예: 잔금은 언제까지 내야 하나요?" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
       <button type="button" class="secondary small-button" data-ask-question>질문하기</button>
     </div>
     <div id="coach-question-result" class="coach-ask-result" aria-live="polite"></div>
@@ -1498,7 +1498,8 @@ function renderReport() {
         }
         <details>
           <summary>자세히</summary>
-          ${aiMatch?.check ? `<p><b>${aiMatch.check.title}</b>: ${aiMatch.check.reason || aiMatch.check.action}</p>` : ""}
+          ${aiMatch?.check?.reason ? `<p><b>${aiMatch.check.title}</b>: ${aiMatch.check.reason}</p>` : ""}
+          ${aiMatch?.check?.action ? `<p><b>먼저 할 일</b>: ${aiMatch.check.action}</p>` : ""}
           <p><b>문의 문장</b>: ${task.question}</p>
           <p>${task.detail}</p>
           <p class="small-text">근거: ${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></p>
@@ -1564,7 +1565,15 @@ function renderReport() {
     })
     .join("");
 
-  byId("question-list").innerHTML = sampleNotice.risks
+  // AI 코치가 공고를 보고 만든 담당기관 문의 문장(askAgency)을 맨 위에 둔다 — 코치 패널을 줄이면서
+  // 이 탭이 그 문장의 유일한 자리가 됐다(2026-10-04 visual-reviewer r1 P1-1).
+  const agencyQuestionsHtml = (sampleNotice.aiCoach?.askAgency || [])
+    .map((question) => `<details class="compact-row">
+      <summary><span>문의</span><strong>${question}</strong></summary>
+      <p>AI 코치가 이 공고에 맞춰 정리한 문장입니다. 담당기관에 그대로 물어볼 수 있습니다.</p>
+    </details>`)
+    .join("");
+  byId("question-list").innerHTML = agencyQuestionsHtml + sampleNotice.risks
     .map((risk) => `<details class="compact-row">
       <summary><span>문의</span><strong>${risk.title}</strong></summary>
       <p>${risk.question}</p>
