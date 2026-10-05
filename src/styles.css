@@ -714,6 +714,12 @@ a:hover {
   background: #f5f7ec;
 }
 
+/* is-done 배경(#f5f7ec)이 .badge.safe 배경(--soft-green: #f0f7ea)과 거의 같아 배지 경계가
+   안 보였다 — 테두리로 구분한다(2026-10-04 visual-reviewer r1 P2-7). */
+.task-item.is-done .badge.safe {
+  border: 1px solid rgba(194, 75, 37, 0.35);
+}
+
 .task-item.has-ai-nudge {
   border-color: #c8d1a0;
 }

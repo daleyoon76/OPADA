@@ -1567,10 +1567,16 @@ function renderReport() {
 
   // AI 코치가 공고를 보고 만든 담당기관 문의 문장(askAgency)을 맨 위에 둔다 — 코치 패널을 줄이면서
   // 이 탭이 그 문장의 유일한 자리가 됐다(2026-10-04 visual-reviewer r1 P1-1).
+  // 모델에 붙지 않았으면 「AI가 했다」고 말하지 않는다(2026-10-04 visual-reviewer r2 P2-A).
+  const askAgencyLlmConnected = coach?.llmStatus === "connected";
   const agencyQuestionsHtml = (sampleNotice.aiCoach?.askAgency || [])
     .map((question) => `<details class="compact-row">
       <summary><span>문의</span><strong>${question}</strong></summary>
-      <p>AI 코치가 이 공고에 맞춰 정리한 문장입니다. 담당기관에 그대로 물어볼 수 있습니다.</p>
+      <p>${
+        askAgencyLlmConnected
+          ? "AI 코치가 이 공고에 맞춰 정리한 문장입니다."
+          : "정해진 규칙으로 이 공고에 맞춰 정리한 문장입니다."
+      } 담당기관에 그대로 물어볼 수 있습니다.</p>
     </details>`)
     .join("");
   byId("question-list").innerHTML = agencyQuestionsHtml + sampleNotice.risks
@@ -1796,6 +1802,17 @@ async function runAnalysis() {
   }
 }
 
+// ARIA tabs 패턴의 roving tabindex — 선택된 탭만 tabindex=0, 나머지는 -1
+// (2026-10-04 visual-reviewer r1 P2-2).
+function selectSupportTab(tab) {
+  document.querySelectorAll("[data-support-tab]").forEach((candidate) => {
+    const selected = candidate === tab;
+    candidate.setAttribute("aria-selected", String(selected));
+    candidate.setAttribute("tabindex", selected ? "0" : "-1");
+    byId(`panel-${candidate.dataset.supportTab}`).hidden = !selected;
+  });
+}
+
 function init() {
   byId("notice-url").value = sampleNotice.sourceUrl;
   analyzedInputValue = "";
@@ -1891,14 +1908,29 @@ function init() {
     }
   });
 
+  // ARIA tabs 패턴 — 좌우 화살표로 탭 이동, Home/End로 처음·끝 탭 선택
+  // (2026-10-04 visual-reviewer r1 P2-2).
+  document.addEventListener("keydown", (event) => {
+    const tab = event.target.closest?.("[data-support-tab]");
+    if (!tab) return;
+    const tabs = Array.from(document.querySelectorAll("[data-support-tab]"));
+    const index = tabs.indexOf(tab);
+    let nextIndex = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+    else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = tabs.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTab = tabs[nextIndex];
+    selectSupportTab(nextTab);
+    nextTab.focus();
+  });
+
   document.addEventListener("click", (event) => {
     const supportTab = event.target.closest("[data-support-tab]");
     if (supportTab) {
-      document.querySelectorAll("[data-support-tab]").forEach((tab) => {
-        const selected = tab === supportTab;
-        tab.setAttribute("aria-selected", String(selected));
-        byId(`panel-${tab.dataset.supportTab}`).hidden = !selected;
-      });
+      selectSupportTab(supportTab);
       return;
     }
     if (event.target.closest("[data-copy-summary]")) {
