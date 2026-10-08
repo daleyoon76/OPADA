@@ -3,7 +3,7 @@
 - 날짜: 2026-10-08
 - 작업자: frontend-implementer(이 세션이 직접 구현, Agent 도구로 재위임하지 않음)
 - 워크트리: `~/Documents/Dev/Hometest_op`(main, 유일한 워크트리)
-- 커밋: `48dd0c7`
+- 커밋: `a02f8a1`
 
 ## 배경
 
@@ -125,5 +125,5 @@
 ## 저자=검증자 금지 — 다음 단계
 
 이 보고서와 diff는 전부 이 세션(frontend-implementer 역할, 저자)이 작성했다. 독립 재검토는
-`visual-reviewer`가 커밋 `48dd0c7` 기준으로 맡는다. 재판정 packet에는 이 문서의 스크린샷 3장과
-`git show 48dd0c7 --stat`를 함께 넘길 것을 권한다.
+`visual-reviewer`가 커밋 `a02f8a1` 기준으로 맡는다. 재판정 packet에는 이 문서의 스크린샷 3장과
+`git show a02f8a1 --stat`를 함께 넘길 것을 권한다.
