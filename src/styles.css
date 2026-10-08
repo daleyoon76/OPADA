@@ -808,6 +808,24 @@ a:hover {
   margin: 6px 0 0;
 }
 
+/* "자세히" 블록을 라벨:내용 2열로 정리한다(2026-10-08). 라벨 열은 고정폭이되 줄바꿈을 허용해
+   긴 라벨("담당기관에 물어볼 질문 정리"류)도 표를 깨지 않게 한다. */
+.task-item .detail-grid {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 5px 10px;
+  margin: 0;
+}
+
+.task-item .detail-grid dt {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.task-item .detail-grid dd {
+  margin: 0;
+}
+
 .context-panel {
   border-left: 1px solid var(--line);
   padding-left: 18px;

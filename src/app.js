@@ -888,6 +888,53 @@ function getFitMessage() {
   };
 }
 
+// "공고 유형 확인"·"입찰기간 확인"·"최저입찰가격 확인" 할 일 카드에, AI가 이미 비교·추출해 둔
+// 결과를 자세히 블록 문장으로 보여준다. getFitMessage()의 판정 로직 자체는 바꾸지 않고
+// 그 결과를 "보여주는" 자리만 넓힌다 — 단정하지 않고 헤지하며, 불일치/추출 실패일 때만
+// 담당기관에 물어볼 질문 초안을 함께 낸다(정상 추출/일치 항목에는 불필요한 질문을 만들지 않는다).
+function getAiPrecheckForTask(task, fit) {
+  if (task.id === "notice-type") {
+    if (fit.type === "match") {
+      return {
+        precheck: "선택한 검토 목적과 공고 유형을 비교했을 때 맞는 것으로 보입니다. 원문·담당기관 확인을 우선합니다.",
+        draft: null,
+      };
+    }
+    if (fit.type === "check") {
+      return {
+        precheck: `${fit.body} 원문·담당기관 확인을 우선합니다.`,
+        draft: "이 물건을 제가 고른 용도로 사용할 수 있는지 담당기관에 확인 부탁드립니다.",
+      };
+    }
+    return {
+      precheck: `선택한 검토 목적과 공고 유형이 다른 것으로 보입니다. ${fit.body} 원문·담당기관 확인을 우선합니다.`,
+      draft: "제가 고른 용도와 공고 유형이 다르게 보이는데, 이 공고로 진행해도 되는지 확인 부탁드립니다.",
+    };
+  }
+
+  if (task.id === "bid-period" || task.id === "price") {
+    const extracted = task.action !== NOTICE_VALUE_FALLBACK;
+    if (extracted) {
+      // 가격이 "비공개"인 것도 추출 실패가 아니라 이용기관이 그렇게 정한 정상 값이다
+      // (known-pitfalls.md 「가격 표시」 — minimum_bid_value()가 명시적으로 돌리는 값).
+      const precheck =
+        task.id === "price" && task.action === "비공개"
+          ? "공고 원문에서 가격이 비공개로 설정된 것으로 보입니다. 원문·담당기관 확인을 우선합니다."
+          : `공고 원문에서 ${task.action}로 확인된 것으로 보입니다. 원문·담당기관 확인을 우선합니다.`;
+      return { precheck, draft: null };
+    }
+    return {
+      precheck: "원문에서 값을 찾지 못했습니다. 직접 확인해 주세요.",
+      draft:
+        task.id === "bid-period"
+          ? "이 공고의 입찰기간(입찰 시작·마감 일시)은 언제인가요?"
+          : "이 공고의 최저입찰가격(또는 임대료 기준가)은 얼마인가요?",
+    };
+  }
+
+  return null;
+}
+
 function renderAnalysisResult() {
   const panel = byId("analysis-result");
   const fit = getFitMessage();
@@ -1465,6 +1512,7 @@ function renderReport() {
       .map(
         (task) => {
         const aiMatch = aiAssignments.get(task.id);
+        const aiPrecheck = getAiPrecheckForTask(task, fit);
         // 입찰기간·최저입찰가격 카드만 원문 확인 필요/실제 값 구분을 표시한다 —
         // 다른 카드(서류·담당기관 등)의 action 은 애초에 이 대체 문구로 채워지지 않는다.
         const isNoticeValueTask = task.id === "bid-period" || task.id === "price";
@@ -1498,11 +1546,15 @@ function renderReport() {
         }
         <details>
           <summary>자세히</summary>
-          ${aiMatch?.check?.reason ? `<p><b>${aiMatch.check.title}</b>: ${aiMatch.check.reason}</p>` : ""}
-          ${aiMatch?.check?.action ? `<p><b>먼저 할 일</b>: ${aiMatch.check.action}</p>` : ""}
-          <p><b>문의 문장</b>: ${task.question}</p>
-          <p>${task.detail}</p>
-          <p class="small-text">근거: ${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></p>
+          <dl class="detail-grid">
+            ${aiMatch?.check?.reason ? `<dt>${aiMatch.check.title}</dt><dd>${aiMatch.check.reason}</dd>` : ""}
+            ${aiMatch?.check?.action ? `<dt>먼저 할 일</dt><dd>${aiMatch.check.action}</dd>` : ""}
+            ${aiPrecheck ? `<dt>AI 사전 확인</dt><dd>${aiPrecheck.precheck}</dd>` : ""}
+            ${aiPrecheck?.draft ? `<dt>AI가 짚은 질문</dt><dd>${aiPrecheck.draft}</dd>` : ""}
+            <dt>문의 문장</dt><dd>${task.question}</dd>
+            <dt>상세 설명</dt><dd>${task.detail}</dd>
+            <dt>근거</dt><dd>${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></dd>
+          </dl>
         </details>
       </article>`;
         },
