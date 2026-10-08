@@ -1549,8 +1549,8 @@ function renderReport() {
           <dl class="detail-grid">
             ${aiMatch?.check?.reason ? `<dt>${aiMatch.check.title}</dt><dd>${aiMatch.check.reason}</dd>` : ""}
             ${aiMatch?.check?.action ? `<dt>먼저 할 일</dt><dd>${aiMatch.check.action}</dd>` : ""}
-            ${aiPrecheck ? `<dt>AI 사전 확인</dt><dd>${aiPrecheck.precheck}</dd>` : ""}
-            ${aiPrecheck?.draft ? `<dt>AI가 짚은 질문</dt><dd>${aiPrecheck.draft}</dd>` : ""}
+            ${aiPrecheck ? `<dt>규칙 기반 사전 확인</dt><dd>${aiPrecheck.precheck}</dd>` : ""}
+            ${aiPrecheck?.draft ? `<dt>담당기관에 물어볼 질문</dt><dd>${aiPrecheck.draft}</dd>` : ""}
             <dt>문의 문장</dt><dd>${task.question}</dd>
             <dt>상세 설명</dt><dd>${task.detail}</dd>
             <dt>근거</dt><dd>${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></dd>
