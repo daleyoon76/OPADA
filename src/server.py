@@ -49,6 +49,22 @@ def clean_text(value: str | None) -> str:
     return value.strip()
 
 
+# 온비드 담당부점 필드가 "국유재산지원처 / 물건정보참조 / 물건정보참조 / 물건정보참조"처럼
+# 실제 값과 의미 없는 placeholder(미입력 항목 안내 문구)를 " / "로 섞어 내려줄 때가 있다
+# (2026-10-09 실측). 사용자에게는 placeholder만 반복돼 "참조하라는데 참조할 내용이 없다"로
+# 읽힌다. "/ "로 나눈 뒤 이 문구와 완전히 같은 조각만 제거한다 — 값의 일부로 같은 글자가
+# 섞인 경우까지 지우지 않도록 부분일치가 아닌 완전일치로 비교한다.
+PLACEHOLDER_SEGMENTS = {"물건정보참조"}
+
+
+def strip_placeholder_segments(value: str) -> str:
+    if not value or " / " not in value:
+        return value
+    segments = [part.strip() for part in value.split(" / ")]
+    kept = [part for part in segments if part and part not in PLACEHOLDER_SEGMENTS]
+    return " / ".join(kept)
+
+
 def attrs_from_tag(tag: str) -> dict[str, str]:
     attrs: dict[str, str] = {}
     for match in re.finditer(r"""([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", tag):
@@ -816,8 +832,8 @@ PRICE_UNDISCLOSED = "비공개"
 NOTICE_VALUE_FALLBACK = "원문 확인 필요"
 
 
-def minimum_bid_value(inputs: dict[str, str], raw_value: str) -> str:
-    hide_code = (inputs.get("lowstBidPrcHideDivCd") or "").strip()
+def minimum_bid_value(inputs: dict[str, str], raw_value: str, extra_hide_code: str = "") -> str:
+    hide_code = (inputs.get("lowstBidPrcHideDivCd") or extra_hide_code or "").strip()
     if hide_code and hide_code != "0001":
         return PRICE_UNDISCLOSED
     digits = re.sub(r"\D", "", raw_value or "")
@@ -868,12 +884,49 @@ def fetch_onbid(raw_url: str) -> tuple[str, str]:
         return response.url, content.decode(charset, errors="replace")
 
 
+# 온비드 물건상세 화면이 입찰기간·최저입찰가격·물건관리번호를 자바스크립트로 채워 넣을 때
+# 쓰는 내부 XHR이다(공식 문서 없음, 2026-10-09 브라우저 네트워크 기록으로 확인). 회차별
+# 표가 정적 HTML에 없어 못 읽던 값을 이 엔드포인트가 그대로 돌려준다. 공식 API가 아니므로
+# 온비드가 구조를 바꾸면 깨질 수 있다 — 실패해도 조용히 빈 값으로 넘어가 기존 폴백을 막지 않는다.
+def fetch_onbid_cltr_detail(
+    final_url: str, query_params: dict[str, list[str]], ids: dict[str, str]
+) -> dict[str, object]:
+    if not ids.get("onbidPbancNo") and not ids.get("onbidCltrno"):
+        return {}
+    parsed = urllib.parse.urlparse(final_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    payload = {
+        "cltrPrptDivCd": single_query_value(query_params, "cltrPrptDivCd"),
+        "cltrScrnGrpCd": single_query_value(query_params, "cltrScrnGrpCd") or "0001",
+        "onbidCltrno": ids.get("onbidCltrno", ""),
+        "onbidPbancNo": ids.get("onbidPbancNo", ""),
+        "pbctCdtnNo": ids.get("pbctCdtnNo", ""),
+        "pbctNo": ids.get("pbctNo", ""),
+    }
+    data = urllib.parse.urlencode({key: value for key, value in payload.items() if value}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{origin}/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController/inqPbancDtlCltrInf.do",
+        data=data,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OnBidDocAgentMVP/0.1",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            body = response.read().decode("utf-8", errors="replace")
+        parsed_body = json.loads(body)
+        items = parsed_body.get("cltrInfVO")
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            return items[0]
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    return {}
+
+
 def public_data_service_key() -> str:
-    for name in ("ONBID_API_SERVICE_KEY", "DATA_GO_KR_SERVICE_KEY", "PUBLIC_DATA_SERVICE_KEY"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    return ""
+    return secret_value("ONBID_API_SERVICE_KEY", "DATA_GO_KR_SERVICE_KEY", "PUBLIC_DATA_SERVICE_KEY")
 
 
 def env_file_value(path: Path, name: str) -> str:
@@ -897,6 +950,7 @@ def secret_value(*names: str) -> str:
         if value:
             return value
     env_paths = [
+        Path(__file__).resolve().parent.parent / ".env.local",
         Path(os.environ.get("BIZKETCH_ENV_LOCAL", "")),
         Path.home() / "Documents" / "Dev" / "Bizketch" / "app" / ".env.local",
     ]
@@ -2168,6 +2222,17 @@ def build_notice(raw_url: str) -> dict[str, object]:
     cltr_mng_no = inputs.get("cltrMngNo") or inputs.get("cltrMngNoInq") or single_query_value(params, "cltrMngNo")
     pbct_no = inputs.get("pbctNo") or single_query_value(params, "pbctNo")
     pbct_cdtn_no = inputs.get("pbctCdtnNo") or single_query_value(params, "pbctCdtnNo")
+    cltr_detail = fetch_onbid_cltr_detail(
+        final_url,
+        params,
+        {
+            "onbidCltrno": onbid_cltr_no,
+            "onbidPbancNo": onbid_pbanc_no,
+            "pbctCdtnNo": pbct_cdtn_no,
+            "pbctNo": pbct_no,
+        },
+    )
+    cltr_mng_no = cltr_mng_no or clean_text(str(cltr_detail.get("cltrMngNo") or ""))
     related_urls = build_related_urls(
         final_url,
         params,
@@ -2217,8 +2282,8 @@ def build_notice(raw_url: str) -> dict[str, object]:
 
     agency = values_after_label(text, "공고기관") or api_value(api_entries, "pbancInstNm", "dpslMchnNm", "orgNm", "instNm") or "공고기관 확인"
     contact = (
-        values_after_label(text, "담당부점")
-        or values_after_label(text, "담당기관")
+        strip_placeholder_segments(values_after_label(text, "담당부점"))
+        or strip_placeholder_segments(values_after_label(text, "담당기관"))
         or api_value(api_entries, "chargeDeptNm", "chrgrDeptNm", "picDeptNm", "chargerTel", "ctacTel")
         or agency
     )
@@ -2230,25 +2295,43 @@ def build_notice(raw_url: str) -> dict[str, object]:
     )
     bid_type = "전자입찰" if "전자입찰" in text else values_after_label(text, "입찰구분") or api_value(api_entries, "bidDvsnNm", "bidKindNm") or "입찰구분 확인"
     notice_date = values_after_label(text, "공고일") or values_after_label(text, "최초공고일자") or inputs.get("pbctBgngDt", "")[:10] or api_value(api_entries, "pbancDt", "fstPbancDt")
+    cltr_bid_begin = clean_text(str(cltr_detail.get("pbctBegnDtm") or ""))
+    cltr_bid_end = clean_text(str(cltr_detail.get("pbctDdlnDt") or ""))
     if inputs.get("pbctBgngDt") and inputs.get("pbctLastDdlnDt"):
         bid_period = f"{inputs['pbctBgngDt']} ~ {inputs['pbctLastDdlnDt']}"
     else:
         bid_period = values_after_label(text, "입찰기간")
+    if not bid_period and (cltr_bid_begin or cltr_bid_end):
+        bid_period = f"{cltr_bid_begin} ~ {cltr_bid_end}".strip(" ~")
     api_start = api_value(api_entries, "pbctBegnDtm", "bidBgngDt", "bidBgngDtm", "pbctStrtDt")
     api_end = api_value(api_entries, "pbctClsDtm", "bidClsDt", "bidClsgDtm", "pbctEndDt", "pbctLastDdlnDt")
     if not bid_period and (api_start or api_end):
         bid_period = f"{api_start} ~ {api_end}".strip(" ~")
-    bid_deadline = inputs.get("pbctLastDdlnDt") or api_end
+    bid_deadline = inputs.get("pbctLastDdlnDt") or cltr_bid_end or api_end
     minimum_bid = minimum_bid_value(
         inputs,
         (
             inputs.get("lowstBidPrc")
             or values_after_label(text, "공매예정가격(원)")
+            or clean_text(str(cltr_detail.get("lowstBidPrc") or ""))
             or api_value(api_entries, "minBidPrc", "lowstBidPrc", "fstBidPrc", "pbctExpcPrc", "bidPrc")
         ),
+        clean_text(str(cltr_detail.get("lowstBidPrcHideDivCd") or "")),
     ) or api_value(api_entries, "lowstBidPrcIndctCont")
-    appraisal = inputs.get("cltrApslEvlAvgAmt") or values_after_label(text, "감정평가금액(원)") or api_value(api_entries, "apslAmt", "cltrApslEvlAvgAmt", "aprsPrc")
-    area = values_after_label(text, "면적") or api_value(api_entries, "area", "lndArea", "bldArea", "ar")
+    appraisal = (
+        inputs.get("cltrApslEvlAvgAmt")
+        or values_after_label(text, "감정평가금액(원)")
+        or clean_text(str(cltr_detail.get("cltrApslEvlAvgAmt") or ""))
+        or api_value(api_entries, "apslAmt", "cltrApslEvlAvgAmt", "aprsPrc")
+    )
+    cltr_land_sqms = float(cltr_detail.get("landSqms") or 0) or None
+    cltr_bld_sqms = float(cltr_detail.get("bldSqms") or 0) or None
+    area = (
+        values_after_label(text, "면적")
+        or (f"{cltr_land_sqms}㎡" if cltr_land_sqms else "")
+        or (f"{cltr_bld_sqms}㎡" if cltr_bld_sqms else "")
+        or api_value(api_entries, "area", "lndArea", "bldArea", "ar")
+    )
     sections = split_sections(text)
     related_docs = extract_related_docs(text, final_url)
     attachment_chunks = attachment_doc_chunks(related_docs)
@@ -2424,6 +2507,14 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(path)
         safe_path = parsed.path.lstrip("/")
         return str(ROOT / safe_path)
+
+    def end_headers(self) -> None:
+        # Cache-Control 이 없으면 브라우저가 재검증 없이 디스크 캐시를 그대로 쓴다 —
+        # 코드를 고쳐도 화면이 안 바뀌는 것처럼 보이는 문제가 2026-10-01·10-04·10-08
+        # 세 번 반복됐다. no-cache 는 캐시 자체는 허용하되 매번 서버에 재검증(조건부
+        # GET)을 강제한다 — SimpleHTTPRequestHandler 가 If-Modified-Since 를 이미 처리한다.
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
 
     def send_json(self, status: int, payload: dict[str, object]) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")

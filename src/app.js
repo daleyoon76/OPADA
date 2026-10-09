@@ -1513,14 +1513,7 @@ function renderReport() {
         (task) => {
         const aiMatch = aiAssignments.get(task.id);
         const aiPrecheck = getAiPrecheckForTask(task, fit);
-        // 입찰기간·최저입찰가격 카드만 원문 확인 필요/실제 값 구분을 표시한다 —
-        // 다른 카드(서류·담당기관 등)의 action 은 애초에 이 대체 문구로 채워지지 않는다.
-        const isNoticeValueTask = task.id === "bid-period" || task.id === "price";
-        const actionClass = isNoticeValueTask
-          ? task.action === NOTICE_VALUE_FALLBACK
-            ? "is-fallback"
-            : "is-extracted"
-          : "";
+        const isFoundValue = task.action && task.action !== NOTICE_VALUE_FALLBACK;
         const dueTone = taskSummary.state[task.id] ? "safe" : task.due === NOTICE_VALUE_FALLBACK ? "neutral" : "warn";
         return `<article class="task-item ${taskSummary.state[task.id] ? "is-done" : ""} ${aiMatch ? "has-ai-nudge" : ""}">
         <div class="task-row">
@@ -1528,7 +1521,6 @@ function renderReport() {
             <input type="checkbox" data-task-id="${task.id}" ${taskSummary.state[task.id] ? "checked" : ""}>
             <span>
               <strong>${task.title}</strong>
-              <em class="${actionClass}">${task.action}</em>
             </span>
           </label>
           <span class="task-badges">
@@ -1536,6 +1528,23 @@ function renderReport() {
             ${badge(taskSummary.state[task.id] ? "완료" : task.due, dueTone)}
           </span>
         </div>
+        ${
+          task.action
+            ? `<div class="task-action-value ${isFoundValue ? "is-extracted" : "is-fallback"}">
+          <span class="task-action-value-label">공고 원문에서 확인된 값</span>
+          <strong>${task.action}</strong>
+        </div>`
+            : ""
+        }
+        ${
+          aiPrecheck
+            ? `<div class="task-precheck">
+          <span class="task-precheck-label">규칙 기반 사전 확인</span>
+          <p>${aiPrecheck.precheck}</p>
+          ${aiPrecheck.draft ? `<p class="task-precheck-draft"><b>담당기관에 물어볼 질문</b>: ${aiPrecheck.draft}</p>` : ""}
+        </div>`
+            : ""
+        }
         ${
           task.id === "documents" && docChecklistHtml
             ? `<details id="doc-checklist-details" ${docChecklistOpen ? "open" : ""}>
@@ -1549,8 +1558,6 @@ function renderReport() {
           <dl class="detail-grid">
             ${aiMatch?.check?.reason ? `<dt>${aiMatch.check.title}</dt><dd>${aiMatch.check.reason}</dd>` : ""}
             ${aiMatch?.check?.action ? `<dt>먼저 할 일</dt><dd>${aiMatch.check.action}</dd>` : ""}
-            ${aiPrecheck ? `<dt>규칙 기반 사전 확인</dt><dd>${aiPrecheck.precheck}</dd>` : ""}
-            ${aiPrecheck?.draft ? `<dt>담당기관에 물어볼 질문</dt><dd>${aiPrecheck.draft}</dd>` : ""}
             <dt>문의 문장</dt><dd>${task.question}</dd>
             <dt>상세 설명</dt><dd>${task.detail}</dd>
             <dt>근거</dt><dd>${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></dd>

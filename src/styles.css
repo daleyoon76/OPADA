@@ -391,9 +391,40 @@ textarea {
   font-weight: 400;
 }
 
-.task-check em.is-extracted {
-  color: var(--ink);
+/* 공고 원문에서 실제로 읽어낸 값을 제목 아래 흐린 캡션(<em>)에 묻어두지 않고 독립된
+   칸으로 승격한다(2026-10-09) — "표로 만들어서 별도의 결과값을 보여주는 칸에 넣으라고
+   했는데 여전히 이 상태"라는 지적 반영. 값을 못 찾았을 때(is-fallback)는 톤을 낮춘다. */
+.task-action-value {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.task-action-value-label {
+  display: block;
+  font-size: 11px;
   font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+
+.task-action-value strong {
+  display: block;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.task-action-value.is-fallback {
+  border-style: dashed;
+}
+
+.task-action-value.is-fallback strong {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .linked-pages {
@@ -746,13 +777,6 @@ a:hover {
   line-height: 1.35;
 }
 
-.task-check em {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 12px;
-  font-style: normal;
-}
 
 .task-meta {
   display: flex;
@@ -824,6 +848,35 @@ a:hover {
 
 .task-item .detail-grid dd {
   margin: 0;
+}
+
+/* 사전 확인 비교 결과를 "자세히"를 펼치기 전에도 보이게 한다(2026-10-08) — "자세히를 열기
+   전에도 기본 데이터는 저기서 보여야 해"라는 지적 반영. 라벨에 규칙 기반임을 명시해
+   AI가 확정 판단을 내린 것으로 읽히지 않게 한다. */
+.task-precheck {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--soft-neutral);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.task-precheck-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+
+.task-precheck p {
+  margin: 2px 0 0;
+}
+
+.task-precheck-draft {
+  color: var(--ink);
 }
 
 .context-panel {
