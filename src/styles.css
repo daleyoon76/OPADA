@@ -1430,6 +1430,18 @@ a:hover {
   opacity: 0.6;
 }
 
+/* 잠긴 단계의 서류 체크박스도 메인 task 체크 행과 같은 흐림·커서 처리를 맞춘다
+   (.task-row.is-locked-row 와 같은 패턴). 기능은 disabled 로 이미 막혀 있고
+   이 규칙은 시각 신호만 보강한다. */
+.doc-group li.is-locked {
+  opacity: 0.55;
+}
+
+.doc-group li.is-locked .doc-check,
+.doc-group li.is-locked .doc-check input {
+  cursor: not-allowed;
+}
+
 .doc-group li strong {
   display: block;
 }

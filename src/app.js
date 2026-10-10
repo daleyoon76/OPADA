@@ -1264,7 +1264,7 @@ function renderDocSourceNotice() {
   </section>`;
 }
 
-function renderDocChecklist() {
+function renderDocChecklist(locked) {
   const checklist = sampleNotice.docChecklist;
   if (!checklist) return "";
   const profile = checklist.profile || {};
@@ -1288,9 +1288,11 @@ function renderDocChecklist() {
         <ul>
           ${group.items
             .map(
-              (item) => `<li class="${docState[item.name] ? "is-checked" : ""}">
+              (item) => `<li class="${docState[item.name] ? "is-checked" : ""}${locked ? " is-locked" : ""}">
                 <label class="doc-check">
-                  <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}>
+                  <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}${
+                    locked ? ` disabled aria-disabled="true" aria-describedby="stage-lock-msg-2"` : ""
+                  }>
                   <strong>${item.name}</strong>
                 </label>
                 <span class="doc-chips">${docExtraChips(item)}</span>
@@ -1695,12 +1697,13 @@ function renderReport() {
   const coach = sampleNotice.aiCoach;
   byId("board-coach").innerHTML = coach ? renderBoardCoach(coach) : "";
 
-  const docChecklistHtml = renderDocChecklist();
+  const stageStatus = getPrepStageStatus();
+  const documentsStageNum = getTaskStageNum("documents");
+  const documentsStageLocked = stageStatus.find((stage) => stage.num === documentsStageNum)?.locked || false;
+  const docChecklistHtml = renderDocChecklist(documentsStageLocked);
   renderAttachments();
   renderNoticeOutline();
   renderGlossary();
-
-  const stageStatus = getPrepStageStatus();
   byId("board-status").innerHTML = `
     ${renderPrepStageStepper(stageStatus)}
     <div class="status-card is-inline">
