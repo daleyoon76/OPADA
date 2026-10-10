@@ -516,6 +516,34 @@ textarea {
   font-size: 12px;
 }
 
+/* 질문-답변 온보딩(질문 A) — visual-audit §⑶. 새 카드를 만들지 않고 기존 .coach-ask-card
+   안에 올려 상단 블록으로 쓴다. */
+.coach-experience-question p {
+  margin: 10px 0 6px;
+  font-weight: 700;
+}
+
+.coach-experience-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.coach-ask-divider {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.coach-ask-head {
+  flex-wrap: wrap;
+}
+
+.coach-ask-head .coach-level-toggle {
+  margin-left: auto;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -557,6 +585,95 @@ textarea {
 .pipeline li.active {
   border-color: #c9a08f;
   background: var(--soft-blue);
+}
+
+/* 전체 진행률 스테퍼(visual-audit §⑴) — .pipeline li.done/.active와 같은 배색을 재사용한다.
+   신규 CSS 변수는 추가하지 않는다. */
+.prep-stage-stepper {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+}
+
+.prep-stage-stepper li {
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: 0;
+  padding: 10px 12px;
+  background: #fffcf8;
+  display: grid;
+  gap: 2px;
+}
+
+.prep-stage-stepper li:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.prep-stage-stepper li:last-child {
+  border-right: 1px solid var(--line);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.prep-stage-stepper .state {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prep-stage-stepper li.is-done {
+  border-color: #c8d1a0;
+  background: var(--soft-green);
+}
+
+.prep-stage-stepper li.is-active {
+  border-width: 2px;
+  border-color: #c9a08f;
+  background: var(--soft-blue);
+}
+
+.prep-stage-stepper li.is-locked strong {
+  color: var(--muted);
+}
+
+/* 단계 그룹 헤딩 — task-list 안에서 각 단계 소속 task를 구분한다(visual-audit §⑵). */
+.stage-group-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 6px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--line);
+  background: #ffffff;
+}
+
+.stage-group-heading:first-child {
+  margin-top: 0;
+}
+
+.stage-group-heading.is-active {
+  border-left-color: #c9a08f;
+}
+
+.stage-group-heading.is-done {
+  border-left-color: #c8d1a0;
+}
+
+/* 잠긴 단계의 체크 행만 흐리게 — 카드 전체·<details>·원문 링크는 항상 선명하게 둔다
+   (ux-audit §⑴ "잠긴 단계의 표시", visual-audit §⑵). */
+.task-row.is-locked-row {
+  opacity: 0.55;
+}
+
+.task-row.is-locked-row .task-check {
+  cursor: not-allowed;
+}
+
+.task-row.is-locked-row .task-check input {
+  cursor: not-allowed;
 }
 
 .summary-grid,
@@ -1530,8 +1647,29 @@ a:hover {
   .board-status,
   .board-layout,
   .watch-summary,
-  .watch-item {
+  .watch-item,
+  .prep-stage-stepper {
     grid-template-columns: 1fr;
+  }
+
+  /* 데스크톱의 가로 연결선(오른쪽 테두리 생략)을 세로 1열에서는 아래쪽 경계로 바꾼다
+     (visual-audit §⑴ 모바일 명세). */
+  .prep-stage-stepper li {
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 0;
+  }
+
+  .prep-stage-stepper li:first-child {
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  .prep-stage-stepper li:last-child {
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+  }
+
+  .prep-stage-stepper li:not(:last-child) {
+    border-bottom: 1px solid var(--line);
   }
 
   .task-meta,

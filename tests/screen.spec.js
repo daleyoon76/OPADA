@@ -791,3 +791,118 @@ test("N0 커버리지 측정 함수를 직접 호출해 단정한다", () => {
     "P0-6 저장하지 않은 관심공고를 「2건」으로 셈",
   ]);
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 준비 단계 스테퍼 · 단계 잠금(3팀 UIUX품질팀, team-reports/2026-10-09-uiux-agentic-journey).
+ *
+ * 아래 테스트는 위 S/N 축 표·커버리지 집계(screen-axes.js)와 무관하다 — 제목에 S<숫자>·N<숫자>
+ * 패턴을 쓰지 않아 axisCodes()에 걸리지 않는다(기존 축 집계를 오염시키지 않기 위한 의도적 선택).
+ *
+ * server.py build_tasks()가 만드는 5개 고정 id(notice-type·bid-period·price·documents·agency)를
+ * 모두 채운 픽스처가 필요하다 — BASE_NOTICE는 documents 하나만 가진 "단계 밖" 픽스처라, 1단계
+ * (notice-type·bid-period)가 공집합이 되어 매번 공집합 완료(vacuous done)로 통과해 버린다.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+function stagedNotice() {
+  const notice = copyBase();
+  const task = (id, title, action) => ({
+    id,
+    title,
+    action,
+    due: "입찰 전",
+    detail: "참고용 상세 설명입니다.",
+    question: "문의 문장입니다.",
+    source: "온비드 상세 페이지",
+    cta: "온비드 원문",
+    url: "https://www.onbid.co.kr/",
+    defaultDone: false,
+  });
+  notice.boardTasks = [
+    task("notice-type", "공고 유형 확인", "국유재산 / 임대"),
+    task("bid-period", "입찰기간 확인", "2026-10-10 ~ 2026-10-12"),
+    task("documents", "제출서류 확인", "인감증명서 / 주민등록등본"),
+    task("price", "최저입찰가격 확인", "100,000,000"),
+    task("agency", "담당기관에 물어볼 질문 정리", "전북지역본부"),
+  ];
+  notice.boardTasks[2].detail = "이 목록은 참고용이며 빠진 항목이 있어도 진행을 막지 않습니다.";
+  return notice;
+}
+
+test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 열리고, 되돌리면 다시 잠긴다", async ({ page }) => {
+  await analyzeWith(page, stagedNotice());
+  await page.locator("#prepare").click();
+
+  const noticeType = page.locator('[data-task-id="notice-type"]');
+  const bidPeriod = page.locator('[data-task-id="bid-period"]');
+  const documents = page.locator('[data-task-id="documents"]');
+  const price = page.locator('[data-task-id="price"]');
+  const agency = page.locator('[data-task-id="agency"]');
+
+  // 도달: 1단계는 열려 있고 2·3단계는 잠겨 있다.
+  await expect(noticeType).toBeEnabled();
+  await expect(bidPeriod).toBeEnabled();
+  await expect(documents).toBeDisabled();
+  await expect(price).toBeDisabled();
+  await expect(agency).toBeDisabled();
+  await expect(page.locator(".stage-group-heading.is-locked")).toHaveCount(2);
+
+  // 잠긴 상태에서도 "자세히"·원문 링크·문의 문구는 항상 보인다(ux-audit §⑴).
+  const documentsCard = documents.locator("xpath=ancestor::article[contains(@class,'task-item')]");
+  await expect(documentsCard.locator("details summary", { hasText: "자세히" })).toBeVisible();
+  await expect(documentsCard.locator(".task-action-value")).toBeVisible();
+  await expect(documentsCard.locator("a", { hasText: "온비드 원문" })).toBeVisible();
+
+  // 1단계를 모두 체크하면 2단계(문서)만 열리고 3단계(가격·담당기관)는 그대로 잠긴다.
+  await noticeType.check();
+  await bidPeriod.check();
+  await expect(documents).toBeEnabled();
+  await expect(price).toBeDisabled();
+  await expect(agency).toBeDisabled();
+  await expect(page.locator(".stage-group-heading.is-done")).toHaveCount(1);
+
+  // 2단계(문서)까지 체크하면 3단계가 열린다.
+  await documents.check();
+  await expect(price).toBeEnabled();
+  await expect(agency).toBeEnabled();
+
+  // 되돌리기: 1단계 체크를 해제하면 2단계는 즉시 재잠김 — 단, documents 체크값은 보존된다.
+  await noticeType.uncheck();
+  await expect(documents).toBeDisabled();
+  await expect(documents).toBeChecked();
+  await expect(page.locator(".stage-group-heading.is-locked")).toHaveCount(2);
+});
+
+test("준비 단계 — 잠긴 task의 data-task-id로 change 이벤트를 직접 보내도 체크 상태가 바뀌지 않는다", async ({ page }) => {
+  await analyzeWith(page, stagedNotice());
+  await page.locator("#prepare").click();
+
+  // 체크박스 클릭 핸들러의 이중 방어(ux-audit §⑴ "구현 시 반드시 지킬 것")를 disabled 속성과
+  // 무관하게 직접 잰다 — disabled 속성을 런타임에 지운 뒤 change 이벤트를 강제로 보낸다.
+  const result = await page.evaluate(() => {
+    const input = document.querySelector('[data-task-id="price"]');
+    input.disabled = false;
+    input.checked = true;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return window.getTaskState().price;
+  });
+  expect(result).not.toBe(true);
+});
+
+test("준비 단계 — getPrepStageStatus()를 화면 체크 없이 직접 호출해 단계 파생값을 단정한다", async ({ page }) => {
+  await analyzeWith(page, stagedNotice());
+  await page.locator("#prepare").click();
+
+  const initial = await page.evaluate(() => window.getPrepStageStatus());
+  expect(initial).toEqual([
+    { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"], done: false, locked: false },
+    { num: 2, title: "서류 준비", taskIds: ["documents"], done: false, locked: true },
+    { num: 3, title: "입찰 참여", taskIds: ["price", "agency"], done: false, locked: true },
+  ]);
+
+  await page.locator('[data-task-id="notice-type"]').check();
+  await page.locator('[data-task-id="bid-period"]').check();
+  const afterStage1 = await page.evaluate(() => window.getPrepStageStatus());
+  expect(afterStage1[0]).toMatchObject({ num: 1, done: true, locked: false });
+  expect(afterStage1[1]).toMatchObject({ num: 2, done: false, locked: false });
+  expect(afterStage1[2]).toMatchObject({ num: 3, done: false, locked: true });
+});

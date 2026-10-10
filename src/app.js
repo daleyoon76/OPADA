@@ -435,6 +435,47 @@ const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
 
+// 준비 단계(공고 확인 → 서류 준비 → 입찰 참여). 이름은 currentStage/pipelineSteps(Step1 분석
+// 파이프라인, 1895·1903행 근처)와 겹치지 않게 prepStage 계열로 둔다(3팀 ux-audit §⑸ 제약).
+// 서버(server.py build_tasks())가 이미 5개 id를 고정 순서로 만들므로, 서버 응답 구조를
+// 바꾸지 않고 화면 쪽에 이 매핑 상수 하나만 둔다 — 서버 필드 추가보다 변경 범위가 작다.
+const PREP_STAGES = [
+  { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"] },
+  { num: 2, title: "서류 준비", taskIds: ["documents"] },
+  { num: 3, title: "입찰 참여", taskIds: ["price", "agency"] },
+];
+
+function getTaskStageNum(taskId) {
+  const stage = PREP_STAGES.find((candidate) => candidate.taskIds.includes(taskId));
+  return stage ? stage.num : null;
+}
+
+// 경험 수준 질문(질문 A) 응답. 공고와 무관한 전역 키 — taskStorageKeyFor(notice)와 분리된다.
+const experienceLevelStorageKey = "opada-experience-level";
+
+function getExperienceLevel() {
+  try {
+    const saved = window.localStorage.getItem(experienceLevelStorageKey);
+    return saved === "beginner" || saved === "experienced" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function setExperienceLevel(level) {
+  try {
+    window.localStorage.setItem(experienceLevelStorageKey, level);
+  } catch {
+    // 로컬 스토리지가 막혀 있어도 화면 표시 전환 자체는 그 세션 안에서 계속 동작해야 한다.
+  }
+}
+
+// "처음이에요"(또는 아직 응답하지 않음)일 때 더 자세히 보여준다 — 과설명 비용보다
+// 초보자가 덜 설명받아 놓치는 비용이 크다는 ux-audit §⑵ 판단을 그대로 따른다.
+function isExperienceBeginner() {
+  return getExperienceLevel() !== "experienced";
+}
+
 const aiTaskSignals = [
   {
     taskIds: ["price", "guarantee", "agency-question"],
@@ -757,8 +798,12 @@ function getApplicableTasks() {
   const boardTasks = Array.isArray(sampleNotice.boardTasks) ? sampleNotice.boardTasks : [];
   return boardTasks
     .filter((task) => !task.userTypes || task.userTypes.includes(userType))
-    .map((task, index) => ({ task, index, aiMatch: getTaskAiMatch(task) }))
+    .map((task, index) => ({ task, index, stage: getTaskStageNum(task.id) ?? PREP_STAGES.length + 1, aiMatch: getTaskAiMatch(task) }))
     .sort((a, b) => {
+      // 단계가 1차 정렬 키다 — AI 매칭 점수 정렬은 같은 단계 안으로만 한정한다
+      // (ux-audit §⑴ "구현 시 반드시 지킬 것"). 단계가 없는(알 수 없는) id는 맨 뒤로 보낸다.
+      const stageDiff = a.stage - b.stage;
+      if (stageDiff) return stageDiff;
       const scoreDiff = (b.aiMatch?.score || 0) - (a.aiMatch?.score || 0);
       return scoreDiff || a.index - b.index;
     })
@@ -807,8 +852,28 @@ function getTaskSummary() {
   const tasks = getApplicableTasks();
   const doneCount = tasks.filter((task) => state[task.id]).length;
   const totalCount = tasks.length;
+  // tasks는 getApplicableTasks()가 이미 단계 순으로 정렬해 두므로, 맨 앞의 미완료 항목이
+  // 바로 "가장 앞선 미완료 단계의 첫 미완료 task"다(ux-audit §⑴ nextTask 재정의).
+  // currentNoticeCard().next(관심 공고 탭)도 이 값을 그대로 쓴다.
   const nextTask = tasks.find((task) => !state[task.id]) || tasks[tasks.length - 1] || null;
   return { state, tasks, doneCount, totalCount, nextTask, percent: totalCount ? Math.round((doneCount / totalCount) * 100) : 0 };
+}
+
+// 단계 완료·잠김은 체크 상태에서 매 렌더마다 파생 계산한다 — 별도의 "unlock" 플래그를
+// localStorage에 저장하지 않는다(ux-audit §⑴). 그 단계에 속한 task id가 이 공고에 하나도
+// 없으면(예: 테스트 픽스처가 documents 하나만 주는 경우) 그 단계는 공집합 완료로 보고
+// 다음 단계를 막지 않는다 — `[].every()`가 true인 표준 의미를 그대로 쓴다.
+function getPrepStageStatus() {
+  const state = getTaskState();
+  const tasks = getApplicableTasks();
+  let unlocked = true;
+  return PREP_STAGES.map((stageDef) => {
+    const taskIds = stageDef.taskIds.filter((id) => tasks.some((task) => task.id === id));
+    const done = taskIds.every((id) => state[id]);
+    const locked = !unlocked;
+    unlocked = unlocked && done;
+    return { num: stageDef.num, title: stageDef.title, taskIds, done, locked };
+  });
 }
 
 function formatProgress(summary) {
@@ -990,6 +1055,21 @@ function renderAnalysisResult() {
   `;
 }
 
+// 질문-답변 온보딩(질문 A): 분석 성공 직후 준비 보드 최초 진입 시 1회만 보인다.
+// 응답/건너뛰기 후에는 이 자리에서 사라지고 기존 질문 입력창(질문 B)만 남는다
+// (ux-audit §⑵, visual-audit §⑶). 판단 로직(getApplicableTasks 등)에는 연결하지 않는다 — 표시 전환만이다.
+function renderExperienceQuestion() {
+  return `<div class="coach-experience-question">
+    <p>온비드 공매·입찰, 해 보신 적 있으신가요?</p>
+    <div class="coach-experience-options" role="radiogroup" aria-label="온비드 공매·입찰 경험 수준">
+      <button type="button" class="secondary small-button" data-experience-level="beginner">처음이에요</button>
+      <button type="button" class="secondary small-button" data-experience-level="experienced">몇 번 해봤어요</button>
+      <button type="button" class="text-action small-text" data-experience-skip>건너뛰기</button>
+    </div>
+  </div>
+  <hr class="coach-ask-divider">`;
+}
+
 function renderBoardCoach(coach) {
   // 모델에 붙지 않았으면 「AI 가 했다」고 말하지 않는다. 색만 바꾸면 색을 못 보는 사람에게는
   // 같은 화면이고, 색을 보는 사람에게도 문구가 사실과 어긋난 채 남는다.
@@ -998,11 +1078,19 @@ function renderBoardCoach(coach) {
   const lead = llmConnected
     ? "확인이 필요한 할 일에 표시를 남겨 두었습니다. 궁금한 점은 여기에 물어보세요."
     : "정해진 규칙으로 확인이 필요한 할 일에 표시를 남겨 두었습니다. 궁금한 점은 여기에 물어보세요.";
+  const experienceLevel = getExperienceLevel();
+  const showExperienceQuestion = experienceLevel === null;
   return `<section class="coach-ask-card">
     <div class="coach-ask-head">
       ${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "safe" : "warn")}
       <strong>AI 코치에게 물어보기</strong>
+      ${
+        showExperienceQuestion
+          ? ""
+          : `<button type="button" class="secondary small-button coach-level-toggle" data-experience-toggle>안내 수준: 자세히 ⇄ 간단히</button>`
+      }
     </div>
+    ${showExperienceQuestion ? renderExperienceQuestion() : ""}
     <p class="small-text">${lead}</p>
     <div class="coach-ask-row">
       <input type="text" id="coach-question-input" placeholder="예: 잔금은 언제까지 내야 하나요?" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
@@ -1347,8 +1435,13 @@ function renderGlossary() {
   const host = byId("glossary-list");
   if (!host) return;
   const entries = Array.isArray(sampleNotice.glossary) ? sampleNotice.glossary : [];
+  // 경험 수준 질문 A에서 "처음이에요"면 용어 사전 안내를 조금 더 적극적으로 보여준다
+  // (ux-audit §⑵). 목록을 바꾸지 않고 안내문 한 줄만 추가하는 표시 전환이다.
+  const beginnerNote = isExperienceBeginner()
+    ? `<p class="small-text">처음이시면 모르는 용어가 나올 때 이 탭에서 먼저 찾아보세요.</p>`
+    : "";
   host.innerHTML = entries.length
-    ? `${entries
+    ? `${beginnerNote}${entries
       .map((entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p></div>`)
       .join("")}<p class="small-text">화면의 재산유형·처분방식은 온비드 표기를 그대로 쓰고, 뜻만 여기에서 안내합니다.</p>`
     : `<p class="small-text">이 공고의 표기에 해당하는 용어 안내가 없습니다. 온비드 원문 표기를 그대로 확인하십시오.</p>`;
@@ -1402,6 +1495,122 @@ function renderActionState() {
 
 function getSelectedUserType() {
   return byId("user-type").value;
+}
+
+// 전체 진행률 스테퍼(visual-audit §⑴). 기존 .pipeline li.done/.active 배색을 재사용하고,
+// 색만으로 상태를 구분하지 않도록 아이콘(aria-hidden)과 텍스트 라벨을 함께 둔다(§⑷ 접근성).
+function renderPrepStageStepper(stageStatus) {
+  const items = stageStatus
+    .map((stage) => {
+      // locked를 done보다 먼저 본다 — "되돌리기" 후 이전 단계를 다시 막으면, 이 단계의
+      // task 체크값은 보존돼도(done=true) 접근은 다시 잠긴다(ux-audit §⑴ "되돌리기 처리").
+      // 그 상태를 "완료"로 보여주면 잠금을 숨기는 것이 된다.
+      const icon = stage.locked ? "🔒" : stage.done ? "✅" : "▶";
+      const label = stage.locked ? `잠김, ${stage.num - 1}단계를 마치면 열립니다` : stage.done ? "완료" : "진행중";
+      const cls = stage.locked ? "is-locked" : stage.done ? "is-done" : "is-active";
+      const current = !stage.done && !stage.locked ? ` aria-current="step"` : "";
+      return `<li class="${cls}" role="listitem"${current}>
+        <span class="state" aria-hidden="true">${stage.num}</span>
+        <span class="prep-stage-icon" aria-hidden="true">${icon}</span>
+        <strong>${stage.title}</strong>
+        <span class="small-text">${label}</span>
+      </li>`;
+    })
+    .join("");
+  return `<ol class="prep-stage-stepper" role="list" aria-label="준비 단계">${items}</ol>`;
+}
+
+// task-list 안의 단계 그룹 헤딩(visual-audit §⑵). 잠긴 단계는 체크 행만 잠그고
+// 헤딩 자체는 항상 보인다 — "1단계를 마치면 열립니다" 문구가 1차 전달 수단이고 자물쇠는 보조.
+function renderStageHeading(stage) {
+  const lockMsgId = `stage-lock-msg-${stage.num}`;
+  // locked를 done보다 먼저 본다 — renderPrepStageStepper()와 같은 이유(되돌리기 후
+  // 재잠김된 단계를 "완료"로 잘못 보여주지 않는다).
+  if (stage.locked) {
+    return `<h4 class="stage-group-heading is-locked">
+      <span aria-hidden="true">🔒</span>
+      <span>${stage.num}단계 · ${stage.title}</span>
+      <span id="${lockMsgId}" class="small-text">${stage.num - 1}단계를 마치면 열립니다</span>
+    </h4>`;
+  }
+  if (stage.done) {
+    return `<h4 class="stage-group-heading is-done">
+      <span aria-hidden="true">✅</span>
+      <span>${stage.num}단계 · ${stage.title}</span>
+      ${badge("완료", "safe")}
+    </h4>`;
+  }
+  return `<h4 class="stage-group-heading is-active">
+    <span aria-hidden="true">▶</span>
+    <span>${stage.num}단계 · ${stage.title}</span>
+    ${badge("진행중", "neutral")}
+  </h4>`;
+}
+
+// 할 일 카드 1개. locked이면 체크 행(.task-row)에만 흐림 처리를 걸고, <details>(자세히)·
+// 원문 링크·문의 문구는 잠금과 무관하게 항상 정상 표시한다(ux-audit §⑴ "잠긴 단계의 표시").
+function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, locked) {
+  const aiMatch = aiAssignments.get(task.id);
+  const aiPrecheck = getAiPrecheckForTask(task, fit);
+  const isFoundValue = task.action && task.action !== NOTICE_VALUE_FALLBACK;
+  const done = taskSummary.state[task.id];
+  const dueTone = done ? "safe" : task.due === NOTICE_VALUE_FALLBACK ? "neutral" : "warn";
+  // 완료된 단계는 자세히 블록만 기본 닫힘(visual-audit §⑵). 그 외에는 경험 수준 질문 A의
+  // 응답에 따라 "처음이에요"면 기본 열림, "몇 번 해봤어요"면 기본 닫힘 — 표시 전환만이다.
+  const detailsOpen = !done && isExperienceBeginner();
+  const stageNum = getTaskStageNum(task.id);
+  const lockMsgId = stageNum !== null ? `stage-lock-msg-${stageNum}` : "";
+  return `<article class="task-item ${done ? "is-done" : ""} ${aiMatch ? "has-ai-nudge" : ""}">
+        <div class="task-row ${locked ? "is-locked-row" : ""}">
+          <label class="task-check">
+            <input type="checkbox" data-task-id="${task.id}" ${done ? "checked" : ""}${
+              locked ? ` disabled aria-disabled="true"${lockMsgId ? ` aria-describedby="${lockMsgId}"` : ""}` : ""
+            }>
+            <span>
+              <strong>${task.title}</strong>
+            </span>
+          </label>
+          <span class="task-badges">
+            ${aiMatch && !done ? badge("확인 필요", "safe") : ""}
+            ${badge(done ? "완료" : task.due, dueTone)}
+          </span>
+        </div>
+        ${
+          task.action
+            ? `<div class="task-action-value ${isFoundValue ? "is-extracted" : "is-fallback"}">
+          <span class="task-action-value-label">공고 원문에서 확인된 값</span>
+          <strong>${task.action}</strong>
+        </div>`
+            : ""
+        }
+        ${
+          aiPrecheck
+            ? `<div class="task-precheck">
+          <span class="task-precheck-label">규칙 기반 사전 확인</span>
+          <p>${aiPrecheck.precheck}</p>
+          ${aiPrecheck.draft ? `<p class="task-precheck-draft"><b>담당기관에 물어볼 질문</b>: ${aiPrecheck.draft}</p>` : ""}
+        </div>`
+            : ""
+        }
+        ${
+          task.id === "documents" && docChecklistHtml
+            ? `<details id="doc-checklist-details" ${docChecklistOpen ? "open" : ""}>
+          <summary>서류 준비 체크리스트 (${getDocSummary().doneCount}/${getDocSummary().totalCount})</summary>
+          <div id="doc-checklist" class="doc-checklist">${docChecklistHtml}</div>
+        </details>`
+            : ""
+        }
+        <details ${detailsOpen ? "open" : ""}>
+          <summary>자세히</summary>
+          <dl class="detail-grid">
+            ${aiMatch?.check?.reason ? `<dt>${aiMatch.check.title}</dt><dd>${aiMatch.check.reason}</dd>` : ""}
+            ${aiMatch?.check?.action ? `<dt>먼저 할 일</dt><dd>${aiMatch.check.action}</dd>` : ""}
+            <dt>문의 문장</dt><dd>${task.question}</dd>
+            <dt>상세 설명</dt><dd>${task.detail}</dd>
+            <dt>근거</dt><dd>${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></dd>
+          </dl>
+        </details>
+      </article>`;
 }
 
 function renderReport() {
@@ -1491,82 +1700,44 @@ function renderReport() {
   renderNoticeOutline();
   renderGlossary();
 
-  byId("board-status").innerHTML = [
-    ["진행률", formatProgress(taskSummary)],
-  ]
-    .map(
-      ([label, value]) => `<div class="status-card is-inline">
-        <b>${label}</b>
-        <strong>${value}</strong>
-        ${
-          label === "진행률"
-            ? `<span class="progress" role="progressbar" aria-label="준비 진행률" aria-valuemin="0" aria-valuemax="${taskSummary.totalCount}" aria-valuenow="${taskSummary.doneCount}"><i style="width:${taskSummary.percent}%"></i></span>`
-            : ""
-        }
-      </div>`,
-    )
-    .join("");
+  const stageStatus = getPrepStageStatus();
+  byId("board-status").innerHTML = `
+    ${renderPrepStageStepper(stageStatus)}
+    <div class="status-card is-inline">
+      <b>진행률</b>
+      <strong>${formatProgress(taskSummary)}</strong>
+      <span class="progress" role="progressbar" aria-label="준비 진행률" aria-valuemin="0" aria-valuemax="${taskSummary.totalCount}" aria-valuenow="${taskSummary.doneCount}"><i style="width:${taskSummary.percent}%"></i></span>
+    </div>
+  `;
+
+  // 단계 그룹 헤딩 → 그 단계 소속 task들 순서로 그린다. taskSummary.tasks는 이미
+  // getApplicableTasks()가 단계순으로 정렬해 뒀다(§⑴). 알 수 없는 id(테스트 픽스처 외
+  // 레거시 데이터)는 헤딩 없이 뒤에 붙인다 — 기존 "단계 밖" 동작을 보존한다.
+  const tasksByStage = new Map();
+  const leftoverTasks = [];
+  taskSummary.tasks.forEach((task) => {
+    const stageNum = getTaskStageNum(task.id);
+    if (stageNum === null) {
+      leftoverTasks.push(task);
+      return;
+    }
+    if (!tasksByStage.has(stageNum)) tasksByStage.set(stageNum, []);
+    tasksByStage.get(stageNum).push(task);
+  });
+
+  const groupedTaskHtml = stageStatus
+    .map((stage) => {
+      const stageTasks = tasksByStage.get(stage.num) || [];
+      if (!stageTasks.length) return "";
+      return (
+        renderStageHeading(stage) +
+        stageTasks.map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked)).join("")
+      );
+    })
+    .join("") + leftoverTasks.map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, false)).join("");
 
   byId("task-list").innerHTML = taskSummary.tasks.length
-    ? taskSummary.tasks
-      .map(
-        (task) => {
-        const aiMatch = aiAssignments.get(task.id);
-        const aiPrecheck = getAiPrecheckForTask(task, fit);
-        const isFoundValue = task.action && task.action !== NOTICE_VALUE_FALLBACK;
-        const dueTone = taskSummary.state[task.id] ? "safe" : task.due === NOTICE_VALUE_FALLBACK ? "neutral" : "warn";
-        return `<article class="task-item ${taskSummary.state[task.id] ? "is-done" : ""} ${aiMatch ? "has-ai-nudge" : ""}">
-        <div class="task-row">
-          <label class="task-check">
-            <input type="checkbox" data-task-id="${task.id}" ${taskSummary.state[task.id] ? "checked" : ""}>
-            <span>
-              <strong>${task.title}</strong>
-            </span>
-          </label>
-          <span class="task-badges">
-            ${aiMatch && !taskSummary.state[task.id] ? badge("확인 필요", "safe") : ""}
-            ${badge(taskSummary.state[task.id] ? "완료" : task.due, dueTone)}
-          </span>
-        </div>
-        ${
-          task.action
-            ? `<div class="task-action-value ${isFoundValue ? "is-extracted" : "is-fallback"}">
-          <span class="task-action-value-label">공고 원문에서 확인된 값</span>
-          <strong>${task.action}</strong>
-        </div>`
-            : ""
-        }
-        ${
-          aiPrecheck
-            ? `<div class="task-precheck">
-          <span class="task-precheck-label">규칙 기반 사전 확인</span>
-          <p>${aiPrecheck.precheck}</p>
-          ${aiPrecheck.draft ? `<p class="task-precheck-draft"><b>담당기관에 물어볼 질문</b>: ${aiPrecheck.draft}</p>` : ""}
-        </div>`
-            : ""
-        }
-        ${
-          task.id === "documents" && docChecklistHtml
-            ? `<details id="doc-checklist-details" ${docChecklistOpen ? "open" : ""}>
-          <summary>서류 준비 체크리스트 (${getDocSummary().doneCount}/${getDocSummary().totalCount})</summary>
-          <div id="doc-checklist" class="doc-checklist">${docChecklistHtml}</div>
-        </details>`
-            : ""
-        }
-        <details>
-          <summary>자세히</summary>
-          <dl class="detail-grid">
-            ${aiMatch?.check?.reason ? `<dt>${aiMatch.check.title}</dt><dd>${aiMatch.check.reason}</dd>` : ""}
-            ${aiMatch?.check?.action ? `<dt>먼저 할 일</dt><dd>${aiMatch.check.action}</dd>` : ""}
-            <dt>문의 문장</dt><dd>${task.question}</dd>
-            <dt>상세 설명</dt><dd>${task.detail}</dd>
-            <dt>근거</dt><dd>${task.source} · <a class="text-action" href="${task.url}" target="_blank" rel="noreferrer">${task.cta}</a></dd>
-          </dl>
-        </details>
-      </article>`;
-        },
-      )
-      .join("")
+    ? groupedTaskHtml
     : `<article class="task-item">
         <strong>체크리스트를 자동 생성하지 못했습니다.</strong>
         <p class="small-text">온비드 원문을 열어 입찰기간, 제출서류, 가격/보증금, 담당기관을 먼저 확인하세요.</p>
@@ -1919,6 +2090,14 @@ function init() {
   document.addEventListener("change", (event) => {
     const taskId = event.target?.dataset?.taskId;
     if (taskId) {
+      // 잠긴 단계의 task는 체크박스가 disabled라 보통 change 이벤트가 안 나지만,
+      // 이중 방어로 한 번 더 막는다(ux-audit §⑴ "구현 시 반드시 지킬 것").
+      const stageNum = getTaskStageNum(taskId);
+      const lockedStage = stageNum !== null && getPrepStageStatus().find((stage) => stage.num === stageNum)?.locked;
+      if (lockedStage) {
+        event.target.checked = !event.target.checked;
+        return;
+      }
       const state = getTaskState();
       state[taskId] = event.target.checked;
       saveTaskState(state);
@@ -1987,6 +2166,25 @@ function init() {
   });
 
   document.addEventListener("click", (event) => {
+    // 질문-답변 온보딩(질문 A) — 응답/건너뛰기는 표시 전환만 하고 getApplicableTasks() 등
+    // 판단 로직에는 연결하지 않는다(ux-audit §⑵).
+    const experienceLevelButton = event.target.closest("[data-experience-level]");
+    if (experienceLevelButton) {
+      setExperienceLevel(experienceLevelButton.dataset.experienceLevel);
+      renderReport();
+      return;
+    }
+    if (event.target.closest("[data-experience-skip]")) {
+      // 건너뛰기의 기본값은 "처음이에요"(더 많이 설명하는 쪽) — ux-audit §⑵.
+      setExperienceLevel("beginner");
+      renderReport();
+      return;
+    }
+    if (event.target.closest("[data-experience-toggle]")) {
+      setExperienceLevel(isExperienceBeginner() ? "experienced" : "beginner");
+      renderReport();
+      return;
+    }
     const supportTab = event.target.closest("[data-support-tab]");
     if (supportTab) {
       selectSupportTab(supportTab);
