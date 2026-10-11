@@ -654,6 +654,21 @@ textarea {
   margin-top: 0;
 }
 
+/* 잠긴 단계를 기본으로 접어 둔다 — summary(헤딩)는 항상 보이고, 카드 내용은 눌러야
+   펼쳐진다. summary 기본 마커는 숨기고 stage-group-heading이 그 역할을 대신한다. */
+details.stage-group > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+details.stage-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.stage-group:first-child > summary .stage-group-heading {
+  margin-top: 0;
+}
+
 .stage-group-heading.is-active {
   border-left-color: #c9a08f;
 }

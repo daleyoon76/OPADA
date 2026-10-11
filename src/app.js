@@ -1732,10 +1732,16 @@ function renderReport() {
     .map((stage) => {
       const stageTasks = tasksByStage.get(stage.num) || [];
       if (!stageTasks.length) return "";
-      return (
-        renderStageHeading(stage) +
-        stageTasks.map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked)).join("")
-      );
+      const cardsHtml = stageTasks
+        .map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked))
+        .join("");
+      // 잠긴 단계는 기본으로 접는다 — 체크박스만 비활성화하고 카드 내용을 전부 펼쳐 두면
+      // 아직 손댈 수 없는 두세 단계 분량이 한 화면에 그대로 쏟아져 "한 번에 너무 많다"는
+      // 체감으로 이어진다(2026-10-11 사용자 지적). 눌러서 미리 볼 수 있는 길은 남긴다.
+      return `<details class="stage-group ${stage.locked ? "is-locked" : stage.done ? "is-done" : "is-active"}" ${stage.locked ? "" : "open"}>
+        <summary>${renderStageHeading(stage)}</summary>
+        ${cardsHtml}
+      </details>`;
     })
     .join("") + leftoverTasks.map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, false)).join("");
 
