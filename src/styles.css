@@ -218,6 +218,58 @@ button:disabled {
   display: block;
 }
 
+/* 입력~분석 마법사(1p 유형/목적 → 2p URL → 3p 결과 → 전환화면) 하위 화면 전환.
+   view와 같은 display 토글 패턴을 그대로 쓴다(2026-10-12 phase1). */
+.wizard-step {
+  display: none;
+}
+
+.wizard-step.is-active {
+  display: block;
+}
+
+.wizard-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.wizard-progress-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wizard-progress-step.is-active {
+  border-color: var(--green);
+  background: var(--green);
+  color: #ffffff;
+}
+
+.wizard-progress-step.is-done {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.url-step-feedback:empty {
+  display: none;
+}
+
+.url-step-feedback.fit-panel {
+  margin-top: 14px;
+}
+
 .two-col,
 .three-col {
   display: grid;
@@ -447,30 +499,84 @@ textarea {
   background: #ffffff;
 }
 
-.ai-ready-summary {
-  margin-top: 12px;
-  border: 1px solid #c8d1a0;
-  border-radius: var(--radius-md);
-  background: var(--soft-green);
-  padding: 11px 12px;
+/* 3p(분석 결과) 화면 — "핵심 정보"·"확인 사항"·"온비드 연결" 세 묶음.
+   색·테두리가 다른 상자를 여러 겹 쌓지 않고, 한 카드(.result-section) 안에
+   구분선만 있는 행(.result-check-row)으로 늘어놓는다(2026-10-12 phase1 UX 재설계). */
+.result-status {
+  margin-bottom: 16px;
 }
 
-.ai-ready-summary div {
+.result-status p {
+  margin: 6px 0 0;
+}
+
+.result-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.result-section:first-of-type {
+  margin-top: 0;
+}
+
+.result-section-title {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.result-check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.result-check-row {
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.result-check-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.result-check-row:first-child {
+  padding-top: 0;
+}
+
+.result-check-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 6px 10px;
 }
 
-.ai-ready-summary strong {
-  font-size: 16px;
+.result-check-row p {
+  margin: 5px 0 0;
 }
 
-.ai-ready-summary p {
-  margin: 7px 0 0;
-  color: var(--muted);
-  font-size: 12px;
+.result-action {
+  margin-top: 16px;
+}
+
+.transition-panel {
+  text-align: center;
+  padding: 48px 20px;
+}
+
+.transition-message {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.transition-panel .small-text {
+  margin-top: 8px;
 }
 
 .coach-ask-card {
@@ -1356,22 +1462,6 @@ a:hover {
 .small-text {
   color: var(--muted);
   font-size: 12px;
-}
-
-.doc-source-notice {
-  margin-top: 10px;
-  border-left: 3px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: #fffcf8;
-  padding: 9px 11px;
-}
-
-.doc-source-notice strong {
-  margin-left: 6px;
-}
-
-.doc-source-notice p {
-  margin: 5px 0 0;
 }
 
 .deadline-line {

@@ -163,6 +163,8 @@ async function analyzeWith(page, notice) {
   await page.evaluate((payload) => {
     window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, notice: payload }) });
   }, notice);
+  // 입력~분석 마법사 1p(유형/목적)를 지나야 2p(URL) 필드가 보인다(2026-10-12 phase1).
+  await page.locator("#profile-next").click();
   await page.locator("#notice-url").fill(notice.inputUrl);
   await page.locator("#analyze").click();
   await expect(page.locator("#analysis-result")).toContainText(notice.title);

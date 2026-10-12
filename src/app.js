@@ -427,6 +427,11 @@ let analysisRequestId = 0;
 let analysisError = null;
 let analyzedInputValue = "";
 let boardGenerated = false;
+// 입력~분석 마법사(1p 유형/목적 → 2p URL → 3p 결과 → 전환화면)의 현재 화면.
+// currentView("input")는 그대로 바뀌지 않고, 그 안에서 보여줄 하위 화면만 이 값으로 고른다.
+let inputStep = "profile";
+let transitionTimer = null;
+const wizardSteps = ["profile", "url", "result", "transition"];
 // 서류 체크박스를 누를 때마다 전체 화면을 다시 그리는데, <details> 는 재생성될 때
 // 기본값(닫힘)으로 돌아간다. 사용자가 연속으로 여러 서류를 체크할 수 있도록 이 상태를
 // 따로 기억해뒀다가 다시 그릴 때 반영한다.
@@ -524,6 +529,24 @@ function setView(view) {
   if (location.hash.replace("#", "") !== view) {
     history.replaceState(null, "", `#${view}`);
   }
+}
+
+function renderWizardStep() {
+  const activeIndex = wizardSteps.indexOf(inputStep);
+  wizardSteps.forEach((step, index) => {
+    byId(`wizard-step-${step}`).classList.toggle("is-active", index === activeIndex);
+  });
+  document.querySelectorAll("[data-wizard-dot]").forEach((dot) => {
+    const dotIndex = wizardSteps.indexOf(dot.dataset.wizardDot);
+    dot.classList.toggle("is-active", dotIndex === activeIndex);
+    dot.classList.toggle("is-done", dotIndex < activeIndex);
+  });
+}
+
+function setInputStep(step) {
+  inputStep = step;
+  renderWizardStep();
+  byId(`wizard-step-${step}`).scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 function badge(text, type = "safe") {
@@ -907,7 +930,7 @@ function getFitMessage() {
       type: "check",
       title: "아직 이 URL을 분석하지 않았습니다",
       body: "입력 URL이 바뀌었습니다. 공고 분석을 실행해야 이 URL 기준의 준비 보드가 생성됩니다.",
-      action: "공고 분석 버튼을 누르면 유효성 결과와 공고/물건 연결 정보를 먼저 보여줍니다.",
+      action: "다음 버튼을 누르면 유효성 결과와 공고/물건 연결 정보를 먼저 보여줍니다.",
       inputBlocked: true,
     };
   }
@@ -949,7 +972,7 @@ function getFitMessage() {
     type: "match",
     title: "목적과 입력 공고 유형이 맞습니다",
     body: "분석된 온비드 공고를 기준으로 일정, 제출서류, 가격/보증금, 내가 담당기관에 물어볼 질문을 준비 보드로 정리합니다.",
-    action: "결과를 확인한 뒤 준비 보드 만들기를 누르면 체크리스트와 준비처 링크로 넘어갑니다.",
+    action: "결과를 확인한 뒤 다음을 누르면 체크리스트와 준비처 링크로 넘어갑니다.",
   };
 }
 
@@ -1000,58 +1023,92 @@ function getAiPrecheckForTask(task, fit) {
   return null;
 }
 
+// 2p(URL 입력)의 안내/오류 자리 — 입력이 비었거나 형식이 틀렸거나 분석에 실패했을 때만 쓴다.
+function renderUrlStepFeedback(fit) {
+  const feedback = byId("url-step-feedback");
+  if (!fit.inputBlocked) {
+    feedback.className = "url-step-feedback";
+    feedback.innerHTML = "";
+    return;
+  }
+  const typeBadge = fit.type === "match" ? "safe" : "warn";
+  feedback.className = `url-step-feedback fit-panel ${fit.type}`;
+  feedback.innerHTML = `
+    <div class="fit-top">
+      ${badge(fit.type === "mismatch" ? "불일치" : "확인 필요", typeBadge)}
+      <strong>${fit.title}</strong>
+    </div>
+    <p>${fit.body}</p>
+    <p class="small-text">${fit.action}</p>
+  `;
+}
+
+// 3p(분석 결과) 화면. 사용자 피드백("분석결과 박스 안의 객체 배치나 구조가 너무 정신없다")에 따라
+// 서로 다른 배경·테두리를 가진 상자 여러 개를 쌓는 대신, "핵심 정보"·"확인 사항"·"온비드 연결"
+// 세 묶음으로만 나눈다. 묶음 안의 항목은 데이터·판정 로직을 그대로 쓰고 배치만 바꾼다.
 function renderAnalysisResult() {
   const panel = byId("analysis-result");
   const fit = getFitMessage();
-  const typeBadge = fit.type === "match" ? "safe" : "warn";
-  panel.className = `fit-panel ${fit.type}`;
+  renderUrlStepFeedback(fit);
 
   if (fit.inputBlocked) {
-    panel.innerHTML = `
-      <div class="fit-top">
-        ${badge(fit.type === "mismatch" ? "불일치" : "확인 필요", typeBadge)}
-        <strong>${fit.title}</strong>
-      </div>
-      <p>${fit.body}</p>
-      <p class="small-text">${fit.action}</p>
-    `;
+    panel.className = "result-page";
+    panel.innerHTML = "";
     return;
   }
 
+  const typeBadge = fit.type === "match" ? "safe" : "warn";
   const publicData = sampleNotice.analysisMeta?.publicData;
   const coach = sampleNotice.aiCoach;
   const links = sampleNotice.relatedUrls || {};
 
+  panel.className = "result-page";
   panel.innerHTML = `
-    <div class="fit-top">
-      ${badge(fit.type === "mismatch" ? "불일치" : fit.type === "check" ? "확인 필요" : "일치", typeBadge)}
-      <strong>${fit.title}</strong>
+    <div class="result-status ${fit.type}">
+      <div class="fit-top">
+        ${badge(fit.type === "mismatch" ? "불일치" : fit.type === "check" ? "확인 필요" : "일치", typeBadge)}
+        <strong>${fit.title}</strong>
+      </div>
+      <p>${fit.body}</p>
     </div>
-    <p class="small-text">${sampleNotice.pageType || "온비드 페이지"}${publicData ? ` · ${publicDataLabel(publicData)}` : ""}</p>
-    <p>${fit.body}</p>
-    <div class="preview-grid">
-      <div><span class="field-label">공고/물건명</span>${fieldValue(sampleNotice.title)}</div>
-      <div><span class="field-label">유형</span>${fieldValue(`${sampleNotice.assetType} · ${sampleNotice.dispositionLabel}`)}</div>
-      <div><span class="field-label">입찰기간</span>${fieldValue(sampleNotice.bidPeriod || sampleNotice.bidDeadline || NOTICE_VALUE_FALLBACK)}</div>
-      <div><span class="field-label">최저입찰가격</span>${fieldValue(sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK)}</div>
-    </div>
-    <p class="deadline-line">${countdownBadge()}</p>
-    <p class="small-text freshness-note">온비드 원문 기준이며, 최대 30분 지연될 수 있습니다. 마감이 가까우면 원문에서 다시 확인하십시오.</p>
-    ${renderDocSourceNotice()}
-    <div class="linked-pages">
-      <b>온비드 연결</b>
-      <a href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">현재 분석 페이지</a>
-      ${links.noticeDetail ? `<a href="${links.noticeDetail}" target="_blank" rel="noreferrer">공고보기</a>` : ""}
-      ${
-        links.itemDetail
-          ? links.itemDetailUncertain
-            ? `<a href="${links.itemDetail}" target="_blank" rel="noreferrer" class="link-uncertain">물건상세 (열리지 않을 수 있음)</a>`
-            : `<a href="${links.itemDetail}" target="_blank" rel="noreferrer">물건상세</a>`
-          : ""
-      }
-    </div>
-    ${renderAiReadySummary(coach)}
-    <p class="small-text">${fit.action}</p>
+
+    <section class="result-section">
+      <h4 class="result-section-title">핵심 정보</h4>
+      <p class="small-text">${sampleNotice.pageType || "온비드 페이지"}${publicData ? ` · ${publicDataLabel(publicData)}` : ""}</p>
+      <div class="preview-grid">
+        <div><span class="field-label">공고/물건명</span>${fieldValue(sampleNotice.title)}</div>
+        <div><span class="field-label">유형</span>${fieldValue(`${sampleNotice.assetType} · ${sampleNotice.dispositionLabel}`)}</div>
+        <div><span class="field-label">입찰기간</span>${fieldValue(sampleNotice.bidPeriod || sampleNotice.bidDeadline || NOTICE_VALUE_FALLBACK)}</div>
+        <div><span class="field-label">최저입찰가격</span>${fieldValue(sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK)}</div>
+      </div>
+      <p class="deadline-line">${countdownBadge()}</p>
+    </section>
+
+    <section class="result-section">
+      <h4 class="result-section-title">확인 사항</h4>
+      <ul class="result-check-list">
+        ${renderDocSourceNotice()}
+        ${renderAiReadySummary(coach)}
+      </ul>
+      <p class="small-text freshness-note">온비드 원문 기준이며, 최대 30분 지연될 수 있습니다. 마감이 가까우면 원문에서 다시 확인하십시오.</p>
+    </section>
+
+    <section class="result-section">
+      <h4 class="result-section-title">온비드 연결</h4>
+      <div class="linked-pages">
+        <a href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">현재 분석 페이지</a>
+        ${links.noticeDetail ? `<a href="${links.noticeDetail}" target="_blank" rel="noreferrer">공고보기</a>` : ""}
+        ${
+          links.itemDetail
+            ? links.itemDetailUncertain
+              ? `<a href="${links.itemDetail}" target="_blank" rel="noreferrer" class="link-uncertain">물건상세 (열리지 않을 수 있음)</a>`
+              : `<a href="${links.itemDetail}" target="_blank" rel="noreferrer">물건상세</a>`
+            : ""
+        }
+      </div>
+    </section>
+
+    <p class="small-text result-action">${fit.action}</p>
   `;
 }
 
@@ -1188,13 +1245,13 @@ async function askNoticeQuestion() {
 function renderAiReadySummary(coach) {
   const checks = coach?.unresolvedChecks || [];
   const questionCount = (coach?.askAgency || []).length;
-  return `<section class="ai-ready-summary">
-    <div>
+  return `<li class="result-check-row">
+    <div class="result-check-top">
       ${badge(coach?.llmStatus === "connected" ? "AI 분석 완료" : "규칙 기반 점검 완료", coach?.llmStatus === "connected" ? "safe" : "warn")}
       <strong>준비 보드에서 우선순위 체크리스트로 보여드립니다.</strong>
     </div>
     <p>${checks.length ? `${checks.length}개 미해결 항목과 ${questionCount}개 담당기관 확인 질문을 준비했습니다.` : "공고별 준비 보드에서 다음 확인 항목을 정리합니다."}</p>
-  </section>`;
+  </li>`;
 }
 
 const docSourceBadge = {
@@ -1257,11 +1314,14 @@ function renderDocSourceNotice() {
   const checklist = sampleNotice.docChecklist;
   const profile = checklist?.profile;
   if (!profile) return "";
-  return `<section class="doc-source-notice">
-    ${badge(docSourceBadge[profile.code] || docSourceBadge.unknown, profile.code === "A" ? "safe" : "warn")}
-    <strong>${profile.label}</strong>
+  // doc-source-notice 클래스는 e2e(tests/screen.spec.js S1 배지 색 단언)가 셀렉터로 쓴다 — 유지한다.
+  return `<li class="result-check-row doc-source-notice">
+    <div class="result-check-top">
+      ${badge(docSourceBadge[profile.code] || docSourceBadge.unknown, profile.code === "A" ? "safe" : "warn")}
+      <strong>${profile.label}</strong>
+    </div>
     <p class="small-text">${profile.detail}</p>
-  </section>`;
+  </li>`;
 }
 
 function renderDocChecklist(locked) {
@@ -1486,12 +1546,12 @@ function renderActionState() {
   if (prepareButton) {
     prepareButton.disabled = !ready;
     prepareButton.className = !ready ? "secondary" : isCaution ? "primary is-caution" : "primary";
-    prepareButton.textContent = ready ? "준비 보드 만들기" : "분석 후 만들기";
+    prepareButton.textContent = "다음";
   }
   const analyzeButton = byId("analyze");
   if (analyzeButton && !analyzeButton.disabled) {
-    analyzeButton.textContent = ready ? "다시 분석" : "공고 분석";
-    analyzeButton.className = ready ? "secondary" : "primary";
+    analyzeButton.textContent = ready ? "다시 분석" : "다음";
+    analyzeButton.className = "primary";
   }
 }
 
@@ -1938,6 +1998,7 @@ function watchItemHtml(item, options = {}) {
 }
 
 function renderAll() {
+  renderWizardStep();
   renderPipeline();
   renderAnalysisResult();
   renderReport();
@@ -1993,7 +2054,7 @@ async function runAnalysis() {
     analysisError = null;
     currentStage = 0;
     renderAll();
-    byId("analysis-result").scrollIntoView({ block: "center", behavior: "smooth" });
+    byId("url-step-feedback").scrollIntoView({ block: "center", behavior: "smooth" });
     return;
   }
   const requestId = ++analysisRequestId;
@@ -2025,14 +2086,15 @@ async function runAnalysis() {
     analyzedInputValue = getNoticeInput();
     saveRecentNotice();
     renderAll();
-    byId("analysis-result").scrollIntoView({ block: "center", behavior: "smooth" });
+    setInputStep("result");
   } catch (error) {
     if (requestId !== analysisRequestId) return;
     analysisError = error.message || "온비드 페이지 분석에 실패했습니다.";
     boardGenerated = false;
     currentStage = 0;
     renderAll();
-    byId("analysis-result").scrollIntoView({ block: "center", behavior: "smooth" });
+    setInputStep("url");
+    byId("url-step-feedback").scrollIntoView({ block: "center", behavior: "smooth" });
   } finally {
     if (requestId === analysisRequestId) {
       analyzeButton.disabled = false;
@@ -2065,7 +2127,7 @@ function init() {
   byId("load-sample").addEventListener("click", () => {
     analysisRequestId += 1;
     byId("analyze").disabled = false;
-    byId("analyze").textContent = "공고 분석";
+    byId("analyze").textContent = "다음";
     replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
     byId("notice-url").value = sampleNotice.sourceUrl;
     analyzedInputValue = "";
@@ -2076,15 +2138,27 @@ function init() {
     renderAll();
   });
 
+  byId("profile-next").addEventListener("click", () => setInputStep("url"));
+  byId("wizard-back-url").addEventListener("click", () => setInputStep("profile"));
+  byId("wizard-back-result").addEventListener("click", () => setInputStep("url"));
+
   byId("analyze").addEventListener("click", runAnalysis);
   byId("prepare").addEventListener("click", () => {
     if (!isAnalysisReady()) return;
     boardGenerated = true;
     currentStage = pipelineSteps.length;
     renderPipeline();
-    setView("report");
-    byId("report-title").setAttribute("tabindex", "-1");
-    byId("report-title").focus();
+    setInputStep("transition");
+    // 전환 화면은 "준비보드를 만들어드려요" 메시지를 짧게 보여준 뒤 자동으로 준비 보드로
+    // 넘어간다 — 사용자가 또 한 번 버튼을 눌러야 하는 멈춤 지점이 아니다.
+    clearTimeout(transitionTimer);
+    transitionTimer = window.setTimeout(() => {
+      inputStep = "result";
+      renderWizardStep();
+      setView("report");
+      byId("report-title").setAttribute("tabindex", "-1");
+      byId("report-title").focus();
+    }, 900);
   });
   byId("user-type").addEventListener("change", renderAll);
   byId("asset-focus").addEventListener("change", renderAll);
