@@ -688,10 +688,93 @@ function docStorageKeyFor(notice) {
   return `${docStorageKey}::${noticeKey(notice)}`;
 }
 
+// 공동입찰·대리입찰 질문(2단계 서류준비)의 답은 공고마다 다시 물어야 하므로 공고별로 저장한다.
+const docConditionStorageKey = "onbid-public-asset-doc-agent-doc-conditions-v1";
+
+function docConditionStorageKeyFor(notice) {
+  return `${docConditionStorageKey}::${noticeKey(notice)}`;
+}
+
+function getDocConditionAnswers() {
+  const saved = readJsonStorage(docConditionStorageKeyFor(sampleNotice), {});
+  return {
+    joint: saved.joint === "yes" ? "yes" : "no",
+    proxy: saved.proxy === "yes" ? "yes" : "no",
+  };
+}
+
+function setDocConditionAnswer(key, value) {
+  const current = getDocConditionAnswers();
+  current[key] = value === "yes" ? "yes" : "no";
+  writeJsonStorage(docConditionStorageKeyFor(sampleNotice), current);
+}
+
+// 공동입찰·대리입찰에서 "예"로 답했을 때 추가로 안내하는 서류다. 이 공고 원문에서 추출한
+// 것이 아니라, server.py DOC_HOWTO가 이미 쓰는 공식 서식명을 그대로 재사용한 일반 안내다.
+const DOC_CONDITION_SUPPLEMENT = {
+  joint: [
+    { name: "공동입찰참가신청서", howto: "공고 첨부 서식 또는 온비드 자료실 서식", howtoUrl: "https://www.onbid.co.kr/" },
+  ],
+  proxy: [
+    { name: "대리입찰신청서", howto: "공고 첨부 서식 또는 온비드 자료실 서식", howtoUrl: "https://www.onbid.co.kr/" },
+    { name: "위임장", howto: "공고 첨부 서식 또는 온비드 자료실 서식", howtoUrl: "https://www.onbid.co.kr/" },
+    { name: "대리인 신분증 등 본인 확인 서류 (확인 필요)", howto: "", howtoUrl: "" },
+  ],
+};
+
+function buildDocConditionSupplementItem(base, conditionLabel) {
+  return {
+    name: base.name,
+    conditions: [conditionLabel],
+    conditionKeys: [],
+    copy: "",
+    validity: "",
+    method: "",
+    due: "",
+    count: "",
+    stage: "입찰 전",
+    howto: base.howto,
+    howtoUrl: base.howtoUrl,
+    sourceSection: "",
+    evidence:
+      "이 공고 원문에서 추출한 문장이 아니라, 공동입찰·대리입찰 시 온비드 공매에서 통상 요구하는 서류에 대한 일반 안내입니다. 실제 필요 여부와 서식은 공고 원문과 담당기관 기준으로 다시 확인하십시오.",
+  };
+}
+
+// 공동입찰·대리입찰 질문 답에 맞춰 조건별 그룹을 걸러내고, "예"일 때는 일반 안내 서류를
+// 더해 "최종 준비서류 리스트"를 만든다. 체크 상태·진행률(getUniqueDocNames 등)과
+// 화면 렌더링(renderDocChecklist)이 같은 이 목록을 기준으로 삼는다.
+function getVisibleDocGroups() {
+  const groups = Array.isArray(sampleNotice.docChecklist?.groups) ? sampleNotice.docChecklist.groups : [];
+  const answers = getDocConditionAnswers();
+  const visibleGroups = groups.filter((group) => {
+    const label = group.condition || "";
+    if (label.includes("공동입찰") && answers.joint !== "yes") return false;
+    if (label.includes("대리입찰") && answers.proxy !== "yes") return false;
+    return true;
+  });
+  const existingNames = new Set();
+  visibleGroups.forEach((group) => (group.items || []).forEach((item) => existingNames.add(item.name)));
+  const supplementGroups = [];
+  if (answers.joint === "yes") {
+    const items = DOC_CONDITION_SUPPLEMENT.joint
+      .filter((base) => !existingNames.has(base.name))
+      .map((base) => buildDocConditionSupplementItem(base, "공동입찰"));
+    if (items.length) supplementGroups.push({ condition: "공동입찰 추가 안내", items });
+  }
+  if (answers.proxy === "yes") {
+    const items = DOC_CONDITION_SUPPLEMENT.proxy
+      .filter((base) => !existingNames.has(base.name))
+      .map((base) => buildDocConditionSupplementItem(base, "대리입찰"));
+    if (items.length) supplementGroups.push({ condition: "대리입찰 추가 안내", items });
+  }
+  return [...visibleGroups, ...supplementGroups];
+}
+
 // 조건별 그룹(공동입찰·대리입찰·공통 등)에 같은 서류명이 중복으로 나열되므로,
 // 체크 상태와 진행률은 「행」이 아니라 「고유 서류명」 기준으로 센다.
 function getUniqueDocNames() {
-  const groups = Array.isArray(sampleNotice.docChecklist?.groups) ? sampleNotice.docChecklist.groups : [];
+  const groups = getVisibleDocGroups();
   const names = new Set();
   groups.forEach((group) => {
     (group.items || []).forEach((item) => {
@@ -787,6 +870,52 @@ function toggleFavoriteNotice(id) {
   }
   setFavoriteNoticeIds(ids);
   renderWatchlist();
+}
+
+// 2단계(서류준비)의 "내 보관함으로 보내기"가 쓰는 저장소다. 핵심 정보 + 공동입찰/대리입찰
+// 답 + 확정된 서류 리스트를 한데 묶어 보관하고, 화면 노출은 기존 "관심 공고"(즐겨찾기)
+// 구조를 그대로 재사용한다(별개의 저장 체계를 새로 만들지 않는다).
+const docLockerStorageKey = "onbid-public-asset-doc-agent-locker-v1";
+
+function getLockerRecords() {
+  const saved = readJsonStorage(docLockerStorageKey, []);
+  return Array.isArray(saved) ? saved : [];
+}
+
+function buildLockerRecord() {
+  const answers = getDocConditionAnswers();
+  const docList = [];
+  getVisibleDocGroups().forEach((group) =>
+    (group.items || []).forEach((item) => {
+      if (item.name && !docList.includes(item.name)) docList.push(item.name);
+    }),
+  );
+  return {
+    id: noticeKey(sampleNotice),
+    notice: sampleNotice.noticeId || sampleNotice.title || "온비드 공고",
+    title: sampleNotice.title || "온비드 공고",
+    sourceUrl: sampleNotice.sourceUrl || "",
+    bidPeriod: sampleNotice.bidPeriod || "",
+    minimumBidPrice: sampleNotice.minimumBidPrice || "",
+    jointBid: answers.joint,
+    proxyBid: answers.proxy,
+    docList,
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function saveNoticeToLocker() {
+  if (!isAnalysisReady()) return null;
+  const record = buildLockerRecord();
+  const records = getLockerRecords().filter((item) => item.id !== record.id);
+  writeJsonStorage(docLockerStorageKey, [record, ...records].slice(0, 20));
+  // 관심 공고 화면에서도 바로 보이도록 "최근 살펴본 공고"에 먼저 남기고 즐겨찾기한다.
+  saveRecentNotice();
+  const favoriteIds = getFavoriteNoticeIds();
+  favoriteIds.add(record.id);
+  setFavoriteNoticeIds(favoriteIds);
+  renderWatchlist();
+  return record;
 }
 
 function isAnalyzedInputCurrent() {
@@ -1361,6 +1490,29 @@ function renderDocSourceNotice() {
   </li>`;
 }
 
+function renderDocConditionQuestions(answers) {
+  const options = [
+    { key: "joint", question: "공동입찰인가요?" },
+    { key: "proxy", question: "대리입찰인가요?" },
+  ];
+  return `<div class="doc-condition-question">
+    ${options
+      .map(
+        (option) => `<div class="doc-condition-row">
+          <p>${option.question}</p>
+          <div class="doc-condition-options" role="radiogroup" aria-label="${option.question}">
+            ${["yes", "no"]
+              .map(
+                (value) => `<button type="button" class="secondary small-button${answers[option.key] === value ? " is-active" : ""}" aria-pressed="${answers[option.key] === value}" data-doc-condition="${option.key}" data-doc-condition-value="${value}">${value === "yes" ? "예" : "아니오"}</button>`,
+              )
+              .join("")}
+          </div>
+        </div>`,
+      )
+      .join("")}
+  </div>`;
+}
+
 function renderDocChecklist(locked) {
   const checklist = sampleNotice.docChecklist;
   if (!checklist) return "";
@@ -1371,7 +1523,9 @@ function renderDocChecklist(locked) {
   if (checklist.status === "not_in_notice" && (sampleNotice.relatedDocs?.length || 0) > 0) {
     statusLabel = "본문에 없음";
   }
-  const groups = Array.isArray(checklist.groups) ? checklist.groups : [];
+  const rawGroups = Array.isArray(checklist.groups) ? checklist.groups : [];
+  const answers = getDocConditionAnswers();
+  const groups = getVisibleDocGroups();
   const userType = getSelectedUserType();
   const docState = getDocState();
 
@@ -1415,6 +1569,8 @@ function renderDocChecklist(locked) {
       ${badge(statusLabel, statusType)}
       <strong>${checklist.headline}</strong>
     </div>
+    <p>제출서류 리스트입니다.</p>
+    ${renderDocConditionQuestions(answers)}
     ${
       docSummary.totalCount
         ? `<div class="doc-progress">
@@ -1427,7 +1583,12 @@ function renderDocChecklist(locked) {
     <p class="doc-reference">${checklist.reference || ""}</p>
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
-    ${groupsHtml || `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`}
+    ${
+      groupsHtml ||
+      (rawGroups.length
+        ? `<p class="small-text">공동입찰·대리입찰에 해당하지 않아 추가로 준비할 서류가 없습니다. 질문에 "예"로 답하면 관련 서류가 다시 나타납니다.</p>`
+        : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`)
+    }
     ${
       checklist.tableRows?.length
         ? `<details class="doc-table">
@@ -1441,6 +1602,10 @@ function renderDocChecklist(locked) {
         : ""
     }
     <ul class="doc-notes">${(checklist.notes || []).map((note) => `<li>${note}</li>`).join("")}</ul>
+    <div class="doc-locker-action">
+      <button type="button" class="primary small-button" data-store-to-locker>내 보관함으로 보내기</button>
+      <span id="doc-locker-feedback" class="doc-locker-feedback" role="status" aria-live="polite"></span>
+    </div>
   </section>`;
 }
 
@@ -2330,6 +2495,20 @@ function init() {
     }
     if (event.target.closest("[data-restart-wizard]")) {
       restartWizardToProfile();
+      return;
+    }
+    const docConditionButton = event.target.closest("[data-doc-condition]");
+    if (docConditionButton) {
+      setDocConditionAnswer(docConditionButton.dataset.docCondition, docConditionButton.dataset.docConditionValue);
+      renderReport();
+      return;
+    }
+    if (event.target.closest("[data-store-to-locker]")) {
+      const record = saveNoticeToLocker();
+      const feedback = byId("doc-locker-feedback");
+      if (feedback) {
+        feedback.textContent = record ? "보관함에 저장되었습니다." : "먼저 공고를 분석해야 보관할 수 있습니다.";
+      }
       return;
     }
     const supportTab = event.target.closest("[data-support-tab]");

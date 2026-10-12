@@ -1639,6 +1639,46 @@ a:hover {
   padding-left: 18px;
 }
 
+.doc-condition-question {
+  margin: 8px 0 12px;
+}
+
+.doc-condition-row {
+  margin-bottom: 8px;
+}
+
+.doc-condition-row p {
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.doc-condition-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doc-condition-options button.is-active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.doc-locker-action {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.doc-locker-feedback {
+  color: var(--green-dark);
+  font-size: 12px;
+}
+
 .doc-reference {
   /* 패널 맨 위, 배지 바로 아래로 옮겼다(P0, 2026-09-12) — 참고용이라는 제약이 가장 안 보이는
      자리에 있던 것을 고쳤다. 상자로 감싸 눈에 띄게 한다. */
