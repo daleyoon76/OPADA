@@ -976,6 +976,43 @@ function getFitMessage() {
   };
 }
 
+// 준비 보드 1단계(공고 확인) 전용 판정 — 입찰기간 만료 또는 목적/형태 불일치가 있으면
+// "처음으로 돌아가시겠어요?" 배너를 보여준다. 새 판정 로직을 만들지 않고 이미 있는
+// bid_countdown()의 결과(countdown.state === "closed")와 getFitMessage()의 "mismatch"
+// 분기를 그대로 재사용한다 — 날짜·선택값 비교일 뿐 낙찰 가능성·유불리는 판단하지 않는다.
+// renderReport()가 blockingMessage(입력 없음·분석 실패·URL 변경 후 미분석)를 먼저 걸러낸
+// 뒤에만 호출되므로, 여기서는 그 세 가지를 다시 보지 않는다.
+function getStage1RestartWarning(fit) {
+  const expired = sampleNotice.countdown?.state === "closed";
+  const mismatched = fit.type === "mismatch";
+  if (!expired && !mismatched) return null;
+  const reasons = [];
+  if (expired) {
+    reasons.push(`입찰기간이 이미 지났습니다(${sampleNotice.countdown.deadline} 마감).`);
+  }
+  if (mismatched) {
+    reasons.push(fit.body);
+  }
+  return { expired, mismatched, reasons };
+}
+
+// 위 판정이 있을 때만 1단계 카드 그룹 위에 보이는 배너. 둘 다 아니면 호출부가 빈 문자열을
+// 받도록 getStage1RestartWarning()에서 이미 null을 돌려준다(불필요한 경고 노출 금지).
+function renderStage1RestartWarning(warning) {
+  if (!warning) return "";
+  return `<div class="fit-panel mismatch stage1-restart-warning">
+    <div class="fit-top">
+      ${badge("확인 필요", "warn")}
+      <strong>이 공고로 계속 진행하기 전에 확인이 필요합니다</strong>
+    </div>
+    ${warning.reasons.map((reason) => `<p>${reason}</p>`).join("")}
+    <p class="small-text">처음으로 돌아가면 지금 분석 중인 공고 데이터를 버리고 유형·목적 선택부터 다시 시작합니다.</p>
+    <div class="actions">
+      <button type="button" class="primary small-button" data-restart-wizard>처음으로 돌아가시겠어요?</button>
+    </div>
+  </div>`;
+}
+
 // "공고 유형 확인"·"입찰기간 확인"·"최저입찰가격 확인" 할 일 카드에, AI가 이미 비교·추출해 둔
 // 결과를 자세히 블록 문장으로 보여준다. getFitMessage()의 판정 로직 자체는 바꾸지 않고
 // 그 결과를 "보여주는" 자리만 넓힌다 — 단정하지 않고 헤지하며, 불일치/추출 실패일 때만
@@ -1788,6 +1825,10 @@ function renderReport() {
     tasksByStage.get(stageNum).push(task);
   });
 
+  // 1단계(공고 확인)에서만 보는 만료·불일치 경고 — 둘 다 아니면 null이라 배너를 만들지
+  // 않는다. phase2 범위: 공고 확인 단계 내부 로직만, 다른 단계에는 영향이 없다.
+  const stage1Warning = getStage1RestartWarning(fit);
+
   const groupedTaskHtml = stageStatus
     .map((stage) => {
       const stageTasks = tasksByStage.get(stage.num) || [];
@@ -1795,11 +1836,13 @@ function renderReport() {
       const cardsHtml = stageTasks
         .map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked))
         .join("");
+      const restartWarningHtml = stage.num === 1 ? renderStage1RestartWarning(stage1Warning) : "";
       // 잠긴 단계는 기본으로 접는다 — 체크박스만 비활성화하고 카드 내용을 전부 펼쳐 두면
       // 아직 손댈 수 없는 두세 단계 분량이 한 화면에 그대로 쏟아져 "한 번에 너무 많다"는
       // 체감으로 이어진다(2026-10-11 사용자 지적). 눌러서 미리 볼 수 있는 길은 남긴다.
       return `<details class="stage-group ${stage.locked ? "is-locked" : stage.done ? "is-done" : "is-active"}" ${stage.locked ? "" : "open"}>
         <summary>${renderStageHeading(stage)}</summary>
+        ${restartWarningHtml}
         ${cardsHtml}
       </details>`;
     })
@@ -2114,6 +2157,23 @@ function selectSupportTab(tab) {
   });
 }
 
+// 1단계 경고의 "처음으로" 버튼 — 지금 분석 중인 공고 데이터를 버리고 마법사 1p(유형·목적
+// 선택)로 완전히 되돌린다. load-sample 버튼이 쓰는 초기화 방식(초기 샘플 공고로 되돌리기)과
+// 같은 패턴이되, URL 입력칸은 비워서 다른 공고 URL을 새로 입력하게 한다.
+function restartWizardToProfile() {
+  analysisRequestId += 1;
+  clearTimeout(transitionTimer);
+  replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
+  byId("notice-url").value = "";
+  analyzedInputValue = "";
+  analysisError = null;
+  boardGenerated = false;
+  currentStage = 0;
+  renderAll();
+  setView("input");
+  setInputStep("profile");
+}
+
 function init() {
   byId("notice-url").value = sampleNotice.sourceUrl;
   analyzedInputValue = "";
@@ -2266,6 +2326,10 @@ function init() {
     if (event.target.closest("[data-experience-toggle]")) {
       setExperienceLevel(isExperienceBeginner() ? "experienced" : "beginner");
       renderReport();
+      return;
+    }
+    if (event.target.closest("[data-restart-wizard]")) {
+      restartWizardToProfile();
       return;
     }
     const supportTab = event.target.closest("[data-support-tab]");
