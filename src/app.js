@@ -447,7 +447,7 @@ const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
 const PREP_STAGES = [
   { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"] },
   { num: 2, title: "서류 준비", taskIds: ["documents"] },
-  { num: 3, title: "입찰 참여", taskIds: ["price", "agency"] },
+  { num: 3, title: "입찰 참여", taskIds: ["price"] },
 ];
 
 function getTaskStageNum(taskId) {
@@ -1408,6 +1408,94 @@ async function askNoticeQuestion() {
   }
 }
 
+// 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리에 두는 정보 리스트다.
+// 새 추출 로직을 만들지 않고 1·3단계 task의 action(이미 서버가 계산한 값)을 그대로 보여준다.
+// 개찰일시는 notice에 그 값을 담는 필드가 없어 추출 로직이 생기기 전까지는 행 자체를 만들지 않는다.
+function renderBidParticipationInfo(taskSummary) {
+  const bidPeriodTask = taskSummary.tasks.find((task) => task.id === "bid-period");
+  const priceTask = taskSummary.tasks.find((task) => task.id === "price");
+  const bidPlace = sampleNotice.bidType === "전자입찰" ? "온비드 전자입찰" : NOTICE_VALUE_FALLBACK;
+  const rows = [
+    ["입찰기간", bidPeriodTask?.action || NOTICE_VALUE_FALLBACK],
+    ["입찰 장소", bidPlace],
+    ["최저입찰가격", priceTask?.action || NOTICE_VALUE_FALLBACK],
+  ];
+  return `<div class="bid-participation-info">
+    <p>입찰 참여를 위해 챙겨야 할 정보입니다.</p>
+    <div class="fact-list">
+      ${rows
+        .map(
+          ([label, value]) => `<div class="fact-row">
+            <span>${label}</span>
+            <strong class="${value === NOTICE_VALUE_FALLBACK ? "is-fallback" : ""}">${value}</strong>
+          </div>`,
+        )
+        .join("")}
+    </div>
+  </div>`;
+}
+
+// 3단계 전용 AI 질문창. 기존 /api/ask(question_prompt·sanitize_ai_text)를 그대로 재사용하고,
+// 공고 핵심 맥락 + 2단계 공동입찰/대리입찰 답만 요약해 함께 보낸다.
+function renderBidAskBox() {
+  return `<section class="coach-ask-card">
+    <div class="coach-ask-head">
+      <strong>입찰 참여, 궁금한 점을 물어보세요</strong>
+    </div>
+    <p class="small-text">공고 내용과 지금까지 답한 내용을 바탕으로 답합니다. 낙찰 가능성이나 적정 가격은 판단하지 않습니다.</p>
+    <div class="coach-ask-row">
+      <input type="text" id="bid-ask-input" placeholder="예: 입찰보증금은 어떻게 내나요?" maxlength="200" aria-label="입찰 참여 관련 질문">
+      <button type="button" class="secondary small-button" data-ask-bid-question>질문하기</button>
+    </div>
+    <div id="bid-ask-result" class="coach-ask-result" aria-live="polite"></div>
+  </section>`;
+}
+
+async function askBidParticipationQuestion() {
+  const input = byId("bid-ask-input");
+  const result = byId("bid-ask-result");
+  if (!input || !result) return;
+  const question = input.value.trim();
+  if (!question) {
+    result.innerHTML = `<p class="small-text">질문을 입력하세요.</p>`;
+    return;
+  }
+  result.innerHTML = `<p class="small-text">답변을 찾는 중입니다...</p>`;
+  const conditionAnswers = getDocConditionAnswers();
+  try {
+    const response = await window.fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        notice: {
+          title: sampleNotice.title,
+          assetType: sampleNotice.assetType,
+          dispositionLabel: sampleNotice.dispositionLabel,
+          bidMethod: sampleNotice.bidMethod,
+          bidPeriod: sampleNotice.bidPeriod,
+          bidDeadline: sampleNotice.bidDeadline,
+          minimumBidPrice: sampleNotice.minimumBidPrice,
+          appraisalPrice: sampleNotice.appraisalPrice,
+          agency: sampleNotice.agency,
+          contact: sampleNotice.contact,
+          jointBidAnswer: conditionAnswers.joint === "yes" ? "공동입찰 예정" : "공동입찰 아님",
+          proxyBidAnswer: conditionAnswers.proxy === "yes" ? "대리입찰 예정" : "대리입찰 아님",
+        },
+        docs: (sampleNotice.requiredDocs || []).slice(0, 10),
+      }),
+    });
+    const payload = await response.json();
+    if (!payload.ok) {
+      result.innerHTML = `<p class="small-text">${payload.error || "지금은 답변을 가져올 수 없습니다. 담당기관에 문의하세요."}</p>`;
+      return;
+    }
+    result.innerHTML = renderQuestionAnswer(payload.result);
+  } catch {
+    result.innerHTML = `<p class="small-text">지금은 답변을 가져올 수 없습니다. 담당기관에 문의하세요.</p>`;
+  }
+}
+
 function renderAiReadySummary(coach) {
   const checks = coach?.unresolvedChecks || [];
   const questionCount = (coach?.askAgency || []).length;
@@ -2002,6 +2090,10 @@ function renderReport() {
         .map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked))
         .join("");
       const restartWarningHtml = stage.num === 1 ? renderStage1RestartWarning(stage1Warning) : "";
+      // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리 — 정보 리스트 + AI 질문창.
+      // 잠겨 있어도 보여준다(ux-audit §⑴ "잠긴 상태에서도 자세히·원문 링크는 항상 보인다" 원칙과 동일).
+      const bidParticipationHtml =
+        stage.num === 3 ? renderBidParticipationInfo(taskSummary) + renderBidAskBox() : "";
       // 잠긴 단계는 기본으로 접는다 — 체크박스만 비활성화하고 카드 내용을 전부 펼쳐 두면
       // 아직 손댈 수 없는 두세 단계 분량이 한 화면에 그대로 쏟아져 "한 번에 너무 많다"는
       // 체감으로 이어진다(2026-10-11 사용자 지적). 눌러서 미리 볼 수 있는 길은 남긴다.
@@ -2009,6 +2101,7 @@ function renderReport() {
         <summary>${renderStageHeading(stage)}</summary>
         ${restartWarningHtml}
         ${cardsHtml}
+        ${bidParticipationHtml}
       </details>`;
     })
     .join("") + leftoverTasks.map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, false)).join("");
@@ -2452,6 +2545,10 @@ function init() {
       event.preventDefault();
       askNoticeQuestion();
     }
+    if (event.target?.id === "bid-ask-input") {
+      event.preventDefault();
+      askBidParticipationQuestion();
+    }
   });
 
   // ARIA tabs 패턴 — 좌우 화살표로 탭 이동, Home/End로 처음·끝 탭 선택
@@ -2522,6 +2619,10 @@ function init() {
     }
     if (event.target.closest("[data-ask-question]")) {
       askNoticeQuestion();
+      return;
+    }
+    if (event.target.closest("[data-ask-bid-question]")) {
+      askBidParticipationQuestion();
       return;
     }
     const target = event.target.closest("[data-jump]");

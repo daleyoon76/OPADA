@@ -1367,18 +1367,6 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
             "url": final_url,
             "defaultDone": False,
         },
-        {
-            "id": "agency",
-            "title": "담당기관에 물어볼 질문 정리",
-            "action": notice.get("contact") or notice.get("agency") or "담당기관 확인",
-            "due": "입찰 전",
-            "detail": "AI가 법률·권리관계 판단을 대신하지 않고, 사용자가 담당기관에 확인해야 할 문장으로 분리합니다.",
-            "question": "서류 제출 방식, 낙찰 후 절차, 비용 납부 방식 중 내가 담당기관에 확인할 항목을 정리합니다.",
-            "source": "온비드 상세 페이지 > 공고기관/담당부점",
-            "cta": "온비드 원문",
-            "url": final_url,
-            "defaultDone": False,
-        },
     ]
     return tasks
 
@@ -1858,6 +1846,10 @@ def question_prompt(
             "agency": notice.get("agency", ""),
             "contact": notice.get("contact", ""),
             "requiredDocs": docs[:10],
+            # 입찰 참여 단계(3단계) 질문창이 보내는 사용자 답 — 공고 원문 추출값이 아니라
+            # 사용자가 2단계에서 고른 선택이다. 없으면 빈 문자열이고 근거로 쓰지 않는다.
+            "jointBidAnswer": notice.get("jointBidAnswer", ""),
+            "proxyBidAnswer": notice.get("proxyBidAnswer", ""),
         },
         "board": board or {},
         "question": question,
