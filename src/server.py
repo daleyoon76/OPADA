@@ -1765,7 +1765,7 @@ def build_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     return rule_based
 
 
-ANSWER_TYPES = ("notice", "board", "none")
+ANSWER_TYPES = ("notice", "board", "general", "none")
 
 
 def _clip(value: object, limit: int = 120) -> str:
@@ -1821,7 +1821,7 @@ def question_prompt(
     return {
         "role": "온비드 공공자산 입찰 준비 코치",
         "instruction": (
-            "사용자가 이 공고의 준비 보드를 보면서 질문했다. 질문을 아래 셋 중 하나로 분류해 answerType 에 적는다. "
+            "사용자가 이 공고의 준비 보드를 보면서 질문했다. 질문을 아래 넷 중 하나로 분류해 answerType 에 적는다. "
             "(1) notice: 공고 사실(기간·가격·기관·서류 등)을 묻는 질문. notice 필드와 requiredDocs 안에서 "
             "확실히 답할 수 있을 때만 근거 값 그대로 답하고, sourceField 에 notice 필드 이름을 적는다. "
             "(2) board: 다음에 할 일·순서·진행 상황·무엇부터 할지를 묻는 질문. board 의 tasks 순서와 done, "
@@ -1829,10 +1829,16 @@ def question_prompt(
             "아직 끝내지 않은 첫 할 일(board.nextTaskId)부터 위에서 아래 순서로 진행하도록 권하고, "
             "안내하는 첫 할 일의 needsCheck 가 비어 있지 않으면 그 내용을 반드시 한 번 짚는다. "
             "board.tasks 가 비어 있으면 board 로 답하지 않는다. 모든 할 일이 끝났으면 원문과 담당기관 최종 확인을 안내한다. "
-            "(3) none: 위 근거로 답할 수 없거나 추측·해석이 필요한 질문. answerable 을 false, answer 를 빈 문자열로 둔다. "
-            "notice 와 board 는 answerable 을 true 로 한다. 모르는데 지어내지 않는다. "
+            "(3) general: 이 공고에 한정되지 않은 일반적인 온비드 공매·입찰 절차에 대한 공개된 일반 지식을 묻는 질문"
+            "(전자입찰 진행 방식, 서류 제출 뒤 일반적인 절차 흐름, 입찰 보증금 일반 규정 등). notice 와 board 근거 없이도 "
+            "공매 절차에 대한 일반 지식만으로 확실히 답할 수 있을 때만 쓰고, sourceField 는 빈 문자열로 둔다. "
+            "이 공고에만 해당하는 사실(가격·기간·기관 등)이나 notice 에 없는 이 물건 특정 내용은 general 로 답하지 않는다. "
+            "(4) none: 위 근거로 답할 수 없거나 추측·해석이 필요한 질문. answerable 을 false, answer 를 빈 문자열로 둔다. "
+            "notice, board, general 은 answerable 을 true 로 한다. 모르는데 지어내지 않는다. "
+            "general 로 답할 만한 일반 지식도 확신이 없으면 none 으로 남긴다. "
             "board 안내는 준비 순서에 대한 것이며 입찰 여부를 판단하는 말이 아니다. "
-            "입찰 참여 권유, 가격 결정 권유, 수익성 판단, 법률/권리관계 판단은 하지 않는다. "
+            "general 안내도 공매 절차에 대한 일반 지식일 뿐이며 이 공고에 대한 판단이 아니다. "
+            "입찰 참여 권유, 가격 결정 권유, 수익성 판단, 법률/권리관계 판단은 어느 갈래로도 하지 않는다. "
             "'보장', '추천', '수익성' 같은 표현을 쓰지 않는다. "
             "답은 한국어 존댓말 1~3문장으로 짧게 쓴다. 반드시 JSON 객체만 반환한다."
         ),

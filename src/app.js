@@ -1331,8 +1331,14 @@ function renderQuestionAnswer(answer) {
     </div>`;
   }
   if (answer.answerable && answer.answer) {
+    const badgeLabel =
+      answer.answerType === "board"
+        ? "준비 보드 기반 안내"
+        : answer.answerType === "general"
+          ? "공매 절차 일반 안내"
+          : "공고 원문 기반 답변";
     return `<div class="coach-ask-answer">
-      ${badge(answer.answerType === "board" ? "준비 보드 기반 안내" : "공고 원문 기반 답변", "safe")}
+      ${badge(badgeLabel, "safe")}
       <p>${answer.answer}</p>
     </div>`;
   }
