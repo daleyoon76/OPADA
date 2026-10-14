@@ -7,10 +7,12 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -2494,6 +2496,29 @@ def build_notice(raw_url: str) -> dict[str, object]:
     return notice
 
 
+# /api/ask 오남용 방지 속도 제한. 로그인이 없는 서비스라 IP를 식별자로 쓰고,
+# 메모리 내 카운터라 서버 재시작 시 리셋된다(DB 도입은 범위 밖).
+ASK_RATE_LIMIT_PER_MINUTE = 5
+ASK_RATE_LIMIT_PER_HOUR = 30
+_ask_rate_lock = threading.Lock()
+_ask_rate_log: dict[str, deque] = {}
+
+
+def check_ask_rate_limit(client_ip: str) -> str | None:
+    now = time.time()
+    with _ask_rate_lock:
+        timestamps = _ask_rate_log.setdefault(client_ip, deque())
+        while timestamps and now - timestamps[0] > 3600:
+            timestamps.popleft()
+        minute_count = sum(1 for t in timestamps if now - t <= 60)
+        if minute_count >= ASK_RATE_LIMIT_PER_MINUTE:
+            return "질문이 너무 많습니다. 1분 후 다시 시도하세요."
+        if len(timestamps) >= ASK_RATE_LIMIT_PER_HOUR:
+            return "질문이 너무 많습니다. 잠시 후 다시 시도하세요."
+        timestamps.append(now)
+        return None
+
+
 class Handler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         parsed = urllib.parse.urlparse(path)
@@ -2544,6 +2569,10 @@ class Handler(SimpleHTTPRequestHandler):
                 docs = [str(item) for item in docs_raw][:10]
                 if not question:
                     self.send_json(400, {"ok": False, "error": "질문을 입력하세요."})
+                    return
+                limit_message = check_ask_rate_limit(self.client_address[0])
+                if limit_message:
+                    self.send_json(429, {"ok": False, "error": limit_message})
                     return
                 board = sanitize_board_state(payload.get("board"))
                 result = answer_notice_question(notice, docs, question, board)

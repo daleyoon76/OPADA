@@ -582,16 +582,18 @@ textarea {
 .coach-ask-card {
   margin-top: 12px;
   border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
   border-radius: var(--radius-md);
   background: var(--panel);
-  padding: 13px 15px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
 }
 
 .coach-ask-card .coach-ask-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
 }
 
