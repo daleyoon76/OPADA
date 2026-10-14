@@ -1093,14 +1093,14 @@ function getFitMessage() {
       title: "창업 공간 후보로는 볼 수 있지만 용도 확인이 필요합니다",
       body:
         "창업 공간으로 활용 가능한지는 용도, 사용 제한, 시설 상태, 담당기관 확인이 필요합니다.",
-      action: "준비 보드에서는 창업 목적 사용 가능 여부를 내가 담당기관에 물어볼 질문으로 분리합니다.",
+      action: "준비 보드에서 창업 목적 사용 가능 여부를 확인 항목으로 안내합니다.",
     };
   }
 
   return {
     type: "match",
     title: "목적과 입력 공고 유형이 맞습니다",
-    body: "분석된 온비드 공고를 기준으로 일정, 제출서류, 가격/보증금, 내가 담당기관에 물어볼 질문을 준비 보드로 정리합니다.",
+    body: "분석된 온비드 공고를 기준으로 일정, 제출서류, 가격/보증금을 준비 보드로 정리합니다.",
     action: "결과를 확인한 뒤 다음을 누르면 체크리스트와 준비처 링크로 넘어갑니다.",
   };
 }
@@ -1144,25 +1144,21 @@ function renderStage1RestartWarning(warning) {
 
 // "공고 유형 확인"·"입찰기간 확인"·"최저입찰가격 확인" 할 일 카드에, AI가 이미 비교·추출해 둔
 // 결과를 자세히 블록 문장으로 보여준다. getFitMessage()의 판정 로직 자체는 바꾸지 않고
-// 그 결과를 "보여주는" 자리만 넓힌다 — 단정하지 않고 헤지하며, 불일치/추출 실패일 때만
-// 담당기관에 물어볼 질문 초안을 함께 낸다(정상 추출/일치 항목에는 불필요한 질문을 만들지 않는다).
+// 그 결과를 "보여주는" 자리만 넓힌다 — 단정하지 않고 헤지한다.
 function getAiPrecheckForTask(task, fit) {
   if (task.id === "notice-type") {
     if (fit.type === "match") {
       return {
         precheck: "선택한 검토 목적과 공고 유형을 비교했을 때 맞는 것으로 보입니다. 원문·담당기관 확인을 우선합니다.",
-        draft: null,
       };
     }
     if (fit.type === "check") {
       return {
         precheck: `${fit.body} 원문·담당기관 확인을 우선합니다.`,
-        draft: "이 물건을 제가 고른 용도로 사용할 수 있는지 담당기관에 확인 부탁드립니다.",
       };
     }
     return {
       precheck: `선택한 검토 목적과 공고 유형이 다른 것으로 보입니다. ${fit.body} 원문·담당기관 확인을 우선합니다.`,
-      draft: "제가 고른 용도와 공고 유형이 다르게 보이는데, 이 공고로 진행해도 되는지 확인 부탁드립니다.",
     };
   }
 
@@ -1175,14 +1171,10 @@ function getAiPrecheckForTask(task, fit) {
         task.id === "price" && task.action === "비공개"
           ? "공고 원문에서 가격이 비공개로 설정된 것으로 보입니다. 원문·담당기관 확인을 우선합니다."
           : `공고 원문에서 ${task.action}로 확인된 것으로 보입니다. 원문·담당기관 확인을 우선합니다.`;
-      return { precheck, draft: null };
+      return { precheck };
     }
     return {
       precheck: "원문에서 값을 찾지 못했습니다. 직접 확인해 주세요.",
-      draft:
-        task.id === "bid-period"
-          ? "이 공고의 입찰기간(입찰 시작·마감 일시)은 언제인가요?"
-          : "이 공고의 최저입찰가격(또는 임대료 기준가)은 얼마인가요?",
     };
   }
 
@@ -1946,7 +1938,6 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
             ? `<div class="task-precheck">
           <span class="task-precheck-label">규칙 기반 사전 확인</span>
           <p>${aiPrecheck.precheck}</p>
-          ${aiPrecheck.draft ? `<p class="task-precheck-draft"><b>담당기관에 물어볼 질문</b>: ${aiPrecheck.draft}</p>` : ""}
         </div>`
             : ""
         }
