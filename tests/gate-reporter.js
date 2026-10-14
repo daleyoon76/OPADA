@@ -24,7 +24,7 @@ const SCREEN_SPEC = "screen.spec.js";
 // 하한이 실제보다 낮으면 그 차이만큼 «공짜 삭제»가 생긴다(2026-09-09 r2 실측: 하한 15 ·
 // 실제 16 이라 커버리지 측정 테스트 하나가 소리 없이 빠져도 경고 0건이었다).
 // 값은 축 표에서 파생시키지 않는다 — 파생시키면 축을 지울 때 기대값이 같이 내려가 항상 통과한다.
-const EXPECTED_TEST_COUNT = 16;
+const EXPECTED_TEST_COUNT = 19;
 
 class GateReporter {
   onBegin(config, suite) {

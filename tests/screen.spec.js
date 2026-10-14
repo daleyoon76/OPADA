@@ -159,7 +159,10 @@ async function analyzeWith(page, notice) {
     dialogs.push(dialog.message());
     dialog.dismiss();
   });
-  await page.goto("http://127.0.0.1:8975/");
+  // baseURL(playwright.config.js의 use.baseURL)을 따라간다 — 워크트리마다 다른 포트를 써도
+  // 이 한 줄만 고치면 된다. 절대 URL로 8975를 박아두면 다른 워크트리 포트에서는 영원히 메인
+  // 워크트리 서버로 접속해 #profile-next 를 못 찾는 타임아웃이 난다(2026-10-14 phase5).
+  await page.goto("/");
   await page.evaluate((payload) => {
     window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, notice: payload }) });
   }, notice);
@@ -190,8 +193,11 @@ test("S1·S2·S5·S6·S7 추출에 성공한 공고를 화면에 그린다", asy
 
   await page.locator("#prepare").click();
 
-  // S2 조건별 그룹·부가조건 칩·발급처.
+  // S2 조건별 그룹·부가조건 칩·발급처. 체크리스트는 기본 접힘이라 먼저 펼친다.
+  await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
+  // "대리입찰" 조건부 그룹(대리입찰신청서 포함)은 질문에 "예"로 답해야 보인다(2026-10-12 phase3).
+  await checklist.locator('button[data-doc-condition="proxy"][data-doc-condition-value="yes"]').click();
   await expect(checklist).toContainText("미성년자");
   await expect(checklist).toContainText("대리입찰");
   await expect(checklist).toContainText("인감증명서");
@@ -848,8 +854,11 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   await expect(price).toBeDisabled();
   await expect(page.locator(".stage-group-heading.is-locked")).toHaveCount(2);
 
-  // 잠긴 상태에서도 "자세히"·원문 링크·문의 문구는 항상 보인다(ux-audit §⑴).
+  // 잠긴 단계는 기본으로 접혀 있다(2026-10-11 설계, "한 번에 너무 많다" 체감 해소) —
+  // 눌러서 미리 볼 수 있는 길만 남겨 두므로, 먼저 단계 헤딩을 눌러 펼친다.
   const documentsCard = documents.locator("xpath=ancestor::article[contains(@class,'task-item')]");
+  await documentsCard.locator("xpath=ancestor::details[contains(@class,'stage-group')]").locator("> summary").click();
+  // 펼친 뒤에는 "자세히"·원문 링크·문의 문구가 항상 보인다(ux-audit §⑴).
   await expect(documentsCard.locator("details summary", { hasText: "자세히" })).toBeVisible();
   await expect(documentsCard.locator(".task-action-value")).toBeVisible();
   await expect(documentsCard.locator("a", { hasText: "온비드 원문" })).toBeVisible();

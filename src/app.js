@@ -483,7 +483,7 @@ function isExperienceBeginner() {
 
 const aiTaskSignals = [
   {
-    taskIds: ["price", "guarantee", "agency-question"],
+    taskIds: ["price", "guarantee"],
     taskKeywords: ["가격", "보증금", "대부료", "비용", "납부", "잔금"],
     checkKeywords: ["대부료", "비용", "고정비", "공과금", "보험", "보증금", "납부", "잔금"],
   },
@@ -498,7 +498,7 @@ const aiTaskSignals = [
     checkKeywords: ["업종", "사용", "용도", "목적", "승인", "제한"],
   },
   {
-    taskIds: ["agency", "agency-question"],
+    taskIds: [],
     taskKeywords: ["담당기관", "질문", "문의", "현장", "인수"],
     checkKeywords: ["현장", "인수", "원상복구", "담당기관", "문의"],
   },
