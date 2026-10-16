@@ -973,8 +973,8 @@ def gemini_api_key() -> str:
 def vertex_config() -> dict[str, str]:
     project = secret_value("GOOGLE_CLOUD_PROJECT_ID", "GOOGLE_CLOUD_PROJECT")
     location = secret_value("GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_REGION") or "global"
-    model = os.environ.get("VERTEX_GEMINI_MODEL", os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")).strip()
-    return {"project": project, "location": location, "model": model or "gemini-2.5-flash-lite"}
+    model = os.environ.get("VERTEX_GEMINI_MODEL", os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")).strip()
+    return {"project": project, "location": location, "model": model or "gemini-3.1-flash-lite"}
 
 
 VERTEX_429_BACKOFF = (1.0, 2.0)
@@ -1606,7 +1606,7 @@ def gemini_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obj
     api_key = gemini_api_key()
     if not api_key:
         return None
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip() or "gemini-2.5-flash-lite"
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
     prompt = {
         "role": "온비드 공공자산 입찰 준비 코치",
@@ -1912,7 +1912,7 @@ def gemini_answer_question(
     api_key = gemini_api_key()
     if not api_key:
         return None
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip() or "gemini-2.5-flash-lite"
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
     request_body = {
         "contents": [
