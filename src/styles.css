@@ -218,6 +218,58 @@ button:disabled {
   display: block;
 }
 
+/* 입력~분석 마법사(1p 유형/목적 → 2p URL → 3p 결과 → 전환화면) 하위 화면 전환.
+   view와 같은 display 토글 패턴을 그대로 쓴다(2026-10-12 phase1). */
+.wizard-step {
+  display: none;
+}
+
+.wizard-step.is-active {
+  display: block;
+}
+
+.wizard-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.wizard-progress-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wizard-progress-step.is-active {
+  border-color: var(--green);
+  background: var(--green);
+  color: #ffffff;
+}
+
+.wizard-progress-step.is-done {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.url-step-feedback:empty {
+  display: none;
+}
+
+.url-step-feedback.fit-panel {
+  margin-top: 14px;
+}
+
 .two-col,
 .three-col {
   display: grid;
@@ -447,45 +499,101 @@ textarea {
   background: #ffffff;
 }
 
-.ai-ready-summary {
-  margin-top: 12px;
-  border: 1px solid #c8d1a0;
-  border-radius: var(--radius-md);
-  background: var(--soft-green);
-  padding: 11px 12px;
+/* 3p(분석 결과) 화면 — "핵심 정보"·"확인 사항"·"온비드 연결" 세 묶음.
+   색·테두리가 다른 상자를 여러 겹 쌓지 않고, 한 카드(.result-section) 안에
+   구분선만 있는 행(.result-check-row)으로 늘어놓는다(2026-10-12 phase1 UX 재설계). */
+.result-status {
+  margin-bottom: 16px;
 }
 
-.ai-ready-summary div {
+.result-status p {
+  margin: 6px 0 0;
+}
+
+.result-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.result-section:first-of-type {
+  margin-top: 0;
+}
+
+.result-section-title {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.result-check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.result-check-row {
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.result-check-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.result-check-row:first-child {
+  padding-top: 0;
+}
+
+.result-check-top {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 6px 10px;
 }
 
-.ai-ready-summary strong {
-  font-size: 16px;
+.result-check-row p {
+  margin: 5px 0 0;
 }
 
-.ai-ready-summary p {
-  margin: 7px 0 0;
-  color: var(--muted);
-  font-size: 12px;
+.result-action {
+  margin-top: 16px;
+}
+
+.transition-panel {
+  text-align: center;
+  padding: 48px 20px;
+}
+
+.transition-message {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.transition-panel .small-text {
+  margin-top: 8px;
 }
 
 .coach-ask-card {
   margin-top: 12px;
   border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
   border-radius: var(--radius-md);
   background: var(--panel);
-  padding: 13px 15px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
 }
 
 .coach-ask-card .coach-ask-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -514,6 +622,34 @@ textarea {
 .coach-ask-answer p {
   margin: 6px 0 0;
   font-size: 12px;
+}
+
+/* 질문-답변 온보딩(질문 A) — visual-audit §⑶. 새 카드를 만들지 않고 기존 .coach-ask-card
+   안에 올려 상단 블록으로 쓴다. */
+.coach-experience-question p {
+  margin: 10px 0 6px;
+  font-weight: 700;
+}
+
+.coach-experience-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.coach-ask-divider {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.coach-ask-head {
+  flex-wrap: wrap;
+}
+
+.coach-ask-head .coach-level-toggle {
+  margin-left: auto;
 }
 
 .actions {
@@ -557,6 +693,110 @@ textarea {
 .pipeline li.active {
   border-color: #c9a08f;
   background: var(--soft-blue);
+}
+
+/* 전체 진행률 스테퍼(visual-audit §⑴) — .pipeline li.done/.active와 같은 배색을 재사용한다.
+   신규 CSS 변수는 추가하지 않는다. */
+.prep-stage-stepper {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+}
+
+.prep-stage-stepper li {
+  border: 1px solid var(--line);
+  border-right: 0;
+  border-radius: 0;
+  padding: 10px 12px;
+  background: #fffcf8;
+  display: grid;
+  gap: 2px;
+}
+
+.prep-stage-stepper li:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.prep-stage-stepper li:last-child {
+  border-right: 1px solid var(--line);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.prep-stage-stepper .state {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prep-stage-stepper li.is-done {
+  border-color: #c8d1a0;
+  background: var(--soft-green);
+}
+
+.prep-stage-stepper li.is-active {
+  border-width: 2px;
+  border-color: #c9a08f;
+  background: var(--soft-blue);
+}
+
+.prep-stage-stepper li.is-locked strong {
+  color: var(--muted);
+}
+
+/* 단계 그룹 헤딩 — task-list 안에서 각 단계 소속 task를 구분한다(visual-audit §⑵). */
+.stage-group-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 6px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--line);
+  background: #ffffff;
+}
+
+.stage-group-heading:first-child {
+  margin-top: 0;
+}
+
+/* 잠긴 단계를 기본으로 접어 둔다 — summary(헤딩)는 항상 보이고, 카드 내용은 눌러야
+   펼쳐진다. summary 기본 마커는 숨기고 stage-group-heading이 그 역할을 대신한다. */
+details.stage-group > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+details.stage-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.stage-group:first-child > summary .stage-group-heading {
+  margin-top: 0;
+}
+
+.stage-group-heading.is-active {
+  border-left-color: #c9a08f;
+}
+
+.stage-group-heading.is-done {
+  border-left-color: #c8d1a0;
+}
+
+/* 잠긴 단계의 체크 행만 흐리게 — 카드 전체·<details>·원문 링크는 항상 선명하게 둔다
+   (ux-audit §⑴ "잠긴 단계의 표시", visual-audit §⑵). */
+.task-row.is-locked-row {
+  opacity: 0.55;
+}
+
+.task-row.is-locked-row .task-check {
+  cursor: not-allowed;
+}
+
+.task-row.is-locked-row .task-check input {
+  cursor: not-allowed;
 }
 
 .summary-grid,
@@ -873,10 +1113,6 @@ a:hover {
 
 .task-precheck p {
   margin: 2px 0 0;
-}
-
-.task-precheck-draft {
-  color: var(--ink);
 }
 
 .context-panel {
@@ -1226,22 +1462,6 @@ a:hover {
   font-size: 12px;
 }
 
-.doc-source-notice {
-  margin-top: 10px;
-  border-left: 3px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: #fffcf8;
-  padding: 9px 11px;
-}
-
-.doc-source-notice strong {
-  margin-left: 6px;
-}
-
-.doc-source-notice p {
-  margin: 5px 0 0;
-}
-
 .deadline-line {
   margin: 8px 0 0;
 }
@@ -1311,6 +1531,18 @@ a:hover {
 
 .doc-group li.is-checked {
   opacity: 0.6;
+}
+
+/* 잠긴 단계의 서류 체크박스도 메인 task 체크 행과 같은 흐림·커서 처리를 맞춘다
+   (.task-row.is-locked-row 와 같은 패턴). 기능은 disabled 로 이미 막혀 있고
+   이 규칙은 시각 신호만 보강한다. */
+.doc-group li.is-locked {
+  opacity: 0.55;
+}
+
+.doc-group li.is-locked .doc-check,
+.doc-group li.is-locked .doc-check input {
+  cursor: not-allowed;
 }
 
 .doc-group li strong {
@@ -1403,6 +1635,46 @@ a:hover {
   font-size: 13px;
   margin: 10px 0 0;
   padding-left: 18px;
+}
+
+.doc-condition-question {
+  margin: 8px 0 12px;
+}
+
+.doc-condition-row {
+  margin-bottom: 8px;
+}
+
+.doc-condition-row p {
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.doc-condition-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doc-condition-options button.is-active {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+}
+
+.doc-locker-action {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.doc-locker-feedback {
+  color: var(--green-dark);
+  font-size: 12px;
 }
 
 .doc-reference {
@@ -1530,8 +1802,29 @@ a:hover {
   .board-status,
   .board-layout,
   .watch-summary,
-  .watch-item {
+  .watch-item,
+  .prep-stage-stepper {
     grid-template-columns: 1fr;
+  }
+
+  /* 데스크톱의 가로 연결선(오른쪽 테두리 생략)을 세로 1열에서는 아래쪽 경계로 바꾼다
+     (visual-audit §⑴ 모바일 명세). */
+  .prep-stage-stepper li {
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 0;
+  }
+
+  .prep-stage-stepper li:first-child {
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  .prep-stage-stepper li:last-child {
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+  }
+
+  .prep-stage-stepper li:not(:last-child) {
+    border-bottom: 1px solid var(--line);
   }
 
   .task-meta,

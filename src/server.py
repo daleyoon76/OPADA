@@ -7,10 +7,12 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import deque
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -971,8 +973,8 @@ def gemini_api_key() -> str:
 def vertex_config() -> dict[str, str]:
     project = secret_value("GOOGLE_CLOUD_PROJECT_ID", "GOOGLE_CLOUD_PROJECT")
     location = secret_value("GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_REGION") or "global"
-    model = os.environ.get("VERTEX_GEMINI_MODEL", os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")).strip()
-    return {"project": project, "location": location, "model": model or "gemini-2.5-flash-lite"}
+    model = os.environ.get("VERTEX_GEMINI_MODEL", os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")).strip()
+    return {"project": project, "location": location, "model": model or "gemini-3.1-flash-lite"}
 
 
 VERTEX_429_BACKOFF = (1.0, 2.0)
@@ -1367,18 +1369,6 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
             "url": final_url,
             "defaultDone": False,
         },
-        {
-            "id": "agency",
-            "title": "담당기관에 물어볼 질문 정리",
-            "action": notice.get("contact") or notice.get("agency") or "담당기관 확인",
-            "due": "입찰 전",
-            "detail": "AI가 법률·권리관계 판단을 대신하지 않고, 사용자가 담당기관에 확인해야 할 문장으로 분리합니다.",
-            "question": "서류 제출 방식, 낙찰 후 절차, 비용 납부 방식 중 내가 담당기관에 확인할 항목을 정리합니다.",
-            "source": "온비드 상세 페이지 > 공고기관/담당부점",
-            "cta": "온비드 원문",
-            "url": final_url,
-            "defaultDone": False,
-        },
     ]
     return tasks
 
@@ -1616,7 +1606,7 @@ def gemini_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obj
     api_key = gemini_api_key()
     if not api_key:
         return None
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip() or "gemini-2.5-flash-lite"
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
     prompt = {
         "role": "온비드 공공자산 입찰 준비 코치",
@@ -1775,7 +1765,7 @@ def build_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
     return rule_based
 
 
-ANSWER_TYPES = ("notice", "board", "none")
+ANSWER_TYPES = ("notice", "board", "general", "none")
 
 
 def _clip(value: object, limit: int = 120) -> str:
@@ -1831,7 +1821,7 @@ def question_prompt(
     return {
         "role": "온비드 공공자산 입찰 준비 코치",
         "instruction": (
-            "사용자가 이 공고의 준비 보드를 보면서 질문했다. 질문을 아래 셋 중 하나로 분류해 answerType 에 적는다. "
+            "사용자가 이 공고의 준비 보드를 보면서 질문했다. 질문을 아래 넷 중 하나로 분류해 answerType 에 적는다. "
             "(1) notice: 공고 사실(기간·가격·기관·서류 등)을 묻는 질문. notice 필드와 requiredDocs 안에서 "
             "확실히 답할 수 있을 때만 근거 값 그대로 답하고, sourceField 에 notice 필드 이름을 적는다. "
             "(2) board: 다음에 할 일·순서·진행 상황·무엇부터 할지를 묻는 질문. board 의 tasks 순서와 done, "
@@ -1839,10 +1829,16 @@ def question_prompt(
             "아직 끝내지 않은 첫 할 일(board.nextTaskId)부터 위에서 아래 순서로 진행하도록 권하고, "
             "안내하는 첫 할 일의 needsCheck 가 비어 있지 않으면 그 내용을 반드시 한 번 짚는다. "
             "board.tasks 가 비어 있으면 board 로 답하지 않는다. 모든 할 일이 끝났으면 원문과 담당기관 최종 확인을 안내한다. "
-            "(3) none: 위 근거로 답할 수 없거나 추측·해석이 필요한 질문. answerable 을 false, answer 를 빈 문자열로 둔다. "
-            "notice 와 board 는 answerable 을 true 로 한다. 모르는데 지어내지 않는다. "
+            "(3) general: 이 공고에 한정되지 않은 일반적인 온비드 공매·입찰 절차에 대한 공개된 일반 지식을 묻는 질문"
+            "(전자입찰 진행 방식, 서류 제출 뒤 일반적인 절차 흐름, 입찰 보증금 일반 규정 등). notice 와 board 근거 없이도 "
+            "공매 절차에 대한 일반 지식만으로 확실히 답할 수 있을 때만 쓰고, sourceField 는 빈 문자열로 둔다. "
+            "이 공고에만 해당하는 사실(가격·기간·기관 등)이나 notice 에 없는 이 물건 특정 내용은 general 로 답하지 않는다. "
+            "(4) none: 위 근거로 답할 수 없거나 추측·해석이 필요한 질문. answerable 을 false, answer 를 빈 문자열로 둔다. "
+            "notice, board, general 은 answerable 을 true 로 한다. 모르는데 지어내지 않는다. "
+            "general 로 답할 만한 일반 지식도 확신이 없으면 none 으로 남긴다. "
             "board 안내는 준비 순서에 대한 것이며 입찰 여부를 판단하는 말이 아니다. "
-            "입찰 참여 권유, 가격 결정 권유, 수익성 판단, 법률/권리관계 판단은 하지 않는다. "
+            "general 안내도 공매 절차에 대한 일반 지식일 뿐이며 이 공고에 대한 판단이 아니다. "
+            "입찰 참여 권유, 가격 결정 권유, 수익성 판단, 법률/권리관계 판단은 어느 갈래로도 하지 않는다. "
             "'보장', '추천', '수익성' 같은 표현을 쓰지 않는다. "
             "답은 한국어 존댓말 1~3문장으로 짧게 쓴다. 반드시 JSON 객체만 반환한다."
         ),
@@ -1858,6 +1854,10 @@ def question_prompt(
             "agency": notice.get("agency", ""),
             "contact": notice.get("contact", ""),
             "requiredDocs": docs[:10],
+            # 입찰 참여 단계(3단계) 질문창이 보내는 사용자 답 — 공고 원문 추출값이 아니라
+            # 사용자가 2단계에서 고른 선택이다. 없으면 빈 문자열이고 근거로 쓰지 않는다.
+            "jointBidAnswer": notice.get("jointBidAnswer", ""),
+            "proxyBidAnswer": notice.get("proxyBidAnswer", ""),
         },
         "board": board or {},
         "question": question,
@@ -1912,7 +1912,7 @@ def gemini_answer_question(
     api_key = gemini_api_key()
     if not api_key:
         return None
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite").strip() or "gemini-2.5-flash-lite"
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
     request_body = {
         "contents": [
@@ -2502,6 +2502,29 @@ def build_notice(raw_url: str) -> dict[str, object]:
     return notice
 
 
+# /api/ask 오남용 방지 속도 제한. 로그인이 없는 서비스라 IP를 식별자로 쓰고,
+# 메모리 내 카운터라 서버 재시작 시 리셋된다(DB 도입은 범위 밖).
+ASK_RATE_LIMIT_PER_MINUTE = 5
+ASK_RATE_LIMIT_PER_HOUR = 30
+_ask_rate_lock = threading.Lock()
+_ask_rate_log: dict[str, deque] = {}
+
+
+def check_ask_rate_limit(client_ip: str) -> str | None:
+    now = time.time()
+    with _ask_rate_lock:
+        timestamps = _ask_rate_log.setdefault(client_ip, deque())
+        while timestamps and now - timestamps[0] > 3600:
+            timestamps.popleft()
+        minute_count = sum(1 for t in timestamps if now - t <= 60)
+        if minute_count >= ASK_RATE_LIMIT_PER_MINUTE:
+            return "질문이 너무 많습니다. 1분 후 다시 시도하세요."
+        if len(timestamps) >= ASK_RATE_LIMIT_PER_HOUR:
+            return "질문이 너무 많습니다. 잠시 후 다시 시도하세요."
+        timestamps.append(now)
+        return None
+
+
 class Handler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         parsed = urllib.parse.urlparse(path)
@@ -2552,6 +2575,10 @@ class Handler(SimpleHTTPRequestHandler):
                 docs = [str(item) for item in docs_raw][:10]
                 if not question:
                     self.send_json(400, {"ok": False, "error": "질문을 입력하세요."})
+                    return
+                limit_message = check_ask_rate_limit(self.client_address[0])
+                if limit_message:
+                    self.send_json(429, {"ok": False, "error": limit_message})
                     return
                 board = sanitize_board_state(payload.get("board"))
                 result = answer_notice_question(notice, docs, question, board)
