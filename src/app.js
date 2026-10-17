@@ -2429,6 +2429,19 @@ function restartWizardToProfile() {
   setInputStep("profile");
 }
 
+// "새 물건 분석으로" 버튼 — 지금 보던 공고의 분석 결과·체크리스트 진행 상태·공동입찰/
+// 대리입찰 답을 내 보관함(관심 공고와 같은 저장소)에 저장한 뒤, 마법사 1p(유형·목적
+// 선택)로 완전히 되돌린다. 저장은 "내 보관함으로 보내기"가 쓰는 saveNoticeToLocker()를
+// 그대로 재사용하고(analysisReady 가 아니면 조용히 건너뜀), 되돌리기는 restartWizardToProfile()을
+// 그대로 재사용한다 — 보관함에서 다시 불러오는 기능은 이번 범위 밖이다.
+function startNewAnalysis() {
+  if (!window.confirm("지금 보던 공고를 내 보관함에 저장하고 새 물건 분석을 시작할까요?")) {
+    return;
+  }
+  saveNoticeToLocker();
+  restartWizardToProfile();
+}
+
 function init() {
   byId("notice-url").value = sampleNotice.sourceUrl;
   analyzedInputValue = "";
@@ -2589,6 +2602,10 @@ function init() {
     }
     if (event.target.closest("[data-restart-wizard]")) {
       restartWizardToProfile();
+      return;
+    }
+    if (event.target.closest("[data-new-analysis]")) {
+      startNewAnalysis();
       return;
     }
     const docConditionButton = event.target.closest("[data-doc-condition]");
