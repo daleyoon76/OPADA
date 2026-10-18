@@ -746,6 +746,16 @@ textarea {
   color: var(--muted);
 }
 
+/* 「아직 할 일이 아님」 — 잠김과 다른 상태다. 잠김은 「앞 단계를 마치면 열린다」이고 이것은
+   「낙찰된 뒤에 할 일이다」다. 색만으로 구분하지 않고 아이콘(⏳)과 텍스트 라벨을 함께 둔다. */
+.prep-stage-stepper li.is-not-yet {
+  border-style: dashed;
+}
+
+.prep-stage-stepper li.is-not-yet strong {
+  color: var(--muted);
+}
+
 /* 단계 그룹 헤딩 — task-list 안에서 각 단계 소속 task를 구분한다(visual-audit §⑵). */
 .stage-group-heading {
   display: flex;
@@ -783,6 +793,25 @@ details.stage-group:first-child > summary .stage-group-heading {
 
 .stage-group-heading.is-done {
   border-left-color: #c8d1a0;
+}
+
+.stage-group-heading.is-not-yet {
+  border-left-style: dashed;
+  border-left-color: var(--muted);
+}
+
+/* 4단계(낙찰 후 준비) 블록. 머리 안내는 단계 판정 오분류의 안전망이라 묻히면 안 된다 —
+   본문 small-text 와 다른 비중으로 둔다. */
+.post-award-panel {
+  border-style: dashed;
+}
+
+.post-award-caution {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-left: 3px solid #c9a08f;
+  background: var(--soft-blue);
+  font-weight: 700;
 }
 
 /* 잠긴 단계의 체크 행만 흐리게 — 카드 전체·<details>·원문 링크는 항상 선명하게 둔다
@@ -1922,4 +1951,92 @@ a:hover {
     box-shadow: none;
     padding: 0;
   }
+}
+
+/* 공공데이터 API 연동 블록 — 입찰참가신청 · 자격 조건 · 제출기한.
+   색만으로 상태를 구분하지 않는다. 강조가 필요한 곳에는 테두리와 글자 굵기를 함께 쓰고,
+   무엇이 강조됐는지는 블록 안의 텍스트가 직접 말한다(2026-10-18). */
+.bid-apply-panel {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.bid-apply-panel.is-required {
+  border-left: 4px solid #c9a08f;
+  background: var(--soft-blue);
+}
+
+.bid-apply-panel.is-required strong {
+  display: block;
+  margin: 6px 0 4px;
+  font-size: 1.02rem;
+}
+
+.bid-apply-panel.is-not-required {
+  border-style: dashed;
+}
+
+.bid-apply-panel ul,
+.bid-limits-panel ul,
+.api-doc-terms ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.bid-limits-panel {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.bid-limits-panel.has-restriction {
+  border-left: 4px solid #c9a08f;
+  background: var(--soft-blue);
+}
+
+.bid-limits-panel h4,
+.api-doc-terms h4 {
+  margin: 0 0 4px;
+  font-size: 0.98rem;
+}
+
+.bid-limits-panel li.is-restricted strong {
+  text-decoration: underline;
+}
+
+.api-doc-terms {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+}
+
+.api-doc-terms li {
+  margin-bottom: 6px;
+}
+
+.api-doc-terms li.has-term-conflict {
+  border-left: 3px solid #c9a08f;
+  padding-left: 8px;
+}
+
+.api-term-conflict {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+/* 재산유형에 해당하지 않는 낙찰 후 묶음 — 접어 두지만 숨기지 않는다. 색만으로 구분하지
+   않도록 파선 테두리와 텍스트 안내를 함께 쓴다(2026-10-18). */
+.post-award-not-applicable {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  font-size: 0.9rem;
 }

@@ -530,6 +530,16 @@ def extract_doc_items(
                 # 등기사항증명서 기준」). 서류 요구로 세지 않는다. 첨부는 위에서 게이트를 뺐다.
                 continue
             extras = doc_extras(line)
+            # 🔴 기본값이 「입찰 전」인 것은 «의도된 비대칭»이다. 뒤집지 말 것.
+            # 화면은 이 값으로 서류를 2단계(입찰 전 준비)와 4단계(낙찰 후 준비)에 물리적으로
+            # 나눠 담는다(app.js isPostAwardDoc). 두 방향의 오분류 비용이 같지 않다.
+            #   - 「낙찰 후」로 잘못 보내면: 사용자가 4단계를 지금 할 일로 보지 않아 그 서류를
+            #     놓치고, 입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
+            #   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
+            # 그래서 CONTRACT_STAGE_RE 가 «확실히» 잡았을 때만 낙찰 후로 보내고, 판정이
+            # 불확실한 모든 줄은 입찰 전에 남긴다. 조건을 부정형으로 바꾸거나(「낙찰 후가
+            # 아닌 것만 입찰 전」) 기본값을 낙찰 후로 돌리면 미지의 줄이 4단계로 흘러
+            # 비싼 쪽 오류를 물게 된다(2026-10-18 ux-design-review P0-2).
             stage = "낙찰 후·계약 시" if (CONTRACT_STAGE_RE.search(line) or carried_stage) else "입찰 전"
             labels = [item["label"] for item in active] or ["공통"]
             for name in names:
@@ -1246,7 +1256,135 @@ def fetch_public_data_bundle(ids: dict[str, str]) -> dict[str, object]:
             for service in services
         ],
         "items": items,
+        # 서비스별 응답을 따로 보관한다. items 를 합쳐 놓으면 "이 값이 어느 API 에서 왔는가"를
+        # 알 수 없고, 같은 이름의 필드가 여러 API 에 있어 엉뚱한 쪽 값을 집을 수 있다
+        # (예: tdpsSbtnDcmtYn 은 getCltrBidInf2 와 getPbancBidInf2 양쪽에 있다).
+        "itemsByService": {
+            str(service.get("name") or ""): [
+                item for item in service.get("items", []) if isinstance(item, dict)
+            ]
+            for service in services
+        },
     }
+
+
+# getCltrBidInf2(공공데이터 온비드 물건 입찰상세)가 주는 제출서류 관련 필드를 화면이 쓸
+# 구조로 바꾼다. 2026-10-18 에 재산유형 6종의 실제 응답을 받아 확인한 사실에 맞춰 설계했다
+# (team-reports/2026-10-18-bid-doc-timeline/api-integration.md §1 · 고정 샘플은
+# tests/fixtures/cltr_bid_inf_samples.json).
+#
+# ⑴ 서류 「내용」 필드(bidRltnDcmtCont · collbMthodDcmtCont · bidPtctAplyDcmtCont ·
+#    tdpsSbtnDcmtCont)는 6건 모두 비어 있었다. subtBidDcmtCont 만 2건에서 값이 왔는데 그
+#    값이 「대리입찰서류」라는 구분명 그대로다. 그래서 서류 「이름」은 이 API 에서 가져오지
+#    않고 기존 화면 파싱 경로를 그대로 쓴다.
+# ⑵ 제출기한·제출방식에는 쓸 만한 값이 온다. 화면 파싱으로 얻기 어려웠던 것이 이쪽이다.
+# ⑶ 🔴 플래그가 N 인데도 기한·방식 값이 남아 있는 사례가 실제로 있다. 공유재산 분양 건은
+#    collbBidPsblYn=N(공동입찰 불가)인데 collbDcmtSbmsnTermNm 에 값이 있었다. 그러므로 그
+#    입찰 방식이 실제로 가능한지를 플래그로 먼저 걸러야 한다. 걸러지 않으면 「공동입찰이 안
+#    되는 물건에 공동입찰 서류 제출기한을 안내하는」 거짓 안내가 된다.
+BID_DOC_TERM_SPECS = (
+    {
+        "kind": "공동입찰",
+        "availableField": "collbBidPsblYn",
+        "dueField": "collbDcmtSbmsnTermNm",
+        "methodField": "collbDcmtSbmsnMthodNm",
+    },
+    {
+        "kind": "대리입찰",
+        "availableField": "subtBidPsblYn",
+        "dueField": "subtBidDcmtSbmsnTermNm",
+        "methodField": "subtBidDcmtSbmsnMthodNm",
+    },
+    {
+        "kind": "입찰참가신청",
+        "availableField": "bidPtctAplyYn",
+        "dueField": "bidPtctAplyTermNm",
+        "methodField": "bidPtctDcmtSbmsnMthodNm",
+    },
+    {
+        "kind": "입찰보증금 대체서류",
+        "availableField": "tdpsSbtnDcmtYn",
+        "dueField": "tdpsSbtnDcmtSbmsnTermNm",
+        "methodField": "tdpsSbtnDcmtSbmsnMthodNm",
+    },
+)
+
+# bidPtctAplyTermNm 은 6건 전부 "~" 였다. 시작과 끝을 잇는 구분자만 남고 날짜가 없는 값이라
+# 화면에 그대로 내보내면 「기한 ~」이 된다. evlPtdbClgCont 의 "||" 도 같은 부류다.
+# 날짜도 문구도 없는 값은 값이 없는 것으로 본다.
+EMPTY_API_TERM_VALUES = {"", "~", "-", "||", "~~"}
+
+
+def api_field_text(entry: dict[str, object], field: str) -> str:
+    value = entry.get(field)
+    if value is None:
+        return ""
+    return clean_text(str(value))
+
+
+def api_meaningful_term(value: str) -> str:
+    return "" if value.strip() in EMPTY_API_TERM_VALUES else value
+
+
+def build_bid_doc_terms(entry: dict[str, object]) -> list[dict[str, str]]:
+    terms: list[dict[str, str]] = []
+    for spec in BID_DOC_TERM_SPECS:
+        if api_field_text(entry, str(spec["availableField"])).upper() != "Y":
+            continue
+        due = api_meaningful_term(api_field_text(entry, str(spec["dueField"])))
+        method = api_meaningful_term(api_field_text(entry, str(spec["methodField"])))
+        if not due and not method:
+            continue
+        terms.append({"kind": str(spec["kind"]), "due": due, "method": method})
+    return terms
+
+
+# 입찰참가신청 필요 여부. 이 값이 Y 면 공고기관 승인을 먼저 받아야 입찰할 수 있어서, 서류
+# 준비 순서가 통째로 바뀐다. 값이 Y 도 N 도 아니면 빈 dict 을 돌려준다 — 화면이 「우리가
+# 모른다」를 가장 눈에 띄는 자리에 두지 않게 하려는 것이다(2026-10-18 ux-design-review P1-1).
+def build_bid_participation_apply(entry: dict[str, object]) -> dict[str, object]:
+    flag = api_field_text(entry, "bidPtctAplyYn").upper()
+    if flag not in {"Y", "N"}:
+        return {}
+    return {
+        "required": flag == "Y",
+        "docs": api_field_text(entry, "bidPtctAplyDcmtCont"),
+        "due": api_meaningful_term(api_field_text(entry, "bidPtctAplyTermNm")),
+        "method": api_meaningful_term(api_field_text(entry, "bidPtctDcmtSbmsnMthodNm")),
+        "source": "공공데이터 온비드 물건 입찰상세(getCltrBidInf2) · bidPtctAplyYn",
+    }
+
+
+# 자격제한·지역제한·기타제한. 「이 물건에 응찰할 자격이 되는가」는 사용자가 가장 먼저 알아야
+# 하는 것이라 1단계(공고 확인)에 둔다. 「없음(모든 회원 입찰가능)」처럼 제한이 없다는 값도
+# 유용하므로 버리지 않고, 제한이 있을 때만 화면에서 강조한다.
+BID_LIMIT_SPECS = (
+    {"key": "qualification", "label": "자격 제한", "field": "qlfcLmtCdtnCont"},
+    {"key": "region", "label": "지역 제한", "field": "rgnLmtCdtnCont"},
+    {"key": "etc", "label": "기타 제한", "field": "etcLmtCdtnCont"},
+)
+
+# 제한 없음을 뜻하는 값. 이 값이면 화면에서 강조하지 않는다. 부분일치로 비교하지 않는다 —
+# 「없음」이 값의 일부로 섞인 실제 제한 문구(예: 「제한 없음 다만 …」)를 제한 없음으로
+# 읽으면 안 된다.
+NO_LIMIT_VALUES = {"없음", "없음(모든 회원 입찰가능)", "제한없음", "해당없음"}
+
+
+def build_bid_limits(entry: dict[str, object]) -> list[dict[str, object]]:
+    limits: list[dict[str, object]] = []
+    for spec in BID_LIMIT_SPECS:
+        value = api_field_text(entry, str(spec["field"]))
+        if not api_meaningful_term(value):
+            continue
+        limits.append(
+            {
+                "key": str(spec["key"]),
+                "label": str(spec["label"]),
+                "value": value,
+                "restricted": value.strip() not in NO_LIMIT_VALUES,
+            }
+        )
+    return limits
 
 
 def api_value(items: list[dict[str, object]], *keys: str) -> str:
@@ -2256,14 +2394,27 @@ def build_notice(raw_url: str) -> dict[str, object]:
             "pbctCdtnNo": pbct_cdtn_no,
         },
     )
+    # getCltrBidInf2 는 cltrMngNo 와 pbctCdtnNo 를 둘 다 요구한다 — 하나만 보내면
+    # resultCode=11 NO_MANDATORY_REQUEST_PARAMETERS_ERROR 가 온다. 그런데 공고 상세 URL 로
+    # 들어오면 화면 hidden input 과 쿼리 어디에도 pbctCdtnNo 가 없어서, 이 API 가 호출 목록에
+    # 들어가지도 못했다(2026-09-07 등록 이후 2026-10-18 까지 호출 0회).
+    # 그 값은 fetch_onbid_cltr_detail() 이 받아 오는 cltrInfVO 에 이미 들어 있다(필드 119개
+    # 중 하나 · 2026-10-18 실측). 공공데이터 호출용으로만 여기서 보충한다.
+    # 관련 URL 생성에는 넣지 않는다 — 화면에서 온 값으로 만들던 기존 동작을 그대로 둔다.
+    api_pbct_cdtn_no = pbct_cdtn_no or clean_text(str(cltr_detail.get("pbctCdtnNo") or ""))
     public_data = fetch_public_data_bundle(
         {
             "pbancMngNo": pbanc_mng_no,
             "cltrMngNo": cltr_mng_no,
-            "pbctCdtnNo": pbct_cdtn_no,
+            "pbctCdtnNo": api_pbct_cdtn_no,
         }
     )
     api_entries = [item for item in public_data.get("items", []) if isinstance(item, dict)]
+    items_by_service = public_data.get("itemsByService")
+    item_bid_entries = (
+        items_by_service.get("item_bid_detail", []) if isinstance(items_by_service, dict) else []
+    )
+    item_bid_entry = item_bid_entries[0] if item_bid_entries else {}
 
     title = (
         class_text(text, "getPbancNm")
@@ -2392,6 +2543,11 @@ def build_notice(raw_url: str) -> dict[str, object]:
         "relatedDocs": related_docs,
         "requiredDocs": required_docs,
         "docChecklist": doc_checklist,
+        # 아래 세 값은 getCltrBidInf2 응답에서만 온다. 그 API 가 응답하지 않으면(식별자가
+        # 없거나 차수가 끝난 물건) 모두 빈 값이고, 화면은 빈 값일 때 해당 블록을 그리지 않는다.
+        "bidParticipationApply": build_bid_participation_apply(item_bid_entry),
+        "apiDocTerms": build_bid_doc_terms(item_bid_entry),
+        "bidLimits": build_bid_limits(item_bid_entry),
         "noticeOutline": notice_outline,
         "countdown": countdown,
         "glossary": build_glossary(asset_type, disposition_label, title),
@@ -2507,7 +2663,9 @@ def build_notice(raw_url: str) -> dict[str, object]:
             "identifiers": {
                 "pbancMngNo": pbanc_mng_no,
                 "cltrMngNo": cltr_mng_no,
-                "pbctCdtnNo": pbct_cdtn_no,
+                # 실제 API 호출에 쓴 값을 적는다. 화면에서 온 pbct_cdtn_no 를 적으면
+                # 보충이 동작했는지를 이 보고로 확인할 수 없다.
+                "pbctCdtnNo": api_pbct_cdtn_no,
             },
         },
         "extractedFields": [key for key, value in notice.items() if isinstance(value, str) and value],
