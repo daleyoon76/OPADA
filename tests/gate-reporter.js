@@ -27,7 +27,7 @@ const SCREEN_SPEC = "screen.spec.js";
 // 2026-10-18 준비 보드 4단계화에서 3건을 더해 19 → 22. 더한 것은 ⑴ 항목이 0개인 4단계가
 // 「완료」로 표시되지 않는다(P0-1) ⑵ 4단계 머리 안내와 입찰 전·낙찰 후 서류 분리(P0-2·P1-2)
 // ⑶ 4단계 체크가 2단계 진행률·단계 잠금에 영향을 주지 않는다.
-const EXPECTED_TEST_COUNT = 22;
+const EXPECTED_TEST_COUNT = 24;
 
 class GateReporter {
   onBegin(config, suite) {

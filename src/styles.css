@@ -2030,3 +2030,13 @@ a:hover {
   font-size: 0.9rem;
   font-weight: 700;
 }
+
+/* 재산유형에 해당하지 않는 낙찰 후 묶음 — 접어 두지만 숨기지 않는다. 색만으로 구분하지
+   않도록 파선 테두리와 텍스트 안내를 함께 쓴다(2026-10-18). */
+.post-award-not-applicable {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}

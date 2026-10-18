@@ -783,7 +783,7 @@ test("N0 커버리지 측정 함수를 직접 호출해 단정한다", () => {
   // 축 코드를 손으로 박는다. AXES 에서 축을 지우면 아래 full 묶음의 입력과 기대가 «함께»
   // 줄어 아무도 붉지 않는다 — 이 한 줄이 그 자리를 막는다(2026-09-09 r2 P2-2).
   expect(AXES.map((axis) => axis[0])).toEqual([
-    "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9",
+    "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11",
     "N0", "N1", "N2", "N3", "N4", "N5", "N6",
   ]);
 
@@ -1024,4 +1024,162 @@ test("준비 단계 — 4단계 서류를 체크해도 2단계 진행률과 단�
   expect(await page.evaluate(() => window.getTaskState().documents)).not.toBe(true);
   expect(await page.evaluate(() => window.getPrepStageStatus()[2].locked)).toBe(true);
   expect(await page.evaluate(() => window.getDocSummary().totalCount)).toBe(before.pre);
+});
+
+// S10 — 낙찰 후 안내의 재산유형 분기. 「매각결정기일 전까지」 묶음은 압류재산 공매공고문에
+// 근거한 것이라 다른 재산유형에는 해당하지 않을 수 있다. 접어 두고 그 사실을 적되 숨기지는
+// 않는다. 숨기면 재산유형 추출이 틀렸을 때 사용자가 그 묶음의 존재조차 모르고 지나간다.
+test("S10 준비 단계 — 4단계 압류재산 묶음이 재산유형에 따라 접히고, 숨겨지지는 않는다", async ({ page }) => {
+  const SEIZED_GROUP = "낙찰 직후 · 매각결정기일 전까지 (압류재산)";
+  const NOT_APPLICABLE_TEXT = "해당하지 않을 수 있습니다";
+
+  const readGroup = async () => {
+    const group = page.locator(`details.doc-group:has(h4:text-is("${SEIZED_GROUP}"))`);
+    return {
+      exists: (await group.count()) > 0,
+      open: (await group.count()) > 0 ? await group.first().evaluate((el) => el.open) : null,
+      noteCount: await page.locator(`.post-award-not-applicable:has-text("${NOT_APPLICABLE_TEXT}")`).count(),
+      // 묶음 안의 서류가 실제로 마크업에 있는지 — 「접었다」와 「지웠다」를 가른다.
+      itemCount: (await group.count()) > 0 ? await group.first().locator("li").count() : 0,
+    };
+  };
+
+  // ⑴ 압류재산 — 해당하므로 펼쳐지고 안내 문구가 없다.
+  const seized = stagedNotice();
+  seized.assetType = "압류재산";
+  await analyzeWith(page, seized);
+  const onSeized = await readGroup();
+  expect(onSeized.exists).toBe(true);
+  expect(onSeized.open).toBe(true);
+  expect(onSeized.noteCount).toBe(0);
+
+  // ⑵ 국유재산 — 해당하지 않으므로 접히고 안내가 붙는다. 그래도 서류는 마크업에 남는다.
+  const stateOwned = stagedNotice();
+  stateOwned.assetType = "국유재산";
+  await analyzeWith(page, stateOwned);
+  const onStateOwned = await readGroup();
+  expect(onStateOwned.exists).toBe(true);
+  expect(onStateOwned.open).toBe(false);
+  expect(onStateOwned.noteCount).toBe(1);
+  expect(onStateOwned.itemCount).toBeGreaterThan(0);
+  // 소유권이전 묶음은 assetTypes 선언이 없어 모든 재산유형에 해당한다 — 함께 접히지 않는다.
+  const transferGroup = page.locator('details.doc-group:has(h4:text-is("소유권이전 단계"))');
+  expect(await transferGroup.count()).toBe(1);
+  expect(await transferGroup.first().evaluate((el) => el.open)).toBe(true);
+
+  // ⑶ 🔴 비대칭 기본값 — 재산유형을 읽지 못했으면 해당하는 것으로 보고 펼친다. 접는 쪽이
+  //    비싼 오류다(압류재산인데 접히면 매각결정기일을 놓친다).
+  const unknown = stagedNotice();
+  unknown.assetType = "재산유형 확인";
+  await analyzeWith(page, unknown);
+  const onUnknown = await readGroup();
+  expect(onUnknown.open).toBe(true);
+  expect(onUnknown.noteCount).toBe(0);
+
+  // 판정 함수를 화면과 별개로 직접 부른다 — 본문을 비워도 위 단정이 통과하면 그 함수는
+  // 아무것도 증명하지 못한다.
+  const direct = await page.evaluate(() => ({
+    noDeclaration: window.isPostAwardGroupApplicable({ condition: "소유권이전 단계" }),
+    unknownType: window.isPostAwardGroupApplicable({ assetTypes: ["압류재산"] }),
+  }));
+  expect(direct.noDeclaration).toBe(true);
+  expect(direct.unknownType).toBe(true);
+});
+
+// S11 — 공공데이터 API 연동 블록 세 개가 설계한 자리에 놓이고, 질문 답·기한 어긋남을
+// 제대로 다루는지 본다. 2026-10-18 브라우저 측정에서 이 테스트가 결함 1건을 잡았다 —
+// 공동입찰 질문에 「아니오」로 답했는데도 공동입찰 제출기한이 화면에 남아 있었다.
+test("S11 API 연동 블록 — 자리·질문 답 거르기·기한 어긋남 경고", async ({ page }) => {
+  const notice = stagedNotice();
+  notice.assetType = "국유재산";
+  notice.bidParticipationApply = {
+    required: true, docs: "입찰참가신청서, 사업자등록증", due: "2026-10-19 17:00", method: "직접제출",
+    source: "공공데이터 온비드 물건 입찰상세(getCltrBidInf2) · bidPtctAplyYn",
+  };
+  notice.apiDocTerms = [
+    { kind: "공동입찰", due: "입찰마감일시 전까지", method: "직접제출" },
+    { kind: "대리입찰", due: "입찰마감일시 전까지", method: "온라인/직접제출" },
+  ];
+  notice.bidLimits = [
+    { key: "qualification", label: "자격 제한", value: "주택건설사업자만 참가 가능", restricted: true },
+    { key: "region", label: "지역 제한", value: "부산광역시", restricted: true },
+  ];
+  // 화면 표 기한을 API 기한과 다르게 둬서 어긋남 경고를 끌어낸다. 실제로 같은 공고에서 화면
+  // 표와 공고문 본문이 어긋난 사례가 확인됐다(researcher-fact-check 사실 4-③).
+  notice.docChecklist.groups.push({
+    condition: "공동입찰",
+    items: [{ name: "공동입찰참가신청서", conditions: ["공동입찰"], conditionKeys: [], copy: "", validity: "",
+      method: "직접제출", due: "우편으로 17:00까지", count: "", stage: "입찰 전",
+      howto: "온비드", howtoUrl: "https://www.onbid.co.kr/", sourceSection: "제출서류", evidence: "근거" }],
+  });
+  await analyzeWith(page, notice);
+
+  // ⑴ 자리 — 자격 조건은 1단계, 입찰참가신청은 2단계이고 서류 패널보다 앞이다.
+  const places = await page.evaluate(() => {
+    const stages = [...document.querySelectorAll("#task-list details.stage-group")];
+    const applyStage = stages.findIndex((s) => s.querySelector(".bid-apply-panel"));
+    const stage = stages[applyStage];
+    const apply = stage?.querySelector(".bid-apply-panel");
+    const docs = stage?.querySelector(".doc-panel");
+    return {
+      limitsStage: stages.findIndex((s) => s.querySelector(".bid-limits-panel")),
+      applyStage,
+      applyBeforeDocs: apply && docs
+        ? Boolean(apply.compareDocumentPosition(docs) & Node.DOCUMENT_POSITION_FOLLOWING)
+        : null,
+    };
+  });
+  expect(places.limitsStage).toBe(0);
+  expect(places.applyStage).toBe(1);
+  expect(places.applyBeforeDocs).toBe(true);
+
+  // ⑵ 질문 답 거르기 — 기본값(둘 다 「아니오」)에서는 두 구분 모두 보이지 않는다.
+  expect(await page.evaluate(() => window.getApiDocTerms().length)).toBe(0);
+
+  // 공동입찰만 「예」로 답하면 공동입찰만 보인다. 대리입찰은 계속 걸러진다.
+  await page.evaluate(() => {
+    document.querySelector('[data-doc-condition="joint"][data-doc-condition-value="yes"]')?.click();
+  });
+  await page.waitForTimeout(300);
+  const kinds = await page.evaluate(() => window.getApiDocTerms().map((t) => t.kind));
+  expect(kinds).toEqual(["공동입찰"]);
+
+  // ⑶ 기한 어긋남 — 두 값을 모두 보여주고 더 이른 기한 기준 안내를 붙인다.
+  await page.evaluate(() => document.querySelectorAll("details").forEach((d) => (d.open = true)));
+  const conflict = page.locator(".api-term-conflict");
+  await expect(conflict).toHaveCount(1);
+  const conflictText = await conflict.innerText();
+  expect(conflictText).toContain("우편으로 17:00까지");
+  expect(conflictText).toContain("더 이른 기한");
+  // API 쪽 값도 같은 블록에 남아 있어야 한다 — 한쪽만 보여주면 이 규칙의 뜻이 사라진다.
+  expect(await page.locator(".api-doc-terms").innerText()).toContain("입찰마감일시 전까지");
+
+  // 음성 대조 — 화면 표 기한이 API 기한과 «같으면» 경고를 띄우지 않는다. 이것이 없으면
+  // 「같은 값 제외」 판정을 지워도 테스트가 통과한다(2026-10-18 변이 m4 가 살아남아 보강).
+  const same = stagedNotice();
+  same.assetType = "국유재산";
+  same.apiDocTerms = [{ kind: "공동입찰", due: "입찰마감일시 전까지", method: "직접제출" }];
+  same.docChecklist.groups.push({
+    condition: "공동입찰",
+    items: [{ name: "공동입찰참가신청서", conditions: ["공동입찰"], conditionKeys: [], copy: "", validity: "",
+      method: "직접제출", due: "입찰마감일시 전까지", count: "", stage: "입찰 전",
+      howto: "온비드", howtoUrl: "https://www.onbid.co.kr/", sourceSection: "제출서류", evidence: "근거" }],
+  });
+  await analyzeWith(page, same);
+  await page.evaluate(() => {
+    document.querySelector('[data-doc-condition="joint"][data-doc-condition-value="yes"]')?.click();
+  });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => document.querySelectorAll("details").forEach((d) => (d.open = true)));
+  // 블록 자체는 보이는데 경고만 없어야 한다 — 블록이 사라져서 경고가 0인 것과 가른다.
+  expect(await page.locator(".api-doc-terms").count()).toBe(1);
+  expect(await page.locator(".api-term-conflict").count()).toBe(0);
+
+  // ⑷ 값이 없으면 블록을 그리지 않는다 — 가장 눈에 띄는 자리에 「우리가 모른다」를 두지 않는다.
+  const blank = stagedNotice();
+  blank.assetType = "국유재산";
+  await analyzeWith(page, blank);
+  expect(await page.locator(".bid-apply-panel").count()).toBe(0);
+  expect(await page.locator(".bid-limits-panel").count()).toBe(0);
+  expect(await page.locator(".api-doc-terms").count()).toBe(0);
 });

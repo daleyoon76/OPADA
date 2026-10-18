@@ -789,6 +789,11 @@ function buildDocConditionSupplementItem(base, conditionLabel) {
 const POST_AWARD_DOC_GROUPS = [
   {
     condition: "낙찰 직후 · 매각결정기일 전까지 (압류재산)",
+    // 이 묶음의 근거는 압류재산 공매공고문이다. 다른 재산유형에는 매각결정기일이라는 절차
+    // 자체가 없을 수 있다. 🔴 그래도 숨기지 않고 접어 둔다 — 숨기면 재산유형 추출이 틀렸을
+    // 때(「재산유형 확인」으로 떨어지는 경로가 실제로 있다) 사용자가 이 묶음의 존재조차 모르고
+    // 지나간다. 접어 두면 제목은 보이므로 눌러서 확인할 수 있다.
+    assetTypes: ["압류재산"],
     items: [
       {
         name: "농지 매수자격 증명 서류 (농지취득자격증명 또는 반려 공문 또는 토지이용계획 확인원)",
@@ -858,6 +863,22 @@ function isPostAwardDoc(item) {
   return item?.stage === POST_AWARD_DOC_STAGE;
 }
 
+// 낙찰 후 안내 묶음이 이 공고의 재산유형에 해당하는지 본다. assetTypes 선언이 없는 묶음은
+// 모든 재산유형에 해당한다(소유권이전 단계가 그렇다).
+//
+// 🔴 재산유형을 «읽지 못했을 때»는 해당하는 것으로 본다. server.py 는 추출 실패 시
+// 「재산유형 확인」을 넣는데, 그 값을 「해당하지 않음」으로 읽으면 압류재산 공고인데도
+// 매각결정기일 묶음이 접혀서 기한을 놓칠 수 있다. 접는 쪽이 비싼 오류다.
+const POST_AWARD_ASSET_TYPE_UNKNOWN = "재산유형 확인";
+
+function isPostAwardGroupApplicable(group) {
+  const assetTypes = Array.isArray(group?.assetTypes) ? group.assetTypes : [];
+  if (!assetTypes.length) return true;
+  const assetType = String(sampleNotice.assetType || "").trim();
+  if (!assetType || assetType === POST_AWARD_ASSET_TYPE_UNKNOWN) return true;
+  return assetTypes.some((candidate) => assetType.includes(candidate));
+}
+
 function splitDocGroupsByStage(groups) {
   const preBid = [];
   const postAward = [];
@@ -902,6 +923,7 @@ function getVisibleDocGroups() {
   // 관계없이 낙찰되면 거치는 절차다. 공고 원문에서 같은 이름을 이미 뽑았으면 중복으로 넣지 않는다.
   const postAwardGroups = POST_AWARD_DOC_GROUPS.map((group) => ({
     condition: group.condition,
+    notApplicable: !isPostAwardGroupApplicable(group),
     items: group.items
       .filter((base) => !existingNames.has(base.name))
       .map((base) => buildPostAwardDocItem(base, group)),
@@ -1830,10 +1852,24 @@ const API_DOC_TERM_SOURCE_NOTE =
 const API_DOC_TERM_CONFLICT_NOTE =
   "두 값 가운데 더 이른 기한을 기준으로 준비하시고, 공고문 원문의 해당 조항을 반드시 확인하십시오.";
 
+// 🔴 공동입찰·대리입찰 질문 답에 맞춰 한 번 더 거른다. 서버는 「이 공고에서 그 방식이
+// 가능한가」만 보고 보내는데, 화면에는 「내가 그 방식으로 입찰하는가」라는 사용자 답이 따로
+// 있다. 거르지 않으면 사용자가 「공동입찰 아니오」라고 답했는데도 공동입찰 제출기한이 화면에
+// 남아, 같은 화면의 서류 체크리스트(그 답으로 그룹을 걸러낸다)와 어긋난다.
+// 2026-10-18 브라우저 측정에서 실제로 그 상태를 관측해 고쳤다.
+const API_DOC_TERM_CONDITION_KEYS = { 공동입찰: "joint", 대리입찰: "proxy" };
+
 function getApiDocTerms() {
   const terms = sampleNotice.apiDocTerms;
   if (!Array.isArray(terms)) return [];
-  return terms.filter((term) => term && (term.due || term.method));
+  const answers = getDocConditionAnswers();
+  return terms.filter((term) => {
+    if (!term || !(term.due || term.method)) return false;
+    const answerKey = API_DOC_TERM_CONDITION_KEYS[term.kind];
+    // 질문이 걸린 구분은 「예」일 때만 보여준다. 질문이 없는 구분(입찰참가신청 ·
+    // 입찰보증금 대체서류)은 사용자 답과 무관하므로 그대로 둔다.
+    return !answerKey || answers[answerKey] === "yes";
+  });
 }
 
 // 같은 구분(공동입찰·대리입찰)의 화면 추출 서류에 적힌 기한을 모은다. 중복은 지운다.
@@ -2239,7 +2275,18 @@ function renderPostAwardPanel() {
   const groups = getPostAwardDocGroups();
   const docState = getDocState();
   const summary = getPostAwardDocSummary();
-  const groupsHtml = groups.map((group) => renderDocGroup(group, docState, false, true, "")).join("");
+  // 재산유형에 해당하지 않는 묶음은 접어 두고(open=false) 그 사실을 적는다. 숨기지 않는다 —
+  // 재산유형 추출이 틀렸을 때 사용자가 그 묶음의 존재조차 모르고 지나가면, 매각결정기일처럼
+  // 놓치면 낙찰이 취소되는 기한을 통째로 잃는다.
+  const groupsHtml = groups
+    .map((group) => {
+      const applicable = !group.notApplicable;
+      const noteHtml = applicable
+        ? ""
+        : `<p class="post-award-not-applicable">이 묶음은 압류재산 공매공고문에 근거한 것이어서, 지금 공고의 재산유형(${sampleNotice.assetType})에는 해당하지 않을 수 있습니다. 접어 두었지만 지웠다는 뜻은 아닙니다. 해당 여부는 공고 원문과 담당기관에서 확인하십시오.</p>`;
+      return noteHtml + renderDocGroup(group, docState, false, applicable, "");
+    })
+    .join("");
   return `<section class="doc-panel post-award-panel">
     <p class="post-award-caution">입찰 전에 내야 하는 서류가 여기 섞여 있을 수 있습니다. 2단계 목록도 함께 확인하십시오.</p>
     <p class="small-text">낙찰된 뒤에 할 일입니다. 지금 당장 준비할 필요는 없지만, 기한을 놓치면 낙찰이 취소될 수 있는 항목이 있어 미리 열어 둡니다.</p>
