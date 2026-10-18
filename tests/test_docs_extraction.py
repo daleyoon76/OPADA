@@ -72,6 +72,16 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "is_attachment 가드 삭제 · 상한 원복 · 조건 우회 삭제 · carried_stage 삭제 · headline 분기 삭제",
         "Y",
     ),
+    (
+        "E1",
+        "API 플래그 거르기",
+        "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
+        "플래그 검사 삭제",
+        "Y",
+    ),
+    ("E2", "쓸 수 없는 값", "bidPtctAplyTermNm=「~」 · Y/N 아닌 값", "EMPTY_API_TERM_VALUES 에서 「~」 제거", "Y"),
+    ("E3", "제한조건 판정", "지역 제한 있음 · 「없음(…)」 · 「없음」이 섞인 실제 제한", "완전일치를 부분일치로 바꾸기", "Y"),
+    ("E4", "식별자 보충 배선", "cltrInfVO.pbctCdtnNo → 공공데이터 호출 · 서비스별 응답 분리", "보충 줄 삭제 · 호출 인자 원복", "Y"),
     ("B1", "추출 정직성", "구분명만 → 못 뽑았다 표시(not_found·C형) · 코치 배선", "옛 판정 복원 · headline 교체", "Y"),
     ("B2", "최저입찰가 비공개", "HideDivCd != 0001", "코드 무시", "Y"),
     ("B3", "마감 D-day", "시작 전/진행/임박/마감", "상태 고정", "Y"),
@@ -1566,6 +1576,138 @@ def test_vertex_429_retry() -> None:
           "vertex_read(request" in coach_code and "urlopen(" not in coach_code)
 
 
+# ---------------------------------------------------------------------------
+# E축 — 공공데이터 getCltrBidInf2 제출서류 필드 연동 (2026-10-18)
+#
+# 픽스처는 2026-10-18 에 실제 API 에서 받은 응답이다
+# (tests/fixtures/cltr_bid_inf_samples.json · 재산유형 6종 · 각 65개 필드).
+# 목 데이터를 만들지 않고 실제 응답을 고정 샘플로 저장해 쓴다 — 이 API 의 값은 명세를 읽어
+# 추측하면 틀린다는 것이 이번 조사의 결론이었다(서류 「내용」 필드가 전부 비어 있었다).
+# 테스트는 외부 네트워크에 의존하지 않고, 실제 호출 검증은 수동 1회로 따로 했다.
+# ---------------------------------------------------------------------------
+
+CLTR_BID_SAMPLES_PATH = Path(__file__).resolve().parent / "fixtures" / "cltr_bid_inf_samples.json"
+
+
+def load_cltr_bid_samples() -> dict[str, dict[str, object]]:
+    return json.loads(CLTR_BID_SAMPLES_PATH.read_text(encoding="utf-8"))
+
+
+def test_api_doc_terms_flag_filter() -> None:
+    samples = load_cltr_bid_samples()
+    # 모수 하한 — 입력이 비면 아래 단정들이 「대상 0건」으로 조용히 통과한다.
+    check("E1 고정 샘플 모수", len(samples) >= 6, f"{len(samples)}건")
+
+    joint_n_with_value = samples["공유재산_매각_분양_202604-11680-00"]
+    # 이 샘플이 이 축의 근거다 — 플래그가 N 인데 기한·방식 값이 남아 있다. 이 전제가 깨지면
+    # 아래 양성 단정이 아무것도 증명하지 못하므로 전제부터 센다.
+    check(
+        "E1 전제 — 플래그 N 인데 기한 값이 남은 샘플이 실재한다",
+        joint_n_with_value.get("collbBidPsblYn") == "N"
+        and bool(joint_n_with_value.get("collbDcmtSbmsnTermNm")),
+        repr(joint_n_with_value.get("collbDcmtSbmsnTermNm")),
+    )
+    terms = server.build_bid_doc_terms(joint_n_with_value)
+    check(
+        "E1 플래그 N 이면 그 입찰 방식의 기한·방식을 내보내지 않는다",
+        not [term for term in terms if term["kind"] == "공동입찰"],
+        repr(terms),
+    )
+
+    # 음성 대조 — 플래그가 Y 인 샘플에서는 반드시 내보낸다. 이것이 없으면 「전부 버리는」
+    # 구현도 위 단정을 통과한다.
+    proxy_y = samples["파산자산_매각_2026-1000-056230"]
+    check("E1 음성 대조 전제 — subtBidPsblYn 이 Y", proxy_y.get("subtBidPsblYn") == "Y")
+    proxy_terms = server.build_bid_doc_terms(proxy_y)
+    proxy_row = next((term for term in proxy_terms if term["kind"] == "대리입찰"), None)
+    check("E1 플래그 Y 이면 기한·방식을 내보낸다", proxy_row is not None, repr(proxy_terms))
+    if proxy_row:
+        check(
+            "E1 내보낸 값이 응답 원문과 같다",
+            proxy_row["due"] == "입찰마감일시 전까지" and proxy_row["method"] == "온라인/직접제출",
+            repr(proxy_row),
+        )
+
+
+def test_api_unusable_term_value() -> None:
+    samples = load_cltr_bid_samples()
+    # bidPtctAplyTermNm 은 6건 전부 "~" 였다. 날짜도 문구도 없는 값이라 화면에 그대로
+    # 내보내면 「기한 ~」이 된다.
+    tilde_count = sum(1 for entry in samples.values() if entry.get("bidPtctAplyTermNm") == "~")
+    check("E2 전제 — 쓸 수 없는 기한 값이 실제로 온다", tilde_count >= 1, f"{tilde_count}건")
+
+    info = server.build_bid_participation_apply(samples["불용품_매각_2026-0600-033346"])
+    check("E2 쓸 수 없는 기한 값은 빈 값으로 눌린다", info.get("due") == "", repr(info.get("due")))
+    check("E2 Y·N 이 아니면 빈 dict — 화면이 블록을 그리지 않는다",
+          server.build_bid_participation_apply({"bidPtctAplyYn": ""}) == {})
+    check("E2 N 이면 required 가 False",
+          server.build_bid_participation_apply({"bidPtctAplyYn": "N"}).get("required") is False)
+    check("E2 Y 이면 required 가 True",
+          server.build_bid_participation_apply({"bidPtctAplyYn": "Y"}).get("required") is True)
+
+    # 판정 함수를 배선과 별개로 직접 부른다 — 본문을 비워도 위 단정이 통과하면 그 함수는
+    # 아무것도 증명하지 못한다.
+    check("E2 판정 직접 호출 — 「~」", server.api_meaningful_term("~") == "")
+    check("E2 판정 직접 호출 — 「||」", server.api_meaningful_term("||") == "")
+    # 음성 대조 — 쓸 수 있는 값은 그대로 통과해야 한다.
+    check(
+        "E2 음성 대조 — 쓸 수 있는 기한은 그대로 둔다",
+        server.api_meaningful_term("입찰마감일시 전까지") == "입찰마감일시 전까지",
+    )
+    check("E2 음성 대조 — 「~」가 섞인 실제 기간은 버리지 않는다",
+          server.api_meaningful_term("2026-10-01 ~ 2026-10-15") == "2026-10-01 ~ 2026-10-15")
+
+
+def test_api_bid_limits() -> None:
+    samples = load_cltr_bid_samples()
+    limits = server.build_bid_limits(samples["공유재산_임대_2026-0800-045505"])
+    by_key = {str(limit["key"]): limit for limit in limits}
+    check("E3 지역 제한 값이 있으면 제한으로 판정한다",
+          by_key.get("region", {}).get("restricted") is True, repr(limits))
+    check("E3 「없음(모든 회원 입찰가능)」은 제한으로 판정하지 않는다",
+          by_key.get("qualification", {}).get("restricted") is False, repr(limits))
+    # 창 — 부분일치로 비교하면 「없음 다만 …」 같은 실제 제한 문구를 제한 없음으로 읽는다.
+    etc = server.build_bid_limits({"etcLmtCdtnCont": "없음 다만 농지취득자격증명이 필요합니다"})
+    check("E3 「없음」이 섞인 실제 제한 문구는 제한으로 판정한다",
+          bool(etc) and etc[0]["restricted"] is True, repr(etc))
+    check("E3 빈 응답이면 빈 목록", server.build_bid_limits({}) == [])
+
+
+def test_api_pbct_cdtn_no_wiring() -> None:
+    # 배선 검사 — build_notice() 가 cltrInfVO 의 pbctCdtnNo 를 보충해 공공데이터 호출에
+    # 넘기는지 본다. 이 한 줄이 없으면 getCltrBidInf2 가 호출 목록에 들어가지 못한다.
+    # 주석을 먼저 벗긴다 — 주석에 같은 문구가 있어 벗기지 않으면 주석만 보고 통과한다.
+    source = (Path(__file__).resolve().parent.parent / "src" / "server.py").read_text(encoding="utf-8")
+    stripped = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    check(
+        "E4 cltrInfVO 의 pbctCdtnNo 를 보충한다",
+        'api_pbct_cdtn_no = pbct_cdtn_no or clean_text(str(cltr_detail.get("pbctCdtnNo")' in stripped,
+    )
+    # 창 — fetch_public_data_bundle 호출 블록 안에서 그 보충값을 쓰는지 본다. 보충만 하고
+    # 넘기지 않으면 동작은 그대로다.
+    bundle_call = stripped.split("public_data = fetch_public_data_bundle(", 1)
+    check("E4 호출 블록이 하나 있다", len(bundle_call) == 2)
+    if len(bundle_call) == 2:
+        block = bundle_call[1].split(")", 1)[0]
+        check("E4 보충값을 pbctCdtnNo 로 넘긴다", '"pbctCdtnNo": api_pbct_cdtn_no' in block, block[:200])
+    # 서비스별 응답 분리 — items 를 합쳐 쓰면 같은 이름의 필드가 여러 API 에 있어 엉뚱한
+    # 쪽 값을 집는다(tdpsSbtnDcmtYn 은 getCltrBidInf2 와 getPbancBidInf2 양쪽에 있다).
+    check("E4 서비스별 응답을 따로 보관한다", '"itemsByService"' in stripped)
+    check(
+        "E4 item_bid_detail 응답만 골라 쓴다",
+        'items_by_service.get("item_bid_detail", [])' in stripped,
+    )
+    # 화면이 쓰는 세 값이 응답에 실제로 실리는지 — 함수만 있고 배선이 없으면 화면은 빈다.
+    for field, builder in (
+        ('"bidParticipationApply"', "build_bid_participation_apply(item_bid_entry)"),
+        ('"apiDocTerms"', "build_bid_doc_terms(item_bid_entry)"),
+        ('"bidLimits"', "build_bid_limits(item_bid_entry)"),
+    ):
+        check(f"E4 응답에 {field} 를 싣는다", f"{field}: {builder}" in stripped)
+
+
 def main() -> int:
     print_header()
     tests = (
@@ -1599,6 +1741,10 @@ def main() -> int:
         test_asset_type_notice_detail,
         test_question_board_state,
         test_vertex_429_retry,
+        test_api_doc_terms_flag_filter,
+        test_api_unusable_term_value,
+        test_api_bid_limits,
+        test_api_pbct_cdtn_no_wiring,
     )
     for test in tests:
         test()

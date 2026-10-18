@@ -1815,6 +1815,123 @@ function renderDocConditionQuestions(answers) {
 const DOC_DUE_CAUTION =
   "제출기한은 공고문 원문의 기한이 더 이를 수 있으니 반드시 원문을 확인하십시오. 온비드 화면 표와 공고문 본문의 기한·제출방법이 어긋나는 공고가 있습니다.";
 
+// 공공데이터 getCltrBidInf2 가 준 제출기한·제출방식을 보여준다. 서버가 입찰 방식 가능 여부
+// 플래그로 이미 걸러 보낸 것만 들어온다(src/server.py 의 build_bid_doc_terms 주석 ⑶ — 플래그가
+// N 인데 기한 값이 남아 있는 공고가 실제로 있어, 거르지 않으면 거짓 안내가 된다).
+//
+// 🔴 화면 표 기한과 API 기한이 어긋날 때의 우선순위를 여기서 정한다. 두 값을 모두 보여주고,
+// 더 이른 기한을 기준으로 준비하라고 안내한 뒤 공고문 원문 확인으로 넘긴다. 한쪽만 보여주고
+// 그것이 늦은 쪽이면 사용자가 마감을 놓치는데, 이 서비스에서 그 오류가 가장 비싸다.
+// 어느 쪽이 이른지는 기계로 판정하지 않는다 — 「입찰마감일시 전까지」와 「우편으로 17:00까지」는
+// 서로 비교할 수 있는 형식이 아니고, 억지로 비교하면 틀린 쪽을 이르다고 단정하게 된다.
+// 근거: 2026-10-18 researcher-fact-check 사실 4-③(같은 공고에서 화면 표와 본문이 어긋난 사례).
+const API_DOC_TERM_SOURCE_NOTE =
+  "아래 기한과 방식은 공공데이터 온비드 물건 입찰상세에서 받은 값입니다. 온비드 화면 표와 공고문 본문이 이 값과 다를 수 있습니다.";
+const API_DOC_TERM_CONFLICT_NOTE =
+  "두 값 가운데 더 이른 기한을 기준으로 준비하시고, 공고문 원문의 해당 조항을 반드시 확인하십시오.";
+
+function getApiDocTerms() {
+  const terms = sampleNotice.apiDocTerms;
+  if (!Array.isArray(terms)) return [];
+  return terms.filter((term) => term && (term.due || term.method));
+}
+
+// 같은 구분(공동입찰·대리입찰)의 화면 추출 서류에 적힌 기한을 모은다. 중복은 지운다.
+function getScreenDuesForKind(kind) {
+  const dues = new Set();
+  getPreBidDocGroups().forEach((group) => {
+    if (!String(group.condition || "").includes(kind)) return;
+    (Array.isArray(group.items) ? group.items : []).forEach((item) => {
+      const due = String(item.due || "").trim();
+      if (due) dues.add(due);
+    });
+  });
+  return [...dues];
+}
+
+function renderApiDocTermsPanel() {
+  const terms = getApiDocTerms();
+  if (!terms.length) return "";
+  const rowsHtml = terms
+    .map((term) => {
+      const screenDues = getScreenDuesForKind(term.kind).filter((due) => due !== term.due);
+      const hasConflict = Boolean(term.due) && screenDues.length > 0;
+      return `<li${hasConflict ? ' class="has-term-conflict"' : ""}>
+        <strong>${term.kind}</strong>
+        <span class="doc-chips">
+          ${term.due ? badge(`기한 ${term.due}`, "warn") : ""}
+          ${term.method ? badge(`방식 ${term.method}`, "neutral") : ""}
+        </span>
+        ${
+          hasConflict
+            ? `<p class="api-term-conflict">온비드 화면 표에는 기한이 "${screenDues.join(" · ")}"로 적혀 있어 두 값이 다릅니다. ${API_DOC_TERM_CONFLICT_NOTE}</p>`
+            : ""
+        }
+      </li>`;
+    })
+    .join("");
+  return `<div class="api-doc-terms">
+    <h4>제출기한·제출방식 (공공데이터 기준)</h4>
+    <p class="small-text">${API_DOC_TERM_SOURCE_NOTE}</p>
+    <ul>${rowsHtml}</ul>
+  </div>`;
+}
+
+// 입찰참가신청 필요 여부. 이 값이 「필요」면 공고기관 승인을 먼저 받아야 입찰할 수 있어서 서류
+// 준비 순서가 통째로 바뀌므로 2단계 맨 위에 강조해 둔다. 「불필요」면 그 사실만 조용히 적는다.
+// 서버가 값을 주지 못하면 이 블록을 아예 그리지 않는다 — 가장 눈에 띄는 자리에 「우리가 모른다」를
+// 두지 않는다(2026-10-18 ux-design-review P1-1 의 판단을 그대로 따른다).
+function renderBidParticipationApplyPanel() {
+  const info = sampleNotice.bidParticipationApply;
+  if (!info || typeof info.required !== "boolean") return "";
+  if (!info.required) {
+    return `<div class="bid-apply-panel is-not-required">
+      <strong>입찰참가신청 불필요</strong>
+      <p class="small-text">이 물건은 공고기관의 사전 승인 없이 바로 입찰할 수 있습니다. 근거는 ${info.source} 입니다.</p>
+    </div>`;
+  }
+  const detailHtml = [
+    info.docs ? `<li>신청 서류: ${info.docs}</li>` : "",
+    info.due ? `<li>신청 기한: ${info.due}</li>` : "",
+    info.method ? `<li>제출 방식: ${info.method}</li>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  return `<div class="bid-apply-panel is-required">
+    ${badge("먼저 할 일", "warn")}
+    <strong>이 물건은 공고기관 승인을 받아야 입찰할 수 있습니다.</strong>
+    <p>서류를 먼저 내고 승인을 기다려야 합니다. 승인 전에는 입찰 자체가 되지 않으므로, 아래 서류 준비보다 이것이 먼저입니다.</p>
+    ${detailHtml ? `<ul>${detailHtml}</ul>` : ""}
+    <p class="small-text">신청 절차와 마감 시각은 공고문 원문에서 반드시 확인하십시오. 근거는 ${info.source} 입니다.</p>
+  </div>`;
+}
+
+// 자격제한·지역제한·기타제한. 「이 물건에 응찰할 자격이 되는가」는 사용자가 가장 먼저 알아야
+// 하는 것이라 1단계(공고 확인)에 둔다. 제한이 없다는 값도 알 가치가 있어 함께 보여주되,
+// 제한이 실제로 있는 항목만 강조한다.
+function renderBidLimitsPanel() {
+  const limits = sampleNotice.bidLimits;
+  if (!Array.isArray(limits) || !limits.length) return "";
+  const rowsHtml = limits
+    .map(
+      (limit) => `<li${limit.restricted ? ' class="is-restricted"' : ""}>
+        <strong>${limit.label}</strong>
+        <span>${limit.value}</span>
+      </li>`,
+    )
+    .join("");
+  const hasRestriction = limits.some((limit) => limit.restricted);
+  return `<div class="bid-limits-panel${hasRestriction ? " has-restriction" : ""}">
+    <h4>입찰 자격 조건 (공공데이터 기준)</h4>
+    ${
+      hasRestriction
+        ? `<p>제한 조건이 있습니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문에서 먼저 확인하십시오.</p>`
+        : `<p class="small-text">제한 조건이 확인되지 않았습니다. 그래도 공고문 원문의 참가자격 조항을 한 번 확인하십시오.</p>`
+    }
+    <ul>${rowsHtml}</ul>
+  </div>`;
+}
+
 function renderDocChecklist(locked) {
   const checklist = sampleNotice.docChecklist;
   if (!checklist) return "";
@@ -1850,6 +1967,7 @@ function renderDocChecklist(locked) {
     </div>
     <p>제출서류 리스트입니다.</p>
     <p class="small-text">${DOC_DUE_CAUTION}</p>
+    ${renderApiDocTermsPanel()}
     ${renderDocConditionQuestions(answers)}
     ${
       docSummary.totalCount
@@ -2333,6 +2451,12 @@ function renderReport() {
         .map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked))
         .join("");
       const restartWarningHtml = stage.num === 1 ? renderStage1RestartWarning(stage1Warning) : "";
+      // 1단계에는 입찰 자격 조건을, 2단계 맨 위에는 입찰참가신청 필요 여부를 둔다. 둘 다
+      // 공공데이터 getCltrBidInf2 응답에서만 오고, 값이 없으면 빈 문자열이라 그려지지 않는다.
+      // 입찰참가신청은 cardsHtml 앞에 둬야 2단계 「맨 위」가 된다 — 서류 체크리스트보다
+      // 먼저 보여야 하는 것은 「승인을 먼저 받아야 하는가」다.
+      const bidLimitsHtml = stage.num === 1 ? renderBidLimitsPanel() : "";
+      const bidApplyHtml = stage.num === 2 ? renderBidParticipationApplyPanel() : "";
       // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리 — 정보 리스트 + AI 질문창.
       // 잠겨 있어도 보여준다(ux-audit §⑴ "잠긴 상태에서도 자세히·원문 링크는 항상 보인다" 원칙과 동일).
       const bidParticipationHtml =
@@ -2350,6 +2474,8 @@ function renderReport() {
       return `<details class="stage-group ${stageCls}" ${stage.locked ? "" : "open"}>
         <summary>${renderStageHeading(stage)}</summary>
         ${restartWarningHtml}
+        ${bidLimitsHtml}
+        ${bidApplyHtml}
         ${cardsHtml}
         ${bidParticipationHtml}
         ${postAwardHtml}
