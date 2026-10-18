@@ -858,12 +858,31 @@ function buildPostAwardDocItem(base, group) {
 //     입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
 //   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
 // 그래서 값이 정확히 POST_AWARD_DOC_STAGE 일 때만 4단계로 보내고, 그 밖의 모든 값(빈 값·미지의
-// 값·"미분류"·판정 실패)은 2단계로 보낸다. 🔴 이 비대칭을 뒤집지 않는다 — 「낙찰 후가 아닌 것만
-// 2단계」로 바꾸면 미지의 값이 4단계로 흘러 위 첫째 비용을 물게 된다(ux-design-review P0-2).
-// 🔴 "미분류"(단계를 확정하지 못한 서류)도 현재는 이 기본값을 따라 2단계로 보인다 — 별도
-// "단계 미확인" 구획으로 분리하는 것은 설계 §3이 제안하지만 이번 구현 범위 밖이다(미구현 한계).
+// 값·"미분류"·"별도 문의 필요"·판정 실패)은 2단계로 보낸다. 🔴 이 비대칭을 뒤집지 않는다 —
+// 「낙찰 후가 아닌 것만 2단계」로 바꾸면 미지의 값이 4단계로 흘러 위 첫째 비용을 물게 된다
+// (ux-design-review P0-2). "미분류"·"별도 문의 필요"는 2단계 «안에서» 확정 항목과 구분되는
+// 별도 구획으로 보인다(isUnclassifiedDoc·isNeedsInquiryDoc, renderDocChecklist).
 function isPostAwardDoc(item) {
   return item?.stage === POST_AWARD_DOC_STAGE;
+}
+
+// 조항 표제·문장 어디서도 단계를 확정하지 못한 서류. "우리가 확정했다"(아래 isConfirmedPreBidDoc)
+// 와 구분해 사용자에게 「확인이 더 필요하다」를 숨기지 않는다(stage-classification-design.md §3).
+const UNCLASSIFIED_DOC_STAGE = "미분류";
+function isUnclassifiedDoc(item) {
+  return item?.stage === UNCLASSIFIED_DOC_STAGE;
+}
+
+// 컨소시엄 협정서처럼 온비드 공통 규정에 일반 근거가 없는 서류. "미분류"와 달리 사전을
+// 넓혀도 못 찾는다는 뜻이라 화면 문구와 처리(공고기관 문의 안내)가 다르다.
+const NEEDS_INQUIRY_DOC_STAGE = "별도 문의 필요";
+function isNeedsInquiryDoc(item) {
+  return item?.stage === NEEDS_INQUIRY_DOC_STAGE;
+}
+
+// 입찰 전(2단계) 안에서 "우리가 확정한" 항목만 — 미분류·별도 문의는 각자 구획으로 뺀다.
+function isConfirmedPreBidDoc(item) {
+  return !isPostAwardDoc(item) && !isUnclassifiedDoc(item) && !isNeedsInquiryDoc(item);
 }
 
 // 낙찰 후 안내 묶음이 이 공고의 재산유형에 해당하는지 본다. assetTypes 선언이 없는 묶음은
@@ -942,6 +961,38 @@ function getPreBidDocGroups() {
 // 4단계(낙찰 후 준비) 블록이 그리는 서류 그룹.
 function getPostAwardDocGroups() {
   return splitDocGroupsByStage(getVisibleDocGroups()).postAward;
+}
+
+// 2단계 안에서 "우리가 확정한" 항목만 남긴 그룹 — 미분류·별도 문의 필요 항목은
+// 각자 구획(getUnclassifiedPreBidDocItems·getNeedsInquiryPreBidDocItems)으로 뺀다.
+// 체크 상태·진행률(getUniqueDocNames 등)은 getPreBidDocGroups(미분류·별도 문의 포함)를
+// 그대로 쓴다 — 사용자가 그 서류들도 끝내 준비해야 하므로 진행률 분모에서 빼지 않는다.
+function getConfirmedPreBidDocGroups() {
+  return getPreBidDocGroups()
+    .map((group) => ({ ...group, items: (group.items || []).filter(isConfirmedPreBidDoc) }))
+    .filter((group) => group.items.length);
+}
+
+// 조건별 그룹에 같은 서류명이 여러 번 걸릴 수 있어(§4-2), 평면 구획은 이름으로 중복을 지운다.
+function flattenUniqueDocItems(groups, predicate) {
+  const seen = new Set();
+  const items = [];
+  groups.forEach((group) => {
+    (group.items || []).forEach((item) => {
+      if (!predicate(item) || seen.has(item.name)) return;
+      seen.add(item.name);
+      items.push(item);
+    });
+  });
+  return items;
+}
+
+function getUnclassifiedPreBidDocItems() {
+  return flattenUniqueDocItems(getPreBidDocGroups(), isUnclassifiedDoc);
+}
+
+function getNeedsInquiryPreBidDocItems() {
+  return flattenUniqueDocItems(getPreBidDocGroups(), isNeedsInquiryDoc);
 }
 
 // 조건별 그룹(공동입찰·대리입찰·공통 등)에 같은 서류명이 중복으로 나열되므로,
@@ -1776,6 +1827,26 @@ function renderDocSourceNotice() {
   </li>`;
 }
 
+// 서류 체크박스 한 행. renderDocGroup(조건별 묶음)과 renderDocFlatSection(미분류·별도 문의
+// 구획)이 같은 마크업을 쓰도록 빼냈다 — 복사해 두면 한쪽만 고쳐질 때 체크박스 배선이 갈린다.
+function renderDocCheckRow(item, docState, locked, lockMsgId) {
+  return `<li class="${docState[item.name] ? "is-checked" : ""}${locked ? " is-locked" : ""}">
+    <label class="doc-check">
+      <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}${
+        locked ? ` disabled aria-disabled="true" aria-describedby="${lockMsgId}"` : ""
+      }>
+      <strong>${item.name}</strong>
+    </label>
+    <span class="doc-chips">${docExtraChips(item)}</span>
+    ${
+      item.howto
+        ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
+        : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
+    }
+    <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
+  </li>`;
+}
+
 // 조건별 서류 그룹 1개. 2단계(renderDocChecklist)와 4단계(renderPostAwardPanel)가 같은 마크업을
 // 쓰도록 빼냈다 — 두 곳에 같은 <li> 를 복사해 두면 한쪽만 고쳐질 때 체크박스 배선이 갈린다.
 function renderDocGroup(group, docState, locked, open, lockMsgId) {
@@ -1783,27 +1854,53 @@ function renderDocGroup(group, docState, locked, open, lockMsgId) {
   return `<details class="doc-group"${open ? " open" : ""}>
     <summary><h4>${group.condition}</h4>${badge(`${items.length}개 서류`, "neutral")}</summary>
     <ul>
-      ${items
-        .map(
-          (item) => `<li class="${docState[item.name] ? "is-checked" : ""}${locked ? " is-locked" : ""}">
-            <label class="doc-check">
-              <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}${
-                locked ? ` disabled aria-disabled="true" aria-describedby="${lockMsgId}"` : ""
-              }>
-              <strong>${item.name}</strong>
-            </label>
-            <span class="doc-chips">${docExtraChips(item)}</span>
-            ${
-              item.howto
-                ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
-                : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
-            }
-            <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
-          </li>`,
-        )
-        .join("")}
+      ${items.map((item) => renderDocCheckRow(item, docState, locked, lockMsgId)).join("")}
     </ul>
   </details>`;
+}
+
+// 2단계 안에서 미분류·별도 문의 필요 서류를 확정 항목과 분리해 보여주는 구획
+// (stage-classification-design.md §3 "미분류를 1급 상태로 두는 설계"). 확정 항목이
+// 우선이므로 open 은 호출부가 결정하지 않고 항상 펼쳐 둔다 — 접혀 있으면 "우리도 모른다"는
+// 사실을 사용자가 못 보고 지나칠 수 있다.
+function renderDocFlatSection(cls, title, noticeHtml, items, docState, locked, lockMsgId) {
+  if (!items.length) return "";
+  return `<details class="doc-group ${cls}" open>
+    <summary><h4>${title}</h4>${badge(`${items.length}개 서류`, "warn")}</summary>
+    ${noticeHtml}
+    <ul>
+      ${items.map((item) => renderDocCheckRow(item, docState, locked, lockMsgId)).join("")}
+    </ul>
+  </details>`;
+}
+
+function renderUnclassifiedDocSection(docState, locked, lockMsgId) {
+  const items = getUnclassifiedPreBidDocItems();
+  return renderDocFlatSection(
+    "doc-group-unclassified",
+    "단계를 확정하지 못한 서류",
+    `<p class="small-text">단계를 확정하지 못했습니다. 공고문 원문을 확인하십시오.</p>`,
+    items,
+    docState,
+    locked,
+    lockMsgId,
+  );
+}
+
+function renderNeedsInquiryDocSection(docState, locked, lockMsgId) {
+  const items = getNeedsInquiryPreBidDocItems();
+  const contact = String(sampleNotice.docChecklist?.contact || "").trim();
+  return renderDocFlatSection(
+    "doc-group-needs-inquiry",
+    "공고기관에 직접 문의해야 하는 서류",
+    `<p class="small-text">이 서류는 공고기관에 직접 문의해야 합니다.${
+      contact ? ` 담당부점/공고기관: ${contact}` : " 담당부점/공고기관 연락처가 확인되지 않았으니 공고 원문에서 확인하십시오."
+    }</p>`,
+    items,
+    docState,
+    locked,
+    lockMsgId,
+  );
 }
 
 function renderDocConditionQuestions(answers) {
@@ -1984,7 +2081,10 @@ function renderDocChecklist(locked) {
   const rawGroups = Array.isArray(checklist.groups) ? checklist.groups : [];
   const answers = getDocConditionAnswers();
   // 2단계는 「입찰 전」 서류만 그린다. 「낙찰 후·계약 시」 서류는 4단계 블록이 맡는다.
-  const groups = getPreBidDocGroups();
+  // 확정 항목(groups)을 위에, 미분류·별도 문의 필요는 각자 구획으로 아래에 둔다 — 셋을
+  // 똑같이 섞어 보여주면 "우리가 확정했다"와 "우리도 모른다"를 사용자가 구별할 수 없다
+  // (stage-classification-design.md §3).
+  const groups = getConfirmedPreBidDocGroups();
   const userType = getSelectedUserType();
   const docState = getDocState();
 
@@ -1995,6 +2095,9 @@ function renderDocChecklist(locked) {
       return renderDocGroup(group, docState, locked, isRelevant, "stage-lock-msg-2");
     })
     .join("");
+  const unclassifiedHtml = renderUnclassifiedDocSection(docState, locked, "stage-lock-msg-2");
+  const needsInquiryHtml = renderNeedsInquiryDocSection(docState, locked, "stage-lock-msg-2");
+  const hasAnyPreBidItems = getPreBidDocGroups().some((group) => (group.items || []).length);
 
   const docSummary = getDocSummary();
 
@@ -2021,10 +2124,11 @@ function renderDocChecklist(locked) {
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
     ${
-      groupsHtml ||
-      (rawGroups.length
-        ? `<p class="small-text">공동입찰·대리입찰에 해당하지 않아 추가로 준비할 서류가 없습니다. 질문에 "예"로 답하면 관련 서류가 다시 나타납니다.</p>`
-        : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`)
+      hasAnyPreBidItems
+        ? groupsHtml + unclassifiedHtml + needsInquiryHtml
+        : rawGroups.length
+          ? `<p class="small-text">공동입찰·대리입찰에 해당하지 않아 추가로 준비할 서류가 없습니다. 질문에 "예"로 답하면 관련 서류가 다시 나타납니다.</p>`
+          : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`
     }
     ${
       checklist.tableRows?.length

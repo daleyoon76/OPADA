@@ -1562,6 +1562,18 @@ a:hover {
   opacity: 0.6;
 }
 
+/* 확정 항목(기본 .doc-group)과 구분해, "우리도 모른다"는 사실을 색으로도 드러낸다
+   (stage-classification-design.md §3 · stage-classification-fix.md). */
+.doc-group-unclassified,
+.doc-group-needs-inquiry {
+  border-top: 2px solid var(--amber);
+}
+
+.doc-group-unclassified li,
+.doc-group-needs-inquiry li {
+  border-left: 2px solid var(--amber);
+}
+
 /* 잠긴 단계의 서류 체크박스도 메인 task 체크 행과 같은 흐림·커서 처리를 맞춘다
    (.task-row.is-locked-row 와 같은 패턴). 기능은 disabled 로 이미 막혀 있고
    이 규칙은 시각 신호만 보강한다. */
