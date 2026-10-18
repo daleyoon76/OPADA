@@ -903,9 +903,12 @@ test("준비 단계 — getPrepStageStatus()를 화면 체크 없이 직접 호�
 
   const initial = await page.evaluate(() => window.getPrepStageStatus());
   expect(initial).toEqual([
-    { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"], done: false, locked: false },
-    { num: 2, title: "서류 준비", taskIds: ["documents"], done: false, locked: true },
-    { num: 3, title: "입찰 참여", taskIds: ["price"], done: false, locked: true },
+    { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"], notYet: false, done: false, locked: false },
+    { num: 2, title: "입찰 전 준비", taskIds: ["documents"], notYet: false, done: false, locked: true },
+    { num: 3, title: "입찰 참여", taskIds: ["price"], notYet: false, done: false, locked: true },
+    // 4단계는 build_tasks() 가 만드는 task 가 없어 taskIds 가 비어 있다. 그래도 done 은 false 다
+    // — notYet 이 done 보다 먼저 판정되기 때문이다(P0-1).
+    { num: 4, title: "낙찰 후 준비", taskIds: [], notYet: true, done: false, locked: false },
   ]);
 
   await page.locator('[data-task-id="notice-type"]').check();
@@ -914,4 +917,111 @@ test("준비 단계 — getPrepStageStatus()를 화면 체크 없이 직접 호�
   expect(afterStage1[0]).toMatchObject({ num: 1, done: true, locked: false });
   expect(afterStage1[1]).toMatchObject({ num: 2, done: false, locked: false });
   expect(afterStage1[2]).toMatchObject({ num: 3, done: false, locked: true });
+  // 앞 단계를 다 채워도 4단계는 열리지도 완료되지도 않는다 — 낙찰은 체크박스로 만들 수 없다.
+  expect(afterStage1[3]).toMatchObject({ num: 4, notYet: true, done: false, locked: false });
+});
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * P0-1 — 항목이 0개인 단계가 「완료」로 표시되지 않는다.
+ *
+ * 이 단정이 필요한 이유: getPrepStageStatus() 는 `taskIds.every(...)` 로 완료를 판정하고,
+ * `[].every()` 는 참이다. 4단계는 서버가 만드는 task 가 하나도 없어 taskIds 가 «항상» 빈
+ * 배열이므로, notYet 판정이 없으면 사용자가 낙찰도 되지 않았고 서류도 한 장 내지 않은
+ * 상태에서 「4단계 · 낙찰 후 준비 ✅ 완료」를 읽는다. 돈이 걸린 체크리스트의 허위 완료 표시다.
+ *
+ * 변이 투입(2026-10-18): getPrepStageStatus() 의 `done: notYet ? false : done` 을 `done` 으로
+ * 되돌리고 renderStageHeading()·renderPrepStageStepper() 의 notYet 분기를 지우면 이 테스트가
+ * 실패해야 한다. 실제로 실패하는 것을 확인했다(아래 §검증 참조).
+ * ──────────────────────────────────────────────────────────────────────────── */
+test("준비 단계 — 항목이 0개인 4단계가 「완료」로 표시되지 않고 「아직 할 일이 아닙니다」로 표시된다", async ({ page }) => {
+  await analyzeWith(page, stagedNotice());
+  await page.locator("#prepare").click();
+
+  // ⑴ 파생값: 4단계는 taskIds 가 비어 있는데도 done 이 아니다.
+  const stage4 = await page.evaluate(() => window.getPrepStageStatus().find((stage) => stage.num === 4));
+  expect(stage4.taskIds).toEqual([]);
+  expect(stage4.done).toBe(false);
+  expect(stage4.notYet).toBe(true);
+  expect(stage4.locked).toBe(false);
+
+  // ⑵ 스테퍼: 4단계 칸에 「완료」가 아니라 「아직 할 일이 아닙니다」가 적힌다.
+  const stepperItem = page.locator(".prep-stage-stepper li").nth(3);
+  await expect(stepperItem).toContainText("낙찰 후 준비");
+  await expect(stepperItem).toContainText("아직 할 일이 아닙니다");
+  await expect(stepperItem).not.toContainText("완료");
+  await expect(stepperItem).toHaveClass(/is-not-yet/);
+  await expect(stepperItem).not.toHaveClass(/is-done/);
+
+  // ⑶ 단계 헤딩: 4단계 헤딩이 is-done 이 아니다. 1~3단계가 미완이므로 is-done 은 0건이어야 한다.
+  await expect(page.locator(".stage-group-heading.is-not-yet")).toHaveCount(1);
+  await expect(page.locator(".stage-group-heading.is-not-yet")).toContainText("4단계 · 낙찰 후 준비");
+  await expect(page.locator(".stage-group-heading.is-done")).toHaveCount(0);
+
+  // ⑷ 1~3단계를 모두 체크해도 4단계는 여전히 「완료」가 아니다 — 낙찰은 사용자가 만들 수 없다.
+  await page.locator('[data-task-id="notice-type"]').check();
+  await page.locator('[data-task-id="bid-period"]').check();
+  await page.locator('[data-task-id="documents"]').check();
+  await page.locator('[data-task-id="price"]').check();
+  await expect(page.locator(".stage-group-heading.is-done")).toHaveCount(3);
+  await expect(page.locator(".stage-group-heading.is-not-yet")).toContainText("아직 할 일이 아닙니다");
+  await expect(page.locator(".prep-stage-stepper li").nth(3)).not.toContainText("완료");
+});
+
+test("준비 단계 — 4단계 블록에 머리 안내가 보이고, 낙찰 후 서류가 2단계가 아니라 4단계에 들어간다", async ({ page }) => {
+  await analyzeWith(page, stagedNotice());
+  await page.locator("#prepare").click();
+
+  // 4단계 블록은 잠겨 있지 않으므로 기본으로 펼쳐져 있고, 머리 안내가 바로 보인다.
+  // 이 안내는 과설명이 아니라 단계 판정(CONTRACT_STAGE_RE) 오분류의 안전망이다(P0-2).
+  const postAward = page.locator(".post-award-panel");
+  await expect(postAward).toBeVisible();
+  await expect(postAward.locator(".post-award-caution")).toContainText("2단계 목록도 함께 확인하십시오");
+
+  // D(P1-2) 일반 안내가 4단계를 채운다 — 기한을 놓치면 낙찰이 취소되는 묶음이 맨 위다.
+  const groupHeadings = postAward.locator(".doc-group > summary h4");
+  await expect(groupHeadings.first()).toContainText("매각결정기일 전까지");
+  await expect(postAward).toContainText("농지 매수자격 증명 서류");
+  await expect(postAward).toContainText("소유권이전 단계");
+  await expect(postAward).toContainText("등기사항전부증명서");
+  // 🔴 캠코 대행 조항 때문에 제출처를 단정하지 않는다(researcher-fact-check 사실 10 · 미확인).
+  await expect(postAward).toContainText("절차와 제출처는 공고기관에 확인하십시오");
+
+  // 2단계 체크리스트에는 낙찰 후 서류가 «없다» — 두 블록이 물리적으로 갈린다.
+  await page
+    .locator('[data-task-id="documents"]')
+    .locator("xpath=ancestor::details[contains(@class,'stage-group')]")
+    .locator("> summary")
+    .click();
+  const preBidChecklist = page.locator("#doc-checklist");
+  await expect(preBidChecklist).toContainText("인감증명서");
+  await expect(preBidChecklist).not.toContainText("등기사항전부증명서");
+  await expect(preBidChecklist).not.toContainText("농지 매수자격 증명 서류");
+
+  // E-3 제출기한 교정: 온비드 화면 표와 공고문 본문의 기한이 어긋나는 공고가 있다.
+  await expect(preBidChecklist).toContainText("공고문 원문의 기한이 더 이를 수 있으니");
+});
+
+test("준비 단계 — 4단계 서류를 체크해도 2단계 진행률과 단계 잠금에 영향이 없다", async ({ page }) => {
+  await analyzeWith(page, stagedNotice());
+  await page.locator("#prepare").click();
+
+  const before = await page.evaluate(() => ({
+    pre: window.getDocSummary().totalCount,
+    post: window.getPostAwardDocSummary().totalCount,
+  }));
+  // 4단계 서류가 2단계 분모에 섞이면 「서류를 전부 체크하면 documents 를 켠다」는 보조 동작이
+  // 낙찰 후 서류까지 요구해, 2단계 완료가 조건인 3단계가 열리지 않는 교착이 된다(§4-⑺).
+  expect(before.post).toBeGreaterThan(0);
+
+  const postNames = await page.evaluate(() => window.getPostAwardDocSummary().names);
+  const preNames = await page.evaluate(() => window.getDocSummary().names);
+  for (const name of postNames) expect(preNames).not.toContain(name);
+
+  // 4단계 서류를 전부 체크해도 documents task 는 켜지지 않고 3단계는 잠긴 채다.
+  for (const name of postNames) {
+    await page.locator(`[data-doc-name="${name}"]`).first().check();
+  }
+  expect(await page.evaluate(() => window.getTaskState().documents)).not.toBe(true);
+  expect(await page.evaluate(() => window.getPrepStageStatus()[2].locked)).toBe(true);
+  expect(await page.evaluate(() => window.getDocSummary().totalCount)).toBe(before.pre);
 });

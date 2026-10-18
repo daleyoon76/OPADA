@@ -440,15 +440,25 @@ const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
 
-// 준비 단계(공고 확인 → 서류 준비 → 입찰 참여). 이름은 currentStage/pipelineSteps(Step1 분석
+// 준비 단계(공고 확인 → 입찰 전 준비 → 입찰 참여 → 낙찰 후 준비). currentStage/pipelineSteps(Step1 분석
 // 파이프라인, 1895·1903행 근처)와 겹치지 않게 prepStage 계열로 둔다(3팀 ux-audit §⑸ 제약).
-// 서버(server.py build_tasks())가 이미 5개 id를 고정 순서로 만들므로, 서버 응답 구조를
+// 서버(server.py build_tasks())가 이미 4개 id를 고정 순서로 만들므로, 서버 응답 구조를
 // 바꾸지 않고 화면 쪽에 이 매핑 상수 하나만 둔다 — 서버 필드 추가보다 변경 범위가 작다.
+// sequential 은 「순차 잠금 사슬에 들어가는 단계인가」다. 1~3단계는 사용자가 지금 해야 하는
+// 일이라 앞 단계를 마쳐야 열린다. 4단계는 성질이 다르다 — 낙찰은 체크박스로 만들 수 있는
+// 상태가 아니라 개찰 결과이고, 3단계 price 는 「최저입찰가격을 확인했다」는 뜻이지
+// 「낙찰됐다」는 뜻이 아니다. 그래서 4단계는 잠그지 않고 sequential: false 로 둔다
+// (2026-10-18 ux-design-review 질문 2).
 const PREP_STAGES = [
-  { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"] },
-  { num: 2, title: "서류 준비", taskIds: ["documents"] },
-  { num: 3, title: "입찰 참여", taskIds: ["price"] },
+  { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"], sequential: true },
+  { num: 2, title: "입찰 전 준비", taskIds: ["documents"], sequential: true },
+  { num: 3, title: "입찰 참여", taskIds: ["price"], sequential: true },
+  { num: 4, title: "낙찰 후 준비", taskIds: [], sequential: false },
 ];
+
+// 4단계가 담는 서류의 stage 값. server.py 가 CONTRACT_STAGE_RE 로 판정해 넣는 값과 같아야
+// 한다(src/server.py:533). 한쪽만 고치면 4단계가 조용히 빈다.
+const POST_AWARD_DOC_STAGE = "낙찰 후·계약 시";
 
 function getTaskStageNum(taskId) {
   const stage = PREP_STAGES.find((candidate) => candidate.taskIds.includes(taskId));
@@ -713,14 +723,43 @@ function setDocConditionAnswer(key, value) {
 // 것이 아니라, server.py DOC_HOWTO가 이미 쓰는 공식 서식명을 그대로 재사용한 일반 안내다.
 const DOC_CONDITION_SUPPLEMENT = {
   joint: [
-    { name: "공동입찰참가신청서", howto: "공고 첨부 서식 또는 온비드 자료실 서식", howtoUrl: "https://www.onbid.co.kr/" },
+    {
+      name: "공동입찰참가신청서",
+      howto: "공고 첨부 서식 또는 온비드 자료실 서식",
+      howtoUrl: "https://www.onbid.co.kr/",
+      // 압류재산 공매공고문 「16. 주의사항」 자항 ③호는 단서로 끝난다 — 「다만, 인터넷 공매의
+      // 경우에는 공동입찰신청을 온비드 등록으로 대신할 수 있습니다」. 같은 공고문 「1. 입찰방법
+      // 가」항이 압류재산 공매를 인터넷 공매로 명시하므로, 이 단서를 빼면 하지 않아도 되는 직접
+      // 제출을 하라고 안내하게 된다(2026-10-18 researcher-fact-check 사실 1).
+      note: "압류재산 공매는 인터넷 공매이므로, 공동입찰신청을 온비드 등록으로 대신할 수 있습니다(압류재산 공매공고문 「16. 주의사항」 자항 ③호 단서). 서류를 직접 제출하기 전에 공고 원문의 해당 조항을 먼저 확인하십시오.",
+    },
+    {
+      name: "공동매수신청인 전원의 인감증명서 또는 본인서명사실확인서",
+      howto: "정부24 또는 주민센터",
+      howtoUrl: "https://www.gov.kr/",
+      note: "인감증명서가 없으면 본인서명사실확인서로 대신할 수 있습니다. 공고문이 두 서류를 선택지로 함께 적습니다.",
+    },
   ],
   proxy: [
-    { name: "대리입찰신청서", howto: "공고 첨부 서식 또는 온비드 자료실 서식", howtoUrl: "https://www.onbid.co.kr/" },
+    {
+      name: "대리입찰신청서",
+      howto: "공고 첨부 서식 또는 온비드 자료실 서식",
+      howtoUrl: "https://www.onbid.co.kr/",
+      note: "여러 사람의 공동입찰을 대리하는 경우에는 대리입찰신청서와 공동입찰신청서를 모두 제출해야 유효한 입찰로 처리됩니다(캠코 온비드 이용 매뉴얼 「입찰하기」).",
+    },
     { name: "위임장", howto: "공고 첨부 서식 또는 온비드 자료실 서식", howtoUrl: "https://www.onbid.co.kr/" },
+    {
+      name: "입찰자의 인감증명서 또는 본인서명사실확인서",
+      howto: "정부24 또는 주민센터",
+      howtoUrl: "https://www.gov.kr/",
+      note: "인감증명서가 없으면 본인서명사실확인서로 대신할 수 있습니다. 공고문이 두 서류를 선택지로 함께 적습니다.",
+    },
     { name: "대리인 신분증 등 본인 확인 서류 (확인 필요)", howto: "", howtoUrl: "" },
   ],
 };
+
+const DOC_SUPPLEMENT_EVIDENCE =
+  "이 공고 원문에서 추출한 문장이 아니라, 공동입찰·대리입찰 시 온비드 공매에서 통상 요구하는 서류에 대한 일반 안내입니다. 실제 필요 여부와 서식은 공고 원문과 담당기관 기준으로 다시 확인하십시오.";
 
 function buildDocConditionSupplementItem(base, conditionLabel) {
   return {
@@ -736,9 +775,100 @@ function buildDocConditionSupplementItem(base, conditionLabel) {
     howto: base.howto,
     howtoUrl: base.howtoUrl,
     sourceSection: "",
-    evidence:
-      "이 공고 원문에서 추출한 문장이 아니라, 공동입찰·대리입찰 시 온비드 공매에서 통상 요구하는 서류에 대한 일반 안내입니다. 실제 필요 여부와 서식은 공고 원문과 담당기관 기준으로 다시 확인하십시오.",
+    evidence: base.note ? `${base.note} ${DOC_SUPPLEMENT_EVIDENCE}` : DOC_SUPPLEMENT_EVIDENCE,
   };
+}
+
+// 4단계(낙찰 후 준비)의 일반 안내 서류다. DOC_CONDITION_SUPPLEMENT 와 같은 방식으로, 이 공고
+// 원문에서 추출한 것이 아니라는 사실을 항목마다 evidence 에 명시한다. 공고에서 뽑은 「낙찰
+// 후·계약 시」 서류는 표본 23건 중 6건에만 있어서, 이 안내가 없으면 4단계가 대부분의 공고에서
+// 빈 껍데기가 된다(2026-10-18 ux-design-review P1-2). 재산유형과 무관하게 넣는다.
+//
+// 첫 묶음을 맨 위에 둔다 — 매각결정기일까지 내지 않으면 매각불허결정이 될 수 있어, 기한을
+// 놓치면 낙찰 자체가 취소된다. 두 번째 묶음보다 되돌리기가 비싸다.
+const POST_AWARD_DOC_GROUPS = [
+  {
+    condition: "낙찰 직후 · 매각결정기일 전까지 (압류재산)",
+    items: [
+      {
+        name: "농지 매수자격 증명 서류 (농지취득자격증명 또는 반려 공문 또는 토지이용계획 확인원)",
+        due: "매각결정기일 전까지",
+        howto: "정부24 (농지 소재지 읍·면·동)",
+        howtoUrl: "https://www.gov.kr/",
+        note: "공매재산이 농지(전·답·과수원 등)인 경우에만 해당합니다. 매각결정기일 전까지 제출하지 않으면 매각불허결정이 될 수 있습니다. 당초 매각결정기일로부터 10일 이내 범위에서 1회 연기를 신청할 수 있습니다. 근거는 「압류재산 공매공고문 16. 주의사항 다항」입니다.",
+      },
+      {
+        name: "농지대장 (농민인 경우 추가 제출)",
+        due: "매각결정기일 전까지",
+        howto: "정부24",
+        howtoUrl: "https://www.gov.kr/",
+        note: "농민인 경우 위 매수자격 증명 서류에 더해 추가로 제출합니다. 근거는 「압류재산 공매공고문 16. 주의사항 다항」입니다.",
+      },
+    ],
+  },
+  {
+    condition: "소유권이전 단계",
+    // 🔴 압류재산 공고문에는 「공사는 체납자를 대신하여 매각재산의 권리이전 절차를 수행한다」는
+    // 조항이 있다. 매수인이 이 서류를 직접 등기소에 내는지, 캠코에 넘기는지는 확인되지 않았다
+    // (2026-10-18 researcher-fact-check 사실 10 · [미확인]). 그래서 항목마다 제출처를 단정하지
+    // 않고 「공고기관에 확인하십시오」를 붙인다.
+    items: [
+      { name: "등기사항전부증명서", howto: "인터넷등기소", howtoUrl: "https://www.iros.go.kr/" },
+      { name: "토지·건축물대장", howto: "정부24", howtoUrl: "https://www.gov.kr/" },
+      { name: "매수자 주민등록등본", howto: "정부24 또는 주민센터", howtoUrl: "https://www.gov.kr/" },
+      { name: "취득세·등록면허세 영수증", howto: "위택스 또는 시·군·구청 세무과", howtoUrl: "https://www.wetax.go.kr/" },
+      { name: "국민주택채권 매입필영수증", howto: "", howtoUrl: "" },
+      { name: "등기신청수수료 납부영수증", howto: "인터넷등기소 또는 등기소", howtoUrl: "https://www.iros.go.kr/" },
+    ],
+    note: "압류재산은 공사가 체납자를 대신해 권리이전 절차를 수행한다는 공고문 조항이 있습니다. 이 서류를 매수인이 직접 등기소에 제출하는지, 공고기관에 넘기는지는 확인되지 않았습니다. 절차와 제출처는 공고기관에 확인하십시오.",
+  },
+];
+
+const POST_AWARD_SUPPLEMENT_EVIDENCE =
+  "이 공고 원문에서 추출한 문장이 아니라, 낙찰 후 절차에서 통상 요구하는 서류에 대한 일반 안내입니다. 실제 필요 여부와 기한, 제출처는 공고 원문과 담당기관 기준으로 다시 확인하십시오.";
+
+function buildPostAwardDocItem(base, group) {
+  const note = [base.note, group.note].filter(Boolean).join(" ");
+  return {
+    name: base.name,
+    conditions: [group.condition],
+    conditionKeys: [],
+    copy: "",
+    validity: "",
+    method: "",
+    due: base.due || "",
+    count: "",
+    stage: POST_AWARD_DOC_STAGE,
+    howto: base.howto,
+    howtoUrl: base.howtoUrl,
+    sourceSection: "",
+    evidence: note ? `${note} ${POST_AWARD_SUPPLEMENT_EVIDENCE}` : POST_AWARD_SUPPLEMENT_EVIDENCE,
+  };
+}
+
+// 서류의 단계 판정은 server.py 의 CONTRACT_STAGE_RE 정규식 하나다(src/server.py:361·533).
+// 그 판정이 틀렸을 때 두 방향의 비용이 «같지 않다».
+//   - 「낙찰 후」로 잘못 보내면: 사용자가 4단계를 지금 할 일로 보지 않아 그 서류를 아예 놓치고,
+//     입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
+//   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
+// 그래서 값이 정확히 POST_AWARD_DOC_STAGE 일 때만 4단계로 보내고, 그 밖의 모든 값(빈 값·미지의
+// 값·판정 실패)은 2단계로 보낸다. 🔴 이 비대칭을 뒤집지 않는다 — 「낙찰 후가 아닌 것만 2단계」로
+// 바꾸면 미지의 값이 4단계로 흘러 위 첫째 비용을 물게 된다(ux-design-review P0-2).
+function isPostAwardDoc(item) {
+  return item?.stage === POST_AWARD_DOC_STAGE;
+}
+
+function splitDocGroupsByStage(groups) {
+  const preBid = [];
+  const postAward = [];
+  groups.forEach((group) => {
+    const items = Array.isArray(group.items) ? group.items : [];
+    const preItems = items.filter((item) => !isPostAwardDoc(item));
+    const postItems = items.filter((item) => isPostAwardDoc(item));
+    if (preItems.length) preBid.push({ ...group, items: preItems });
+    if (postItems.length) postAward.push({ ...group, items: postItems });
+  });
+  return { preBid, postAward };
 }
 
 // 공동입찰·대리입찰 질문 답에 맞춰 조건별 그룹을 걸러내고, "예"일 때는 일반 안내 서류를
@@ -768,7 +898,25 @@ function getVisibleDocGroups() {
       .map((base) => buildDocConditionSupplementItem(base, "대리입찰"));
     if (items.length) supplementGroups.push({ condition: "대리입찰 추가 안내", items });
   }
-  return [...visibleGroups, ...supplementGroups];
+  // 낙찰 후 일반 안내는 조건(공동·대리) 답과 무관하게 항상 붙인다 — 재산유형·입찰 방식과
+  // 관계없이 낙찰되면 거치는 절차다. 공고 원문에서 같은 이름을 이미 뽑았으면 중복으로 넣지 않는다.
+  const postAwardGroups = POST_AWARD_DOC_GROUPS.map((group) => ({
+    condition: group.condition,
+    items: group.items
+      .filter((base) => !existingNames.has(base.name))
+      .map((base) => buildPostAwardDocItem(base, group)),
+  })).filter((group) => group.items.length);
+  return [...visibleGroups, ...supplementGroups, ...postAwardGroups];
+}
+
+// 2단계(입찰 전 준비) 블록이 그리는 서류 그룹.
+function getPreBidDocGroups() {
+  return splitDocGroupsByStage(getVisibleDocGroups()).preBid;
+}
+
+// 4단계(낙찰 후 준비) 블록이 그리는 서류 그룹.
+function getPostAwardDocGroups() {
+  return splitDocGroupsByStage(getVisibleDocGroups()).postAward;
 }
 
 // 조건별 그룹(공동입찰·대리입찰·공통 등)에 같은 서류명이 중복으로 나열되므로,
@@ -799,12 +947,28 @@ function saveDocState(state) {
   writeJsonStorage(key, { ...saved, ...state });
 }
 
-function getDocSummary() {
-  const state = getDocState();
-  const names = getUniqueDocNames();
+function countDocNames(groups, state) {
+  const names = [];
+  groups.forEach((group) => {
+    (group.items || []).forEach((item) => {
+      if (item.name && !names.includes(item.name)) names.push(item.name);
+    });
+  });
   const doneCount = names.filter((name) => state[name]).length;
   const totalCount = names.length;
   return { state, names, doneCount, totalCount, percent: totalCount ? Math.round((doneCount / totalCount) * 100) : 0 };
+}
+
+// 2단계(입찰 전 준비)의 서류 진행률이다. 4단계(낙찰 후) 서류는 분모에서 뺀다. 넣으면 두 가지가
+// 깨진다. ⑴ 낙찰도 되지 않았는데 분모가 커져 진행률이 실제보다 낮게 보인다. ⑵ 「서류를 전부
+// 체크하면 documents 를 켜 준다」는 보조 동작이 낙찰 후 서류까지 요구하게 되어, 2단계 완료가
+// 3단계 개방 조건이므로 입찰 단계가 영원히 열리지 않는 교착이 된다(ux-design-review §4-⑺).
+function getDocSummary() {
+  return countDocNames(getPreBidDocGroups(), getDocState());
+}
+
+function getPostAwardDocSummary() {
+  return countDocNames(getPostAwardDocGroups(), getDocState());
 }
 
 function currentNoticeCard() {
@@ -1015,6 +1179,16 @@ function getTaskSummary() {
 // localStorage에 저장하지 않는다(ux-audit §⑴). 그 단계에 속한 task id가 이 공고에 하나도
 // 없으면(예: 테스트 픽스처가 documents 하나만 주는 경우) 그 단계는 공집합 완료로 보고
 // 다음 단계를 막지 않는다 — `[].every()`가 true인 표준 의미를 그대로 쓴다.
+// 네 번째 상태 notYet(「아직 할 일이 아님」)은 done 보다 «먼저» 판정한다. 그러지 않으면
+// taskIds 가 빈 4단계가 위의 `[].every()` 로 done:true 가 되어, 사용자가 낙찰도 되지 않았고
+// 서류도 한 장 내지 않았는데 「4단계 · 낙찰 후 준비 ✅ 완료」를 읽는다(P0-1). 그래서 판정 순서를
+// locked → notYet → done → active 로 고정하고, notYet 인 단계의 done 은 아예 false 로 눌러
+// 파생값 자체가 「완료」를 주장하지 못하게 한다.
+//
+// notYet 은 sequential: false 인 단계에만 붙는다. 4단계는 항목이 있어도, 또 사용자가 미리
+// 체크해 두어도 낙찰 전에는 notYet 이다 — 이 서비스는 낙찰 여부를 알 수 없고, 알 수 없는 것을
+// 「도달했다」로 추정하지 않는다. sequential 인 단계가 공집합일 때의 기존 동작(공집합 완료로
+// 보고 다음 단계를 막지 않는다)은 그대로 둔다.
 function getPrepStageStatus() {
   const state = getTaskState();
   const tasks = getApplicableTasks();
@@ -1022,9 +1196,10 @@ function getPrepStageStatus() {
   return PREP_STAGES.map((stageDef) => {
     const taskIds = stageDef.taskIds.filter((id) => tasks.some((task) => task.id === id));
     const done = taskIds.every((id) => state[id]);
-    const locked = !unlocked;
-    unlocked = unlocked && done;
-    return { num: stageDef.num, title: stageDef.title, taskIds, done, locked };
+    const notYet = !stageDef.sequential;
+    const locked = stageDef.sequential ? !unlocked : false;
+    if (stageDef.sequential) unlocked = unlocked && done;
+    return { num: stageDef.num, title: stageDef.title, taskIds, notYet, done: notYet ? false : done, locked };
   });
 }
 
@@ -1576,6 +1751,36 @@ function renderDocSourceNotice() {
   </li>`;
 }
 
+// 조건별 서류 그룹 1개. 2단계(renderDocChecklist)와 4단계(renderPostAwardPanel)가 같은 마크업을
+// 쓰도록 빼냈다 — 두 곳에 같은 <li> 를 복사해 두면 한쪽만 고쳐질 때 체크박스 배선이 갈린다.
+function renderDocGroup(group, docState, locked, open, lockMsgId) {
+  const items = Array.isArray(group.items) ? group.items : [];
+  return `<details class="doc-group"${open ? " open" : ""}>
+    <summary><h4>${group.condition}</h4>${badge(`${items.length}개 서류`, "neutral")}</summary>
+    <ul>
+      ${items
+        .map(
+          (item) => `<li class="${docState[item.name] ? "is-checked" : ""}${locked ? " is-locked" : ""}">
+            <label class="doc-check">
+              <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}${
+                locked ? ` disabled aria-disabled="true" aria-describedby="${lockMsgId}"` : ""
+              }>
+              <strong>${item.name}</strong>
+            </label>
+            <span class="doc-chips">${docExtraChips(item)}</span>
+            ${
+              item.howto
+                ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
+                : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
+            }
+            <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
+          </li>`,
+        )
+        .join("")}
+    </ul>
+  </details>`;
+}
+
 function renderDocConditionQuestions(answers) {
   const options = [
     { key: "joint", question: "공동입찰인가요?" },
@@ -1599,6 +1804,17 @@ function renderDocConditionQuestions(answers) {
   </div>`;
 }
 
+// 제출기한은 온비드 화면 표와 공고문 본문이 어긋난다. 같은 국유재산 공고에서 화면 표는
+// 「입찰마감일시 전까지 / 직접제출」인데 공고문 본문은 「입찰 기간 마감일 17:00까지 우편으로」였다
+// (2026-10-18 researcher-fact-check 사실 4-③). 입찰 마감일시가 17:00보다 늦으면 실제 마감은
+// 표보다 이르다. 그래서 기한을 보여주는 자리마다 이 문구를 함께 둔다.
+//
+// 표 원본 블록 안에서는 이 문구를 p 가 아니라 div 로 감싼다 — 그 블록의 p 는 「표의 한 행」이고,
+// e2e 의 tableRowCounts(셀렉터 ".doc-table p")가 그것을 행 수로 센다. p 로 넣으면 표가 한 행
+// 늘어난 것으로 세어져 N3 거짓 안내 게이트의 도달 단정이 어긋난다(2026-10-18 실측 2건 실패).
+const DOC_DUE_CAUTION =
+  "제출기한은 공고문 원문의 기한이 더 이를 수 있으니 반드시 원문을 확인하십시오. 온비드 화면 표와 공고문 본문의 기한·제출방법이 어긋나는 공고가 있습니다.";
+
 function renderDocChecklist(locked) {
   const checklist = sampleNotice.docChecklist;
   if (!checklist) return "";
@@ -1611,7 +1827,8 @@ function renderDocChecklist(locked) {
   }
   const rawGroups = Array.isArray(checklist.groups) ? checklist.groups : [];
   const answers = getDocConditionAnswers();
-  const groups = getVisibleDocGroups();
+  // 2단계는 「입찰 전」 서류만 그린다. 「낙찰 후·계약 시」 서류는 4단계 블록이 맡는다.
+  const groups = getPreBidDocGroups();
   const userType = getSelectedUserType();
   const docState = getDocState();
 
@@ -1619,31 +1836,7 @@ function renderDocChecklist(locked) {
     .map((group) => {
       const groupUserTypes = getDocGroupUserTypes(group);
       const isRelevant = !groupUserTypes.length || groupUserTypes.includes(userType);
-      const itemCount = Array.isArray(group.items) ? group.items.length : 0;
-      return `<details class="doc-group"${isRelevant ? " open" : ""}>
-        <summary><h4>${group.condition}</h4>${badge(`${itemCount}개 서류`, "neutral")}</summary>
-        <ul>
-          ${group.items
-            .map(
-              (item) => `<li class="${docState[item.name] ? "is-checked" : ""}${locked ? " is-locked" : ""}">
-                <label class="doc-check">
-                  <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}${
-                    locked ? ` disabled aria-disabled="true" aria-describedby="stage-lock-msg-2"` : ""
-                  }>
-                  <strong>${item.name}</strong>
-                </label>
-                <span class="doc-chips">${docExtraChips(item)}</span>
-                ${
-                  item.howto
-                    ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
-                    : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
-                }
-                <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
-              </li>`,
-            )
-            .join("")}
-        </ul>
-      </details>`;
+      return renderDocGroup(group, docState, locked, isRelevant, "stage-lock-msg-2");
     })
     .join("");
 
@@ -1656,6 +1849,7 @@ function renderDocChecklist(locked) {
       <strong>${checklist.headline}</strong>
     </div>
     <p>제출서류 리스트입니다.</p>
+    <p class="small-text">${DOC_DUE_CAUTION}</p>
     ${renderDocConditionQuestions(answers)}
     ${
       docSummary.totalCount
@@ -1679,6 +1873,7 @@ function renderDocChecklist(locked) {
       checklist.tableRows?.length
         ? `<details class="doc-table">
             <summary>온비드 제출서류 표 원본 (${checklist.tableRows.length}행)</summary>
+            <div class="small-text">${DOC_DUE_CAUTION}</div>
             ${checklist.tableRows
               .map(
                 (row) => `<p class="small-text">${row.category} / ${row.name}${row.generic ? " (구분명 그대로)" : ""} / ${row.due} / ${row.method}</p>`,
@@ -1855,10 +2050,18 @@ function renderPrepStageStepper(stageStatus) {
       // locked를 done보다 먼저 본다 — "되돌리기" 후 이전 단계를 다시 막으면, 이 단계의
       // task 체크값은 보존돼도(done=true) 접근은 다시 잠긴다(ux-audit §⑴ "되돌리기 처리").
       // 그 상태를 "완료"로 보여주면 잠금을 숨기는 것이 된다.
-      const icon = stage.locked ? "🔒" : stage.done ? "✅" : "▶";
-      const label = stage.locked ? `잠김, ${stage.num - 1}단계를 마치면 열립니다` : stage.done ? "완료" : "진행중";
-      const cls = stage.locked ? "is-locked" : stage.done ? "is-done" : "is-active";
-      const current = !stage.done && !stage.locked ? ` aria-current="step"` : "";
+      // notYet 은 done 보다 먼저 본다 — 항목이 0개인 4단계는 파생값에서 done 을 눌러 두지만,
+      // 표시 쪽에서도 순서를 지켜 「완료」가 뜰 경로를 남기지 않는다(P0-1).
+      const icon = stage.locked ? "🔒" : stage.notYet ? "⏳" : stage.done ? "✅" : "▶";
+      const label = stage.locked
+        ? `잠김, ${stage.num - 1}단계를 마치면 열립니다`
+        : stage.notYet
+          ? "아직 할 일이 아닙니다"
+          : stage.done
+            ? "완료"
+            : "진행중";
+      const cls = stage.locked ? "is-locked" : stage.notYet ? "is-not-yet" : stage.done ? "is-done" : "is-active";
+      const current = !stage.done && !stage.locked && !stage.notYet ? ` aria-current="step"` : "";
       return `<li class="${cls}" role="listitem"${current}>
         <span class="state" aria-hidden="true">${stage.num}</span>
         <span class="prep-stage-icon" aria-hidden="true">${icon}</span>
@@ -1883,6 +2086,16 @@ function renderStageHeading(stage) {
       <span id="${lockMsgId}" class="small-text">${stage.num - 1}단계를 마치면 열립니다</span>
     </h4>`;
   }
+  // notYet 을 done 보다 먼저 본다 — 4단계는 taskIds 가 비어 있어 예전 판정이라면 공집합 완료로
+  // 「✅ 완료」가 떴다. 낙찰도 되지 않은 단계를 완료로 적는 것은 허위 완료 표시다(P0-1).
+  // 「3단계를 마치면 열립니다」 문구도 쓰지 않는다 — 3단계를 마쳐도 낙찰되지 않으면 할 일이 아니다.
+  if (stage.notYet) {
+    return `<h4 class="stage-group-heading is-not-yet">
+      <span aria-hidden="true">⏳</span>
+      <span>${stage.num}단계 · ${stage.title}</span>
+      ${badge("아직 할 일이 아닙니다", "neutral")}
+    </h4>`;
+  }
   if (stage.done) {
     return `<h4 class="stage-group-heading is-done">
       <span aria-hidden="true">✅</span>
@@ -1895,6 +2108,35 @@ function renderStageHeading(stage) {
     <span>${stage.num}단계 · ${stage.title}</span>
     ${badge("진행중", "neutral")}
   </h4>`;
+}
+
+// 4단계(낙찰 후 준비) 블록. 머리 안내는 과설명이 아니라 단계 판정 오분류의 안전망이다 —
+// 서류의 단계 판정은 정규식 하나(CONTRACT_STAGE_RE)이고, 입찰 전 서류가 이 블록으로 잘못
+// 분류되면 사용자가 그 서류를 아예 보지 못해 입찰이 무효가 된다. 그래서 2단계 목록도 함께
+// 확인하라고 적는다(ux-design-review P0-2 대책 ⑵).
+//
+// 체크박스는 잠그지 않는다 — 미리 준비하는 사용자를 막을 이유가 없다. 다만 이 서류는
+// getDocSummary() 분모에 들어가지 않으므로 2단계 진행률과 단계 잠금에는 영향이 없다.
+function renderPostAwardPanel() {
+  const groups = getPostAwardDocGroups();
+  const docState = getDocState();
+  const summary = getPostAwardDocSummary();
+  const groupsHtml = groups.map((group) => renderDocGroup(group, docState, false, true, "")).join("");
+  return `<section class="doc-panel post-award-panel">
+    <p class="post-award-caution">입찰 전에 내야 하는 서류가 여기 섞여 있을 수 있습니다. 2단계 목록도 함께 확인하십시오.</p>
+    <p class="small-text">낙찰된 뒤에 할 일입니다. 지금 당장 준비할 필요는 없지만, 기한을 놓치면 낙찰이 취소될 수 있는 항목이 있어 미리 열어 둡니다.</p>
+    <p class="small-text">${DOC_DUE_CAUTION}</p>
+    ${
+      summary.totalCount
+        ? `<div class="doc-progress">
+          <strong>${summary.doneCount}/${summary.totalCount}개 서류 확인</strong>
+          <span class="progress" role="progressbar" aria-label="낙찰 후 서류 확인 진행률" aria-valuemin="0" aria-valuemax="${summary.totalCount}" aria-valuenow="${summary.doneCount}"><i style="width:${summary.percent}%"></i></span>
+          <p class="small-text">이 진행률은 2단계 서류 진행률과 따로 셉니다. 여기를 체크해도 입찰 단계 잠금은 열리지 않습니다.</p>
+        </div>`
+        : `<p class="small-text">이 공고에서 낙찰 후 서류를 찾지 못했습니다. 공고 원문과 첨부파일을 확인하십시오.</p>`
+    }
+    ${groupsHtml}
+  </section>`;
 }
 
 // 할 일 카드 1개. locked이면 체크 행(.task-row)에만 흐림 처리를 걸고, <details>(자세히)·
@@ -2082,7 +2324,11 @@ function renderReport() {
   const groupedTaskHtml = stageStatus
     .map((stage) => {
       const stageTasks = tasksByStage.get(stage.num) || [];
-      if (!stageTasks.length) return "";
+      // 4단계는 build_tasks() 가 만드는 task 가 없고 서류 블록만 담는다. 그래서 「항목 0개면
+      // 그리지 않는다」는 조기 반환을 그대로 두면 4단계가 통째로 사라지고, 상단 스테퍼에만
+      // 남아 「목록에는 없는 단계」가 된다(P0-1의 다른 절반).
+      const postAwardHtml = stage.num === 4 ? renderPostAwardPanel() : "";
+      if (!stageTasks.length && !postAwardHtml) return "";
       const cardsHtml = stageTasks
         .map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked))
         .join("");
@@ -2094,11 +2340,19 @@ function renderReport() {
       // 잠긴 단계는 기본으로 접는다 — 체크박스만 비활성화하고 카드 내용을 전부 펼쳐 두면
       // 아직 손댈 수 없는 두세 단계 분량이 한 화면에 그대로 쏟아져 "한 번에 너무 많다"는
       // 체감으로 이어진다(2026-10-11 사용자 지적). 눌러서 미리 볼 수 있는 길은 남긴다.
-      return `<details class="stage-group ${stage.locked ? "is-locked" : stage.done ? "is-done" : "is-active"}" ${stage.locked ? "" : "open"}>
+      const stageCls = stage.locked
+        ? "is-locked"
+        : stage.notYet
+          ? "is-not-yet"
+          : stage.done
+            ? "is-done"
+            : "is-active";
+      return `<details class="stage-group ${stageCls}" ${stage.locked ? "" : "open"}>
         <summary>${renderStageHeading(stage)}</summary>
         ${restartWarningHtml}
         ${cardsHtml}
         ${bidParticipationHtml}
+        ${postAwardHtml}
       </details>`;
     })
     .join("") + leftoverTasks.map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, false)).join("");

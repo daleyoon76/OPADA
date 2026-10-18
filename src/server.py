@@ -530,6 +530,16 @@ def extract_doc_items(
                 # 등기사항증명서 기준」). 서류 요구로 세지 않는다. 첨부는 위에서 게이트를 뺐다.
                 continue
             extras = doc_extras(line)
+            # 🔴 기본값이 「입찰 전」인 것은 «의도된 비대칭»이다. 뒤집지 말 것.
+            # 화면은 이 값으로 서류를 2단계(입찰 전 준비)와 4단계(낙찰 후 준비)에 물리적으로
+            # 나눠 담는다(app.js isPostAwardDoc). 두 방향의 오분류 비용이 같지 않다.
+            #   - 「낙찰 후」로 잘못 보내면: 사용자가 4단계를 지금 할 일로 보지 않아 그 서류를
+            #     놓치고, 입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
+            #   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
+            # 그래서 CONTRACT_STAGE_RE 가 «확실히» 잡았을 때만 낙찰 후로 보내고, 판정이
+            # 불확실한 모든 줄은 입찰 전에 남긴다. 조건을 부정형으로 바꾸거나(「낙찰 후가
+            # 아닌 것만 입찰 전」) 기본값을 낙찰 후로 돌리면 미지의 줄이 4단계로 흘러
+            # 비싼 쪽 오류를 물게 된다(2026-10-18 ux-design-review P0-2).
             stage = "낙찰 후·계약 시" if (CONTRACT_STAGE_RE.search(line) or carried_stage) else "입찰 전"
             labels = [item["label"] for item in active] or ["공통"]
             for name in names:
