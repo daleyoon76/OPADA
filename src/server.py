@@ -495,8 +495,8 @@ def governing_heading(text: str, pos: int, carried_heading: str, section_start: 
 
 def doc_stage_at(
     text: str, start: int, end: int, carried_heading: str, section_bounds: tuple[int, int], name: str = ""
-) -> tuple[str, bool]:
-    """단계와 함께 "조항 표제로 확정했는가"(confident)도 돌려준다.
+) -> tuple[str, bool, str]:
+    """단계·확정 여부와 함께 "어느 조항 표제를 근거로 썼는가"(source_heading)도 돌려준다.
 
     같은 서류명이 같은 문서 안에 여러 번 나올 수 있다(표본 20의 「신분증」은 대리입찰
     서류 안내에서 한 번, 「■ 제출서류」 낙찰 후 목록에서 또 한 번 나온다). 호출부가 먼저
@@ -504,16 +504,21 @@ def doc_stage_at(
     판단하게 한다.
 
     name 이 FORM_NAME_STAGE_RULES 에 있으면(공동입찰참가신청서 등 서식명 자체가 단계를
-    확정하는 서류) 조항 표제보다 먼저 보고 그 즉시 확정한다.
+    확정하는 서류) 조항 표제보다 먼저 보고 그 즉시 확정한다 — 이때는 근거가 표제가 아니라
+    서식명 자체이므로 source_heading 은 빈 문자열이다.
+
+    source_heading 은 HEADING_STAGE_RULES 가 매칭한 표제 원문 그대로다(§3-A-2의
+    "표제 문자열을 그 자체로 들고 간다" 설계) — SENTENCE_STAGE_RULES 로 정해졌거나
+    미분류/별도 문의 필요로 떨어지면 표제가 근거가 아니므로 빈 문자열로 둔다.
     """
     if name in FORM_NAME_STAGE_RULES:
-        return FORM_NAME_STAGE_RULES[name], True
+        return FORM_NAME_STAGE_RULES[name], True, ""
     section_start, section_end = section_bounds
     heading = governing_heading(text, start, carried_heading, section_start)
     if heading:
         for pattern, stage in HEADING_STAGE_RULES:
             if pattern.search(heading):
-                return stage, True
+                return stage, True, heading
     # 창이 넓어지면(표본 20) "회송"(낙찰 후, 같은 줄)과 "입찰무효"(입찰 전, 다음 문장)가
     # 한 창에 같이 걸릴 수 있다. 목록 순서가 아니라 «서류명과의 실제 거리»로 더 가까운
     # 결정적 문구를 우선한다 — 멀리 있는 문구가 가까운 문구를 이기면 안 된다.
@@ -528,8 +533,8 @@ def doc_stage_at(
             if best_dist is None or dist < best_dist:
                 best_dist, best_stage = dist, stage
     if best_stage:
-        return best_stage, False
-    return (NEEDS_INQUIRY_STAGE if name in NO_GENERAL_BASIS_DOC_NAMES else "미분류"), False
+        return best_stage, False, ""
+    return (NEEDS_INQUIRY_STAGE if name in NO_GENERAL_BASIS_DOC_NAMES else "미분류"), False, ""
 
 
 # 조건 축은 아래 10개다(`len(CONDITION_AXES) == 10` 으로 셀 것).
@@ -763,7 +768,7 @@ def extract_doc_items(
                 # (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§3).
                 start, end = first_span[name]
                 start_global, end_global = line_offset + start, line_offset + end
-                stage, _confident = doc_stage_at(
+                stage, _confident, source_heading = doc_stage_at(
                     full_text, start_global, end_global, current_heading, section_bounds(start_global), name
                 )
                 key = (name, " · ".join(labels))
@@ -782,6 +787,7 @@ def extract_doc_items(
                         "due": extras.get("due", ""),
                         "count": extras.get("count", ""),
                         "stage": stage,
+                        "sourceHeading": source_heading,
                         "howto": howto,
                         "howtoUrl": howto_url,
                         "sourceSection": title,
