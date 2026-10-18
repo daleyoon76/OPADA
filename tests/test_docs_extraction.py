@@ -69,7 +69,14 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "A10",
         "첨부 텍스트 배선",
         "게이트 우회·1200자 상한 해제·조건 무시(공통)·단계 물림·headline 출처 구분 — 모두 본문은 그대로임을 함께 확인",
-        "is_attachment 가드 삭제 · 상한 원복 · 조건 우회 삭제 · carried_stage 삭제 · headline 분기 삭제",
+        "is_attachment 가드 삭제 · 상한 원복 · 조건 우회 삭제 · current_heading 삭제 · headline 분기 삭제",
+        "Y",
+    ),
+    (
+        "A11",
+        "문장 단위 단계 판정",
+        "조항 표제 사전 매칭 → 문장 결정적 문구 → 미분류(추측 금지) · 멀리 떨어진 줄의 낙찰자/계약 신호가 안 번짐",
+        "HEADING_STAGE_RULES 매칭 삭제 · SENTENCE_STAGE_RULES 매칭 삭제 · resolve_doc_stage 기본값을 미분류 대신 입찰 전으로 되돌리기",
         "Y",
     ),
     (
@@ -563,20 +570,63 @@ def test_attachment_wiring() -> None:
     long_body = server.extract_doc_items(server.split_sections(section("공고문", f"<p>{long_line}</p>")))
     check("A10 음성 본문은 1200자 상한 유지", long_body == [], str(long_body))
 
-    # 단계 물림: 단계를 밝히는 줄은 제목뿐이고 서류명은 다음 줄에 있는 표 구조.
+    # 조항 표제 물림: 단계를 밝히는 줄은 표제뿐이고 서류명은 다음 줄에 있는 표 구조.
+    # resolve_doc_stage() 가 HEADING_STAGE_RULES 로 그 표제 문자열을 직접 대조한다
+    # (CONTRACT_STAGE_RE/carried_stage 는 2026-10-18 폐기 — stage-classification-design.md).
     stage_chunk = "라. 계약체결시 필요서류\n개인 주민등록초본, 인감증명서"
     stage_items = server.extract_doc_items({}, [("첨부:계약서류.pdf", stage_chunk)])
     stage_names = {item["name"]: item["stage"] for item in stage_items}
     check(
-        "A10 양성 단계 물림",
+        "A10 양성 조항 표제 물림",
         stage_names.get("주민등록초본") == "낙찰 후·계약 시" and stage_names.get("인감증명서") == "낙찰 후·계약 시",
         str(stage_names),
     )
-    # 음성 대조: 다음 최상위 번호(마.)로 넘어가면 물림이 끊겨야 한다.
+    # 음성 대조: 다음 최상위 번호(마.)로 넘어가면 표제 물림이 끊겨야 한다. 새 표제("마. 다른
+    # 절")는 사전에 없고 그 줄("개인 주민등록초본")에도 결정적 문구가 없으니 "미분류"다 —
+    # 옛 코드는 여기서 기본값 "입찰 전"으로 떨어졌다(추측 금지 · §3).
     reset_chunk = "라. 계약체결시 필요서류\n마. 다른 절\n개인 주민등록초본"
     reset_items = server.extract_doc_items({}, [("첨부:계약서류.pdf", reset_chunk)])
     reset_stage = next((i["stage"] for i in reset_items if i["name"] == "주민등록초본"), None)
-    check("A10 음성 새 번호로 단계 물림 끊김", reset_stage == "입찰 전", str(reset_stage))
+    check("A10 음성 새 표제로 물림 끊김 → 미분류", reset_stage == "미분류", str(reset_stage))
+
+    # A11. 문장 단위 판정 — 같은 블록 안에 「계약체결」 같은 낙찰 후 신호가 있어도, 그 서류가
+    # 「속한 문장」에 없으면 더 이상 오염되지 않아야 한다. 표본 21(§4-3 appendix)이 실제로
+    # 겪은 사고: "4. 입찰참가 등록서류" 표제 아래 서류들이 뒤이은 "5. 낙찰자 결정방법"의
+    # "낙찰자"에 반응해 전부 낙찰 후로 끌려갔다. 표본 20의 인감증명서(13건 전부 같은 경로로
+    # 오염)도 같은 사례다.
+    bleed_chunk = (
+        "4. 입찰참가 등록서류\n"
+        "- 법인 등기사항증명서\n"
+        "- 인감증명서\n"
+        "5. 낙찰자 결정방법\n"
+        "가. 낙찰자는 계약체결 후 사업을 개시하여야 한다.\n"
+    )
+    bleed_items = server.extract_doc_items({}, [("첨부:공고문.pdf", bleed_chunk)])
+    bleed_stages = {item["name"]: item["stage"] for item in bleed_items}
+    check(
+        "A11 양성 — 입찰참가 등록서류 표제가 결정",
+        bleed_stages.get("법인 등기사항증명서") == "입찰 전" and bleed_stages.get("인감증명서") == "입찰 전",
+        str(bleed_stages),
+    )
+    # 돌연변이 대조 — resolve_doc_stage 의 표제 우선순위를 지우면(문장 레벨만 쓰면) 이 서류들은
+    # 자기 줄에 결정적 문구가 없어 "미분류"로 떨어진다. HEADING_STAGE_RULES 매칭을 끈 경우를
+    # 직접 재현해 이 축이 실제로 표제 판정에 의존함을 확인한다.
+    heading_only = server.resolve_doc_stage("4. 입찰참가 등록서류", "- 법인 등기사항증명서")
+    sentence_only = server.resolve_doc_stage("", "- 법인 등기사항증명서")
+    check(
+        "A11 돌연변이 — 표제 없이는 미분류로 떨어진다(표제 의존 증명)",
+        heading_only == "입찰 전" and sentence_only == "미분류",
+        f"heading={heading_only} sentence={sentence_only}",
+    )
+    # 돌연변이 대조 — 표제가 없는 상태에서 서류 줄 자체에 결정적 문구가 있으면(문장 단위
+    # 판정) 그 줄만 보고 정해야 한다. "회송" 문구는 표본 20의 인감증명서 사례(매매계약서를
+    # 우편으로 받아 인감날인 후 회송)가 근거다.
+    sentence_decisive = server.resolve_doc_stage("", "매매계약서를 우편수취 후 인감날인하여 회송하십시오.")
+    check(
+        "A11 음성 — 표제 없이 문장 결정적 문구만으로도 정한다",
+        sentence_decisive == "낙찰 후·계약 시",
+        sentence_decisive,
+    )
 
     # headline 출처 구분: 본문만/첨부만/둘 다 섞임을 각각 다른 문구로 말해야 한다.
     body_sections = server.split_sections(section("제출서류", "<p>사업자등록증 사본을 제출하십시오.</p>"))

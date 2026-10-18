@@ -972,7 +972,7 @@ test("준비 단계 — 4단계 블록에 머리 안내가 보이고, 낙찰 후
   await page.locator("#prepare").click();
 
   // 4단계 블록은 잠겨 있지 않으므로 기본으로 펼쳐져 있고, 머리 안내가 바로 보인다.
-  // 이 안내는 과설명이 아니라 단계 판정(CONTRACT_STAGE_RE) 오분류의 안전망이다(P0-2).
+  // 이 안내는 과설명이 아니라 단계 판정(resolve_doc_stage) 오분류의 안전망이다(P0-2).
   const postAward = page.locator(".post-award-panel");
   await expect(postAward).toBeVisible();
   await expect(postAward.locator(".post-award-caution")).toContainText("2단계 목록도 함께 확인하십시오");

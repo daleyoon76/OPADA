@@ -456,8 +456,8 @@ const PREP_STAGES = [
   { num: 4, title: "낙찰 후 준비", taskIds: [], sequential: false },
 ];
 
-// 4단계가 담는 서류의 stage 값. server.py 가 CONTRACT_STAGE_RE 로 판정해 넣는 값과 같아야
-// 한다(src/server.py:533). 한쪽만 고치면 4단계가 조용히 빈다.
+// 4단계가 담는 서류의 stage 값. server.py 의 resolve_doc_stage() 가 판정해 넣는 값과 같아야
+// 한다(src/server.py). 한쪽만 고치면 4단계가 조용히 빈다.
 const POST_AWARD_DOC_STAGE = "낙찰 후·계약 시";
 
 function getTaskStageNum(taskId) {
@@ -851,14 +851,17 @@ function buildPostAwardDocItem(base, group) {
   };
 }
 
-// 서류의 단계 판정은 server.py 의 CONTRACT_STAGE_RE 정규식 하나다(src/server.py:361·533).
+// 서류의 단계 판정은 server.py 의 resolve_doc_stage() 다(조항 표제 사전 → 문장 결정적
+// 문구 → 미분류, team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md).
 // 그 판정이 틀렸을 때 두 방향의 비용이 «같지 않다».
 //   - 「낙찰 후」로 잘못 보내면: 사용자가 4단계를 지금 할 일로 보지 않아 그 서류를 아예 놓치고,
 //     입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
 //   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
 // 그래서 값이 정확히 POST_AWARD_DOC_STAGE 일 때만 4단계로 보내고, 그 밖의 모든 값(빈 값·미지의
-// 값·판정 실패)은 2단계로 보낸다. 🔴 이 비대칭을 뒤집지 않는다 — 「낙찰 후가 아닌 것만 2단계」로
-// 바꾸면 미지의 값이 4단계로 흘러 위 첫째 비용을 물게 된다(ux-design-review P0-2).
+// 값·"미분류"·판정 실패)은 2단계로 보낸다. 🔴 이 비대칭을 뒤집지 않는다 — 「낙찰 후가 아닌 것만
+// 2단계」로 바꾸면 미지의 값이 4단계로 흘러 위 첫째 비용을 물게 된다(ux-design-review P0-2).
+// 🔴 "미분류"(단계를 확정하지 못한 서류)도 현재는 이 기본값을 따라 2단계로 보인다 — 별도
+// "단계 미확인" 구획으로 분리하는 것은 설계 §3이 제안하지만 이번 구현 범위 밖이다(미구현 한계).
 function isPostAwardDoc(item) {
   return item?.stage === POST_AWARD_DOC_STAGE;
 }
@@ -2265,9 +2268,9 @@ function renderStageHeading(stage) {
 }
 
 // 4단계(낙찰 후 준비) 블록. 머리 안내는 과설명이 아니라 단계 판정 오분류의 안전망이다 —
-// 서류의 단계 판정은 정규식 하나(CONTRACT_STAGE_RE)이고, 입찰 전 서류가 이 블록으로 잘못
-// 분류되면 사용자가 그 서류를 아예 보지 못해 입찰이 무효가 된다. 그래서 2단계 목록도 함께
-// 확인하라고 적는다(ux-design-review P0-2 대책 ⑵).
+// 서류의 단계 판정은 server.py 의 resolve_doc_stage() 다(조항 표제 사전 → 문장 결정적
+// 문구 → 미분류). 입찰 전 서류가 이 블록으로 잘못 분류되면 사용자가 그 서류를 아예 보지
+// 못해 입찰이 무효가 된다. 그래서 2단계 목록도 함께 확인하라고 적는다(ux-design-review P0-2 대책 ⑵).
 //
 // 체크박스는 잠그지 않는다 — 미리 준비하는 사용자를 막을 이유가 없다. 다만 이 서류는
 // getDocSummary() 분모에 들어가지 않으므로 2단계 진행률과 단계 잠금에는 영향이 없다.

@@ -357,8 +357,116 @@ DOC_NAME_PATTERNS: tuple[tuple[str, str], ...] = (
 DOC_REQUEST_RE = re.compile(r"제출|지참|구비|첨부|발급받아|제시")
 
 # 이 절/문장이 입찰 전 준비물인지 낙찰 후 계약 서류인지 표시한다.
-# 표본 6건의 목록이 계약 단계 서류였다(표본조사 §4-7).
-CONTRACT_STAGE_RE = re.compile(r"계약\s*(?:체결|시|을)|낙찰\s*(?:자|후|일)|사용\s*허가\s*(?:신청|일)|매매계약")
+#
+# 🔴 옛 CONTRACT_STAGE_RE(자유 서술문 어디서나 키워드를 찾는 방식)는 폐기했다 — 블록
+# 전체에서 계약/낙찰 키워드를 찾아 그 블록의 모든 서류를 끌고 가는 방식이라, 서류와
+# 무관한 문장(예: 계약보증금 안내)이 뒤에 나오는 서류까지 전부 오염시켰다
+# (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§4 ·
+# 23개 표본 재현에서 41.9% 불일치). 대신 두 단계로 판정한다.
+#
+# ⑴ 조항 표제(번호·문자·■ 로 시작하는 줄)를 만나면 그 표제 문자열 자체를 들고 가서
+#    HEADING_STAGE_RULES 사전과 대조한다. 사전에 없는 표제는 판정하지 않는다.
+# ⑵ 표제가 없거나 사전에 없으면, 그 서류명이 «속한 그 줄 하나»만 보고
+#    SENTENCE_STAGE_RULES 결정적 문구를 찾는다. 다른 줄의 단어는 참조하지 않는다.
+# ⑶ 둘 다 못 정하면 "미분류" — 추측으로 입찰 전/낙찰 후 어느 쪽으로도 밀어 넣지 않는다.
+#
+# 신호는 설계 문서 §2 신호표·§2-A 규정 근거 사전(appendix 160행 전건 재대조)에서 왔다.
+HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"구비\s*서류|계약.{0,20}(?:체결|지참)|낙찰\s*자.{0,10}제출|낙찰\s*일"), "낙찰 후·계약 시"),
+    (re.compile(r"입찰\s*참가\s*자격|입찰\s*참가\s*(?:신청\s*)?등록\s*서류"), "입찰 전"),
+)
+
+# 표제가 없거나(예: 하이픈·ㅇ 로만 이어지는 공고문 본문) 사전에 없는 표제일 때, 서류명이
+# 속한 그 줄만 보고 찾는 결정적 문구. 다른 줄로 번지지 않는다.
+SENTENCE_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"입찰\s*(?:시\s*)?무효|입찰\s*참가\s*불승인"
+            r"|입찰.{0,10}(?:마감|기간).{0,15}(?:까지|중)"
+            r"|가격\s*개찰.{0,20}이전"
+        ),
+        "입찰 전",
+    ),
+    (re.compile(r"회송|매매계약.{0,30}회송"), "낙찰 후·계약 시"),
+)
+
+# 조항 표제로 볼 줄 — 번호·문자 조항(LINE_RESET_RE)과 같지만, "■" 같은 기호 머리글도
+# 표제로 본다(표본 20 「■ 제출서류(방문시 계약서 날인용 도장 지참)」가 숫자·문자로
+# 시작하지 않는다). 조건 물림(LINE_RESET_RE)과는 별개 — 그 쪽은 바꾸지 않는다.
+HEADING_LINE_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.|■|◆)")
+
+
+def resolve_doc_stage(current_heading: str, window: str) -> str:
+    for pattern, stage in HEADING_STAGE_RULES:
+        if current_heading and pattern.search(current_heading):
+            return stage
+    for pattern, stage in SENTENCE_STAGE_RULES:
+        if pattern.search(window):
+            return stage
+    return "미분류"
+
+
+# PDF/HWP 첨부는 줄바꿈이 없어 "한 줄"이 문서 전체(최대 89,290자 실측)일 수 있다. 그 안에도
+# "8.  낙찰자  제출서류" 같은 조항 표제가 실려 있지만 줄 시작이 아니라 줄 «중간»에 있어
+# HEADING_LINE_RE(^로 시작) 가 못 잡는다. 그래서 줄 중간의 번호·문자 마커도 찾는다.
+# 🔴 [가-하] 단독 글자 뒤에 마침표(「다.」「나.」류)는 한국어 평서문이 거의 전부 「~합니다.」
+# 「~한다.」로 끝나기 때문에, 앞 글자를 가리지 않으면 문장 종결마다 가짜 조항 표제로 오인한다
+# (표본 07 "...제출하여야 합니다.\n또한..." 의 "다."가 그 사고였다 — 뒤 문장 전체를
+# "조항 표제"로 끌어왔다). 그래서 바로 앞이 한글 음절이 «아닌» 경우만 조항 마커로 본다 —
+# 진짜 「다. 계약체결 장소」같은 마커는 줄바꿈·공백·문자열 시작 뒤에 오지 한글 글자 뒤에 오지 않는다.
+EMBEDDED_HEADING_MARKER_RE = re.compile(r"\d+\s*[.)]\s+|(?<![가-힣])[가-하]\s*\.\s+|■\s*|◆\s*")
+HEADING_SNIPPET_MAX = 80
+STAGE_WINDOW_BEFORE = 150
+STAGE_WINDOW_AFTER = 220
+
+
+def governing_heading(text: str, pos: int, carried_heading: str, section_start: int) -> str:
+    """서류명 바로 앞(같은 조항 구간 안)에서 사전에 걸리는 조항 표제를 가까운 것부터 찾는다.
+
+    section_start 는 LINE_RESET_RE 로 가른 "그 조항이 시작한 자리" 다 — 그 앞(다른 조항)으로는
+    넘어가지 않는다. 이 구간 안에 없으면 이전 실제 줄에서 캡처해 들고 온 carried_heading 으로
+    떨어진다.
+    """
+    markers = [m for m in EMBEDDED_HEADING_MARKER_RE.finditer(text, section_start, pos)]
+    for marker in reversed(markers):
+        snippet = text[marker.start() : min(pos, marker.start() + HEADING_SNIPPET_MAX)]
+        for pattern, _stage in HEADING_STAGE_RULES:
+            if pattern.search(snippet):
+                return snippet
+    return carried_heading
+
+
+def doc_stage_at(
+    text: str, start: int, end: int, carried_heading: str, section_bounds: tuple[int, int]
+) -> tuple[str, bool]:
+    """단계와 함께 "조항 표제로 확정했는가"(confident)도 돌려준다.
+
+    같은 서류명이 같은 문서 안에 여러 번 나올 수 있다(표본 20의 「신분증」은 대리입찰
+    서류 안내에서 한 번, 「■ 제출서류」 낙찰 후 목록에서 또 한 번 나온다). 호출부가 먼저
+    나온 쪽만 쓰면 더 확정적인 뒤쪽 조항 표제 판정을 놓친다 — confident 로 그 우선순위를
+    판단하게 한다.
+    """
+    section_start, section_end = section_bounds
+    heading = governing_heading(text, start, carried_heading, section_start)
+    if heading:
+        for pattern, stage in HEADING_STAGE_RULES:
+            if pattern.search(heading):
+                return stage, True
+    # 창이 넓어지면(표본 20) "회송"(낙찰 후, 같은 줄)과 "입찰무효"(입찰 전, 다음 문장)가
+    # 한 창에 같이 걸릴 수 있다. 목록 순서가 아니라 «서류명과의 실제 거리»로 더 가까운
+    # 결정적 문구를 우선한다 — 멀리 있는 문구가 가까운 문구를 이기면 안 된다.
+    lo = max(section_start, start - STAGE_WINDOW_BEFORE)
+    hi = min(section_end, end + STAGE_WINDOW_AFTER)
+    center = (start + end) / 2
+    best_stage: str | None = None
+    best_dist: float | None = None
+    for pattern, stage in SENTENCE_STAGE_RULES:
+        for match in pattern.finditer(text, lo, hi):
+            dist = min(abs(match.start() - center), abs(match.end() - center))
+            if best_dist is None or dist < best_dist:
+                best_dist, best_stage = dist, stage
+    return (best_stage, False) if best_stage else ("미분류", False)
+
 
 # 조건 축은 아래 10개다(`len(CONDITION_AXES) == 10` 으로 셀 것).
 # 표본조사 §3-4 표의 8행에서 왔고, 그중 「개인 / 법인」 1행을 `corp`·`person` 2축으로 나눠 9개가 된다.
@@ -417,15 +525,26 @@ DOC_HOWTO = {
 }
 
 
-def find_doc_names(line: str) -> list[str]:
-    names: list[str] = []
+def find_doc_name_spans(line: str) -> list[tuple[str, int, int]]:
+    """서류명과 그 위치(시작·끝 오프셋)를 함께 낸다. 위치는 단계 판정이 "그 서류명 근처"만
+    보게 하는 데 쓴다(resolve_doc_stage) — PDF/HWP 첨부는 줄바꿈이 없어 한 줄이 문서 전체일
+    때가 있고, 그때는 위치 없이는 "근처"를 정의할 수 없다."""
+    spans: list[tuple[str, int, int]] = []
     masked = line
     for label, pattern in DOC_NAME_PATTERNS:
         for match in re.finditer(pattern, masked):
             name = label or clean_text(match.group(0))
-            if name and name not in names:
-                names.append(name)
+            if name:
+                spans.append((name, match.start(), match.end()))
             masked = masked[: match.start()] + ("\x00" * (match.end() - match.start())) + masked[match.end() :]
+    return spans
+
+
+def find_doc_names(line: str) -> list[str]:
+    names: list[str] = []
+    for name, _start, _end in find_doc_name_spans(line):
+        if name not in names:
+            names.append(name)
     return names
 
 
@@ -481,7 +600,10 @@ def extract_doc_items(
     본문/첨부 출처를 구분할 수 있다.
     """
     items: list[dict[str, object]] = []
-    seen: set[tuple[str, str]] = set()
+    # 값은 (items 안의 위치, 그 단계가 조항 표제로 확정됐는가). 같은 서류명이 같은 문서
+    # 안에 단계가 다른 두 자리에서 나올 수 있어(표본 20 「신분증」), 먼저 나온 쪽이
+    # 확정적이지 않다면 나중에 나온 확정적 판정으로 덮어쓴다(doc_stage_at 의 confident).
+    seen: dict[tuple[str, str], tuple[int, bool]] = {}
     chunks = [(title, sections.get(title, "")) for title in DOC_SEARCH_SECTIONS]
     chunks.extend(attachment_chunks or [])
     for title, chunk in chunks:
@@ -495,27 +617,63 @@ def extract_doc_items(
         carried: list[dict[str, str]] = []
         # 「라. 계약체결시 필요서류」처럼 단계를 밝히는 줄은 제목뿐이고, 그 아래 표 행(「개인
         # 주민등록초본, 인감증명서…」)에는 단계 단어가 없다. 조건 물림과 같은 구조라 같은
-        # 방식으로 물린다 — 안 물리면 표 아래 항목이 전부 기본값 「입찰 전」으로 오분류된다
-        # (2026-09-12 · #15 실측).
-        carried_stage = False
-        for raw_line in block_text(strip_tooltips(chunk)).split("\n"):
+        # 방식으로 물린다 — 표제 문자열 자체를 들고 가서 HEADING_STAGE_RULES 와 대조한다
+        # (resolve_doc_stage). 안 물리면 표 아래 항목의 단계를 알 길이 없다(2026-09-12 · #15 실측).
+        current_heading = ""
+        # 단계 판정 창(doc_stage_at)은 줄바꿈이 실제로 있는 공고문에서도 "그 줄 하나"가 아니라
+        # «전체 절 텍스트 안에서의 실제 위치»를 기준으로 본다 — 결정적 문구가 서류명과 같은
+        # 줄이 아니라 몇 줄 뒤(예: 「ㅇ 공동입찰의 경우…」 다음에 번호 목록, 그 뒤에야 「입찰
+        # 기간 마감일까지 제출」)에 있는 경우가 실제로 있다(표본 04~08). 그래서 `full_text` 와
+        # 그 안에서의 절대 오프셋을 들고 간다. 창은 LINE_RESET_RE 조항 경계를 넘지 않게
+        # section_bounds() 로 자른다 — 안 자르면 다음 조항의 결정적 문구를 빌려 쓰게 된다.
+        full_text = block_text(strip_tooltips(chunk))
+        heading_boundaries: list[int] = []
+        _cursor = 0
+        for _raw in full_text.split("\n"):
+            _stripped = _raw.strip()
+            if _stripped and LINE_RESET_RE.match(_stripped):
+                heading_boundaries.append(_cursor + (len(_raw) - len(_raw.lstrip())))
+            _cursor += len(_raw) + 1
+
+        def section_bounds(pos: int) -> tuple[int, int]:
+            start_bound = 0
+            end_bound = len(full_text)
+            for boundary in heading_boundaries:
+                if boundary <= pos:
+                    start_bound = boundary
+                else:
+                    end_bound = boundary
+                    break
+            return start_bound, end_bound
+
+        cursor = 0
+        for raw_line in full_text.split("\n"):
             line = raw_line.strip()
+            lstrip_len = len(raw_line) - len(raw_line.lstrip())
+            line_offset = cursor + lstrip_len
+            cursor += len(raw_line) + 1
             # 1200자 상한은 «지저분한 HTML»을 걸러내려는 것이다(공고 절 기준). PDF/HWP 첨부는
             # 줄바꿈 없이 문서 전체가 한 줄로 텍스트화될 때가 있어(실측 최대 89,290자) 상한을
             # 그대로 걸면 그 안의 서류명이 통째로 빠진다(2026-09-12 · 32건 실측). 첨부는 상한을 안 건다.
             if not line or (len(line) > 1200 and not is_attachment):
                 continue
+            # 조항 표제는 이름 유무와 무관하게 먼저 캡처한다 — 표제 줄 자체에 서류명이 실리는
+            # 경우는 없지만, 캡처를 이름 분기 뒤로 미루면 그 표제가 적용되는 첫 항목을 놓친다.
+            if HEADING_LINE_RE.match(line):
+                current_heading = line
             conditions = [item for item in find_conditions(line) if not item["negative"]]
-            names = find_doc_names(line)
+            name_spans = find_doc_name_spans(line)
+            names: list[str] = []
+            first_span: dict[str, tuple[int, int]] = {}
+            for name, start, end in name_spans:
+                if name not in first_span:
+                    first_span[name] = (start, end)
+                    names.append(name)
             if not names:
                 if conditions and DOC_REQUEST_RE.search(line):
                     carried = conditions
                 elif LINE_RESET_RE.match(line):
                     carried = []
-                if CONTRACT_STAGE_RE.search(line):
-                    carried_stage = True
-                elif LINE_RESET_RE.match(line):
-                    carried_stage = False
                 continue
             carried_applies = bool(carried) and bool(SUB_ITEM_RE.match(line))
             # 첨부는 조건 물림 구조(번호·하위항목 서식)가 공고 절과 다르게 깨져 있어, 조건을
@@ -530,23 +688,24 @@ def extract_doc_items(
                 # 등기사항증명서 기준」). 서류 요구로 세지 않는다. 첨부는 위에서 게이트를 뺐다.
                 continue
             extras = doc_extras(line)
-            # 🔴 기본값이 「입찰 전」인 것은 «의도된 비대칭»이다. 뒤집지 말 것.
-            # 화면은 이 값으로 서류를 2단계(입찰 전 준비)와 4단계(낙찰 후 준비)에 물리적으로
-            # 나눠 담는다(app.js isPostAwardDoc). 두 방향의 오분류 비용이 같지 않다.
-            #   - 「낙찰 후」로 잘못 보내면: 사용자가 4단계를 지금 할 일로 보지 않아 그 서류를
-            #     놓치고, 입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
-            #   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
-            # 그래서 CONTRACT_STAGE_RE 가 «확실히» 잡았을 때만 낙찰 후로 보내고, 판정이
-            # 불확실한 모든 줄은 입찰 전에 남긴다. 조건을 부정형으로 바꾸거나(「낙찰 후가
-            # 아닌 것만 입찰 전」) 기본값을 낙찰 후로 돌리면 미지의 줄이 4단계로 흘러
-            # 비싼 쪽 오류를 물게 된다(2026-10-18 ux-design-review P0-2).
-            stage = "낙찰 후·계약 시" if (CONTRACT_STAGE_RE.search(line) or carried_stage) else "입찰 전"
             labels = [item["label"] for item in active] or ["공통"]
             for name in names:
+                # 🔴 추측으로 입찰 전/낙찰 후 어느 한쪽에 밀어 넣지 않는다. 뒤집지 말 것.
+                # 화면은 이 값으로 서류를 2단계(입찰 전 준비)와 4단계(낙찰 후 준비)에 물리적으로
+                # 나눠 담는다(app.js isPostAwardDoc). doc_stage_at 가 조항 표제·결정적 문구
+                # 어느 쪽으로도 못 정하면 "미분류" — 그 서류명 «바로 근처»만 보고 판정하므로
+                # 멀리 떨어진 말에 더 이상 오염되지 않는다. PDF/HWP 첨부는 줄바꿈이 없어 한
+                # 줄이 문서 전체일 수 있어, 이름마다 그 위치 기준으로 따로 판정한다
+                # (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§3).
+                start, end = first_span[name]
+                start_global, end_global = line_offset + start, line_offset + end
+                stage, _confident = doc_stage_at(
+                    full_text, start_global, end_global, current_heading, section_bounds(start_global)
+                )
                 key = (name, " · ".join(labels))
                 if key in seen:
                     continue
-                seen.add(key)
+                seen[key] = (len(items), _confident)
                 howto, howto_url = DOC_HOWTO.get(name, ("", ""))
                 items.append(
                     {
