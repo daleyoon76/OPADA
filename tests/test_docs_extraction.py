@@ -101,6 +101,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "A15",
+        "서식명 사전 완성도·오염 방지",
+        "표준 이름 3종 전부 등재 · 기관명 접두어 변형 12종 전부 입찰 전으로 뽑힘 · 범용 서류(인감증명서 등) 미등재",
+        "표준 이름 하나 삭제 · 범용 서류를 사전에 섞기",
+        "Y",
+    ),
+    (
         "E1",
         "API 플래그 거르기",
         "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
@@ -756,6 +763,80 @@ def test_attachment_wiring() -> None:
         "A14 양성 — 표제가 확정되면 컨소시엄 협정서도 그 표제를 따른다(기본값이 아니라 최종 폴백)",
         consortium_with_heading == "낙찰 후·계약 시",
         consortium_with_heading,
+    )
+
+    # A15. 서식명 사전 완성도 — "오분류 N건"만 세면 사전이 비어 있어도 통과한다(이번 결함의
+    # 뿌리). 사전 크기·등재 범위·오염 방지를 직접 센다.
+    check(
+        "A15 양성 — 서식명 사전이 표준 이름 3종(공동입찰·대리입찰·미성년자) 전부를 입찰 전으로 등재",
+        server.FORM_NAME_STAGE_RULES == {
+            "공동입찰참가신청서": "입찰 전",
+            "대리입찰신청서": "입찰 전",
+            "미성년자 입찰참가 동의서": "입찰 전",
+        },
+        server.FORM_NAME_STAGE_RULES,
+    )
+    # 08_온비드자료실_오픈API28종_조사_20260907.md 191~206행이 실제로 나열한 기관명 접두어
+    # 변형 12개 전부를 raw 텍스트로 넣어, DOC_NAME_PATTERNS 정규화 + FORM_NAME_STAGE_RULES
+    # 경로를 거쳐 전부 "입찰 전"으로 뽑히는지 센다 — 변형 중 하나라도 빠지면 그 변형은 사전
+    # 등재 범위 밖이라는 뜻이다.
+    # (표준명, 변형 원문) 쌍 — "(이용기관 입찰용) 대리입찰신청서(위임장) 양식"처럼 괄호 안
+    # 참고 문구에 "위임장"(별도 범용 서류, DOC_NAME_PATTERNS 에 따로 있음)이 함께 뽑히는
+    # 변형도 있다 — 그 경우 "대리입찰신청서" 쪽 판정만 본다. "위임장"은 이 사전의 대상이
+    # 아니라 §2 설계 규칙대로 미분류로 남는 것이 맞다(추측 금지).
+    FORM_NAME_VARIANTS_12 = (
+        ("공동입찰참가신청서", "공동입찰참가신청서"),
+        ("공동입찰참가신청서", "(이용기관 입찰용)공동입찰참가신청서"),
+        ("공동입찰참가신청서", "(캠코 공유재산)공동입찰참가신청서"),
+        ("공동입찰참가신청서", "유입자산 공동입찰참가신청서"),
+        ("공동입찰참가신청서", "수탁담보주택 공동입찰참가신청서"),
+        ("대리입찰신청서", "대리입찰신청서"),
+        ("대리입찰신청서", "(이용기관 입찰용) 대리입찰신청서(위임장) 양식"),
+        ("대리입찰신청서", "(캠코 공유재산)대리입찰신청서"),
+        ("대리입찰신청서", "유입자산 대리입찰신청서"),
+        ("대리입찰신청서", "수탁담보주택 대리입찰신청서"),
+        ("미성년자 입찰참가 동의서", "(이용기관 입찰용) 미성년자입찰참가동의서 양식"),
+        ("미성년자 입찰참가 동의서", "(캠코 공유재산)미성년자입찰참가동의서"),
+    )
+    variant_stages = {}
+    for canonical, variant in FORM_NAME_VARIANTS_12:
+        extracted = server.extract_doc_items({}, [("첨부:서식.pdf", variant)])
+        matched = next((item for item in extracted if item["name"] == canonical), None)
+        variant_stages[variant] = matched["stage"] if matched else "추출 안 됨"
+    check(
+        "A15 양성 — 변형 12종 전부 표준명으로 뽑혀 입찰 전으로 고정",
+        all(stage == "입찰 전" for stage in variant_stages.values()),
+        str(variant_stages),
+    )
+    # 돌연변이 대조 — 표준 이름 하나(공동입찰참가신청서)를 사전에서 빼면, 그 이름을 쓰는
+    # 변형(기관명 접두어 붙은 것 포함)이 더 이상 입찰 전으로 고정되지 않아야 한다.
+    mutated_form_rules = {k: v for k, v in server.FORM_NAME_STAGE_RULES.items() if k != "공동입찰참가신청서"}
+    original_form_rules = server.FORM_NAME_STAGE_RULES
+    server.FORM_NAME_STAGE_RULES = mutated_form_rules
+    try:
+        mutated_variant = server.extract_doc_items({}, [("첨부:서식.pdf", "(이용기관 입찰용)공동입찰참가신청서")])
+        mutated_stage = {item["stage"] for item in mutated_variant}
+    finally:
+        server.FORM_NAME_STAGE_RULES = original_form_rules
+    check(
+        "A15 돌연변이 — 사전에서 표준 이름 하나를 빼면 그 변형이 더 이상 입찰 전으로 안 뽑힘",
+        mutated_stage != {"입찰 전"},
+        mutated_stage,
+    )
+    # 범용 서류(재산유형마다 단계가 달라지는 서류, §2 설계 규칙 2)가 서식명 사전에 들어가면
+    # 그 자체가 새 오분류를 만든다 — 절대로 키로 들어가 있으면 안 된다.
+    GENERIC_DOC_NAMES = {"인감증명서", "주민등록등본", "사업자등록증", "신분증", "위임장"}
+    check(
+        "A15 양성 — 서식명 사전에 범용 서류가 전혀 없음",
+        not (GENERIC_DOC_NAMES & set(server.FORM_NAME_STAGE_RULES)),
+        sorted(GENERIC_DOC_NAMES & set(server.FORM_NAME_STAGE_RULES)),
+    )
+    # 돌연변이 대조 — 범용 서류 하나를 사전에 몰래 넣으면 위 검사가 바로 잡아내야 한다.
+    polluted_form_rules = {**server.FORM_NAME_STAGE_RULES, "인감증명서": "입찰 전"}
+    check(
+        "A15 돌연변이 — 범용 서류가 섞이면 검사가 실패를 잡아낸다(검사 자체의 유효성 증명)",
+        bool(GENERIC_DOC_NAMES & set(polluted_form_rules)),
+        sorted(GENERIC_DOC_NAMES & set(polluted_form_rules)),
     )
 
     # headline 출처 구분: 본문만/첨부만/둘 다 섞임을 각각 다른 문구로 말해야 한다.
