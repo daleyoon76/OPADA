@@ -87,6 +87,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "A13",
+        "조항 표제 사전 10종",
+        "사전 크기 최소 10종 · appendix 인용 표제 3종(표본12·13·15~17) 직접 대조",
+        "표제 2종으로 축소(구비서류/낙찰자 제출/낙찰일만 남김) → '계약체결 시 지참 서류' 미분류로 떨어짐",
+        "Y",
+    ),
+    (
         "E1",
         "API 플래그 거르기",
         "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
@@ -663,6 +670,46 @@ def test_attachment_wiring() -> None:
         form_name_stages.get("대리입찰신청서") == "입찰 전"
         and form_name_stages.get("미성년자 입찰참가 동의서") == "입찰 전",
         str(form_name_stages),
+    )
+
+    # A13. 조항 표제 사전 10종 — appendix 160행에서 인용한 표제를 각각 직접 대조한다.
+    # 사전 크기 자체가 줄어들면(예: 2종으로 되돌리면) 이 축이 실패해야 한다 — 길이
+    # 단정과 별개로, 사전에서 빠지면 바로 영향받는 리터럴 표제 3개를 직접 판정해 둔다.
+    check(
+        "A13 양성 — 조항 표제 사전이 최소 10종(appendix §555행 기준)",
+        len(server.HEADING_STAGE_RULES) >= 10,
+        len(server.HEADING_STAGE_RULES),
+    )
+    heading_cases = (
+        ("계약체결시 필요서류", "- 주민등록초본", "낙찰 후·계약 시"),  # 표본15~17
+        ("다. 계약체결 장소", "- 법인인감증명서", "낙찰 후·계약 시"),  # 표본12
+        ("8. 낙찰자 제출서류 (낙찰일로부터 30일 이내 제출)", "- 법인인감증명서", "낙찰 후·계약 시"),  # 표본13
+    )
+    heading_results = {heading: server.resolve_doc_stage(heading, window) for heading, window, _ in heading_cases}
+    check(
+        "A13 양성 — appendix 인용 표제 3종(표본12·13·15~17) 직접 대조",
+        all(heading_results[heading] == expected for heading, _, expected in heading_cases),
+        str(heading_results),
+    )
+    # 돌연변이 대조 — 이 세 표제를 지우면(HEADING_STAGE_RULES 를 원래 2종으로 되돌린 것과
+    # 같은 효과) 위 세 케이스 중 "계약체결시 필요서류"·"계약체결 장소"는 옛 2종 regex의
+    # "계약.{0,20}(?:체결|지참)" 에 우연히 걸릴 수 있으나, "낙찰자 제출서류"는 옛 regex의
+    # "낙찰\s*자.{0,10}제출" 에도 걸린다 — 그래서 셋 중 실제로 사전 확장에만 의존하는
+    # 표제로 "계약체결 시 지참 서류"(표본22, 옛 2종 regex에는 없던 "지참" 조합)를 쓴다.
+    mutated_heading_rules: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"구비\s*서류|낙찰\s*자.{0,10}제출|낙찰\s*일"), "낙찰 후·계약 시"),
+        (re.compile(r"입찰\s*참가\s*자격|입찰\s*참가\s*(?:신청\s*)?등록\s*서류"), "입찰 전"),
+    )
+    original_heading_rules = server.HEADING_STAGE_RULES
+    server.HEADING_STAGE_RULES = mutated_heading_rules
+    try:
+        mutated_result = server.resolve_doc_stage("14. 계약체결 시 지참 서류", "- 법인인감증명서")
+    finally:
+        server.HEADING_STAGE_RULES = original_heading_rules
+    check(
+        "A13 돌연변이 — '계약체결 시 지참 서류' 표제를 빼면 미분류로 떨어진다(사전 의존 증명)",
+        mutated_result == "미분류",
+        mutated_result,
     )
 
     # headline 출처 구분: 본문만/첨부만/둘 다 섞임을 각각 다른 문구로 말해야 한다.
