@@ -381,6 +381,15 @@ FORM_NAME_STAGE_RULES: dict[str, str] = {
     "미성년자 입찰참가 동의서": "입찰 전",
 }
 
+# 조건부 서류이면서 온비드 공통 가이드·준수규칙·법령 어디에도 일반 근거가 없는 서류명.
+# 이 서류는 사전을 더 채워도 영구히 "미분류"가 아니라 "별도 문의 필요"로 다르게 보여준다 —
+# "미분류"는 "사전을 넓히면 언젠가 찾을 수 있다"는 뜻인데, 이 서류는 전 재산유형에 적용되는
+# 일반 규정이 없어(기관·공고마다 요구 여부와 시점이 다르다, 표본 21의 "컨소시엄 협정서"가
+# 그 사례다) 사전을 넓혀도 못 찾는다. 추가하려면 §2-A 규정 근거 사전에 없는 서류인지
+# 먼저 확인한다 — 있으면 미분류로 남겨 사전을 채울 대상으로 삼아야 한다.
+NO_GENERAL_BASIS_DOC_NAMES: frozenset[str] = frozenset({"컨소시엄 협정서"})
+NEEDS_INQUIRY_STAGE = "별도 문의 필요"
+
 # 이 절/문장이 입찰 전 준비물인지 낙찰 후 계약 서류인지 표시한다.
 #
 # 🔴 옛 CONTRACT_STAGE_RE(자유 서술문 어디서나 키워드를 찾는 방식)는 폐기했다 — 블록
@@ -394,7 +403,8 @@ FORM_NAME_STAGE_RULES: dict[str, str] = {
 #    HEADING_STAGE_RULES 사전과 대조한다. 사전에 없는 표제는 판정하지 않는다.
 # ⑶ 표제가 없거나 사전에 없으면, 그 서류명이 «속한 그 줄 하나»만 보고
 #    SENTENCE_STAGE_RULES 결정적 문구를 찾는다. 다른 줄의 단어는 참조하지 않는다.
-# ⑷ 셋 다 못 정하면 "미분류" — 추측으로 입찰 전/낙찰 후 어느 쪽으로도 밀어 넣지 않는다.
+# ⑷ 셋 다 못 정하면 NO_GENERAL_BASIS_DOC_NAMES 서류는 "별도 문의 필요", 그 밖은
+#    "미분류" — 추측으로 입찰 전/낙찰 후 어느 쪽으로도 밀어 넣지 않는다.
 #
 # 신호는 설계 문서 §2 신호표·§2-A 규정 근거 사전·appendix 160행 전건 재대조(§5-2)에서
 # 왔다. 아래 10개 항목 각각 appendix의 "근거" 칸에 인용된 조항 표제 원문 그대로다 —
@@ -446,7 +456,7 @@ def resolve_doc_stage(current_heading: str, window: str, name: str = "") -> str:
     for pattern, stage in SENTENCE_STAGE_RULES:
         if pattern.search(window):
             return stage
-    return "미분류"
+    return NEEDS_INQUIRY_STAGE if name in NO_GENERAL_BASIS_DOC_NAMES else "미분류"
 
 
 # PDF/HWP 첨부는 줄바꿈이 없어 "한 줄"이 문서 전체(최대 89,290자 실측)일 수 있다. 그 안에도
@@ -513,7 +523,9 @@ def doc_stage_at(
             dist = min(abs(match.start() - center), abs(match.end() - center))
             if best_dist is None or dist < best_dist:
                 best_dist, best_stage = dist, stage
-    return (best_stage, False) if best_stage else ("미분류", False)
+    if best_stage:
+        return best_stage, False
+    return (NEEDS_INQUIRY_STAGE if name in NO_GENERAL_BASIS_DOC_NAMES else "미분류"), False
 
 
 # 조건 축은 아래 10개다(`len(CONDITION_AXES) == 10` 으로 셀 것).
@@ -814,6 +826,7 @@ def build_doc_checklist(
     asset_type: str,
     attachments: list[dict[str, str]],
     attachment_chunks: list[tuple[str, str]] | None = None,
+    contact: str = "",
 ) -> dict[str, object]:
     profile = doc_source_profile(asset_type)
     items = extract_doc_items(sections, attachment_chunks)
@@ -887,6 +900,10 @@ def build_doc_checklist(
         "tableGenericOnly": generic_only,
         "notes": notes,
         "reference": "이 목록은 참고용입니다. 빠진 항목이 있어도 진행은 막지 않으며, 최종 확인은 온비드 원문과 담당기관 기준입니다.",
+        # "별도 문의 필요" 서류(NO_GENERAL_BASIS_DOC_NAMES) 화면 안내에 쓴다 — 이미 build_notice
+        # 가 추출해 둔 담당부점/공고기관 값을 그대로 물려받는다. 못 찾았으면 빈 문자열이고,
+        # 화면은 빈 값일 때 "공고 원문에서 확인" 같은 대체 문구를 쓴다(app.js).
+        "contact": contact,
     }
 
 
@@ -2706,7 +2723,7 @@ def build_notice(raw_url: str) -> dict[str, object]:
     sections = split_sections(text)
     related_docs = extract_related_docs(text, final_url)
     attachment_chunks = attachment_doc_chunks(related_docs)
-    doc_checklist = build_doc_checklist(sections, asset_type, related_docs, attachment_chunks)
+    doc_checklist = build_doc_checklist(sections, asset_type, related_docs, attachment_chunks, contact)
     required_docs = [str(item["name"]) for item in doc_checklist["items"]]
     notice_outline = extract_notice_outline(sections)
     countdown = bid_countdown(bid_period, bid_deadline)

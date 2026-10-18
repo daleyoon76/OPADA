@@ -94,6 +94,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "A14",
+        "별도 문의 필요 상태",
+        "NO_GENERAL_BASIS_DOC_NAMES 서류는 미분류 대신 별도 문의 필요 · 일반 서류는 그대로 미분류 · 표제 확정 시엔 표제를 따름(최종 폴백일 뿐)",
+        "NO_GENERAL_BASIS_DOC_NAMES 비우기",
+        "Y",
+    ),
+    (
         "E1",
         "API 플래그 거르기",
         "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
@@ -712,6 +719,45 @@ def test_attachment_wiring() -> None:
         mutated_result,
     )
 
+    # A14. "별도 문의 필요" — 컨소시엄 협정서처럼 온비드 공통 규정에 일반 근거가 없는
+    # 서류는 조항 표제·문장 모두 못 정했을 때 "미분류"가 아니라 "별도 문의 필요"로 다르게
+    # 나와야 한다. 음성 대조로 "주민등록등본"(NO_GENERAL_BASIS_DOC_NAMES 밖의 서류)는
+    # 같은 조건에서 그대로 "미분류"여야 한다 — 이 축이 전체 미분류를 삼키면 안 된다.
+    consortium_unresolved = server.resolve_doc_stage("", "컨소시엄 협정서 1부 포함", "컨소시엄 협정서")
+    generic_unresolved = server.resolve_doc_stage("", "주민등록등본 1부", "주민등록등본")
+    check(
+        "A14 양성 — 컨소시엄 협정서는 미분류 대신 별도 문의 필요",
+        consortium_unresolved == "별도 문의 필요",
+        consortium_unresolved,
+    )
+    check(
+        "A14 음성 — 일반 서류는 그대로 미분류(별도 문의로 전부 삼키지 않음)",
+        generic_unresolved == "미분류",
+        generic_unresolved,
+    )
+    # 돌연변이 대조 — NO_GENERAL_BASIS_DOC_NAMES 를 비우면(그 판정을 지우면) 컨소시엄
+    # 협정서도 다시 "미분류"로 떨어져야 한다. 이 판정이 실제로 결과를 바꾼다는 증명이다.
+    original_no_basis = server.NO_GENERAL_BASIS_DOC_NAMES
+    server.NO_GENERAL_BASIS_DOC_NAMES = frozenset()
+    try:
+        mutated_consortium = server.resolve_doc_stage("", "컨소시엄 협정서 1부 포함", "컨소시엄 협정서")
+    finally:
+        server.NO_GENERAL_BASIS_DOC_NAMES = original_no_basis
+    check(
+        "A14 돌연변이 — NO_GENERAL_BASIS_DOC_NAMES 를 비우면 미분류로 되돌아간다",
+        mutated_consortium == "미분류",
+        mutated_consortium,
+    )
+    # 조항 표제가 "낙찰 후"를 확정하는 상황에서는 컨소시엄 협정서도 그 표제를 그대로
+    # 따라야 한다 — NO_GENERAL_BASIS 는 "셋 다 못 정했을 때"의 최종 기본값일 뿐, 표제·문장
+    # 판정보다 우선하지 않는다.
+    consortium_with_heading = server.resolve_doc_stage("다. 계약 체결 시 구비서류", "컨소시엄 협정서", "컨소시엄 협정서")
+    check(
+        "A14 양성 — 표제가 확정되면 컨소시엄 협정서도 그 표제를 따른다(기본값이 아니라 최종 폴백)",
+        consortium_with_heading == "낙찰 후·계약 시",
+        consortium_with_heading,
+    )
+
     # headline 출처 구분: 본문만/첨부만/둘 다 섞임을 각각 다른 문구로 말해야 한다.
     body_sections = server.split_sections(section("제출서류", "<p>사업자등록증 사본을 제출하십시오.</p>"))
     body_only_checklist = server.build_doc_checklist(body_sections, "공유재산", [])
@@ -728,6 +774,16 @@ def test_attachment_wiring() -> None:
     # 하위호환: attachment_chunks 를 아예 안 넘긴 기존 3-인자 호출도 그대로 동작해야 한다.
     legacy_checklist = server.build_doc_checklist(body_sections, "공유재산", [])
     check("A10 하위호환 3-인자 호출", legacy_checklist["status"] == "extracted", str(legacy_checklist["status"]))
+    check("A10 contact 기본값 빈 문자열", legacy_checklist.get("contact") == "", repr(legacy_checklist.get("contact")))
+
+    # A14 연동 — build_notice 가 뽑은 담당부점/공고기관 연락처가 "별도 문의 필요" 화면
+    # 안내에 쓰이도록 build_doc_checklist 가 그대로 돌려줘야 한다.
+    contact_checklist = server.build_doc_checklist(body_sections, "공유재산", [], None, "한국자산관리공사 국유재산지원처")
+    check(
+        "A14 연동 — build_doc_checklist 가 contact 를 그대로 반환",
+        contact_checklist.get("contact") == "한국자산관리공사 국유재산지원처",
+        contact_checklist.get("contact"),
+    )
 
 
 # ---------------------------------------------------------------------------

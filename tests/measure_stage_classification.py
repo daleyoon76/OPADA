@@ -240,6 +240,7 @@ def main() -> int:
     scored = 0
     mismatches: list[tuple[int, str, str, str, str]] = []
     unclassified: list[tuple[int, str, str]] = []
+    needs_inquiry: list[tuple[int, str, str, str]] = []
     missing_from_extraction: list[tuple[int, str, str]] = []
 
     per_sample_items: dict[int, list[dict[str, object]]] = {}
@@ -265,6 +266,14 @@ def main() -> int:
         stages = {str(item["stage"]) for item in found}
         if stages == {expected}:
             continue
+        # "별도 문의 필요"는 2026-10-19 신설한 세 번째 상태다 — 컨소시엄 협정서처럼 온비드
+        # 공통 규정에 일반 근거가 없는 서류는, 그 샘플 하나에서 사람이 맥락으로 단계를 읽어낸
+        # 결과(appendix 정답)와 달라도 오분류가 아니다. 사전을 넓혀도 못 찾는 서류라는 사실
+        # 자체를 사용자에게 알리는 쪽이 추측으로 appendix 정답을 맞추는 쪽보다 설계 의도에
+        # 맞다(stage-classification-fix.md). 오분류·미분류 어느 쪽 분모에도 넣지 않는다.
+        if stages == {server.NEEDS_INQUIRY_STAGE}:
+            needs_inquiry.append((sample, name, condition, expected))
+            continue
         if "미분류" in stages:
             unclassified.append((sample, name, condition))
         else:
@@ -277,6 +286,7 @@ def main() -> int:
         print(f"🔴 정답표에 있는데 이번 추출에 안 걸린 항목 {len(missing_from_extraction)}건: {missing_from_extraction}")
     print(f"오분류: {len(mismatches)}/{scored}건 ({len(mismatches) / scored * 100:.1f}%)" if scored else "scored=0")
     print(f"미분류: {len(unclassified)}/{scored}건 ({len(unclassified) / scored * 100:.1f}%)" if scored else "")
+    print(f"별도 문의 필요(오분류·미분류 분모 제외): {len(needs_inquiry)}/{scored}건" if scored else "")
     if mismatches:
         print("\n오분류 목록:")
         for sample, name, condition, expected, actual in mismatches:
@@ -285,6 +295,10 @@ def main() -> int:
         print("\n미분류 목록:")
         for sample, name, condition in unclassified:
             print(f"  #{sample} {name} ({condition})")
+    if needs_inquiry:
+        print("\n별도 문의 필요 목록(appendix 정답과 달라도 오분류로 세지 않음):")
+        for sample, name, condition, expected in needs_inquiry:
+            print(f"  #{sample} {name} ({condition}) — appendix 정답 {expected}")
     return 0
 
 
