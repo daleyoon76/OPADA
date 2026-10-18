@@ -80,6 +80,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "A12",
+        "서식명 사전 우선 판정",
+        "공동입찰참가신청서·대리입찰신청서·미성년자 입찰참가 동의서가 조항 표제·문장 판정과 무관하게 입찰 전으로 고정",
+        "FORM_NAME_STAGE_RULES 매칭 삭제",
+        "Y",
+    ),
+    (
         "E1",
         "API 플래그 거르기",
         "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
@@ -626,6 +633,36 @@ def test_attachment_wiring() -> None:
         "A11 음성 — 표제 없이 문장 결정적 문구만으로도 정한다",
         sentence_decisive == "낙찰 후·계약 시",
         sentence_decisive,
+    )
+
+    # A12. 서식명 사전 — 공동입찰참가신청서·대리입찰신청서·미성년자 입찰참가 동의서는 "낙찰
+    # 후·계약 시"를 확정하는 조항 표제("14. 계약체결 시 지참 서류") 아래 있어도 입찰 전으로
+    # 고정돼야 한다(표본04~08·20 appendix 정답 — 어느 행도 "낙찰 후"가 아니다).
+    form_name_heading = server.resolve_doc_stage("14. 계약체결 시 지참 서류", "- 공동입찰참가신청서", "공동입찰참가신청서")
+    check(
+        "A12 양성 — 낙찰 후 표제 아래서도 서식명이 입찰 전으로 고정",
+        form_name_heading == "입찰 전",
+        form_name_heading,
+    )
+    # 돌연변이 대조 — name 을 안 넘기면(FORM_NAME_STAGE_RULES 매칭이 꺼진 상태를 재현) 같은
+    # 표제·문장이 "낙찰 후·계약 시"로 떨어져야 한다. 즉 지금의 "입찰 전" 결과는 FORM_NAME_
+    # STAGE_RULES 가 실제로 그 판정을 뒤집고 있다는 뜻이다(표제 의존이 아니라는 증명).
+    without_form_name = server.resolve_doc_stage("14. 계약체결 시 지참 서류", "- 공동입찰참가신청서")
+    check(
+        "A12 돌연변이 — 서식명 사전을 빼면 표제 판정(낙찰 후)으로 떨어진다",
+        without_form_name == "낙찰 후·계약 시",
+        without_form_name,
+    )
+    # extract_doc_items 레벨 통합 — 실제 파이프라인에서도 같은 역전이 일어나는지 확인한다.
+    form_name_pipeline = server.extract_doc_items(
+        {}, [("첨부:공고문.pdf", "14. 계약체결 시 지참 서류\n- 대리입찰신청서\n- 미성년자 입찰참가 동의서")]
+    )
+    form_name_stages = {item["name"]: item["stage"] for item in form_name_pipeline}
+    check(
+        "A12 통합 — 대리입찰신청서·미성년자 입찰참가 동의서 모두 입찰 전",
+        form_name_stages.get("대리입찰신청서") == "입찰 전"
+        and form_name_stages.get("미성년자 입찰참가 동의서") == "입찰 전",
+        str(form_name_stages),
     )
 
     # headline 출처 구분: 본문만/첨부만/둘 다 섞임을 각각 다른 문구로 말해야 한다.

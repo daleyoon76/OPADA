@@ -356,19 +356,45 @@ DOC_NAME_PATTERNS: tuple[tuple[str, str], ...] = (
 # 「갖추」는 넣지 않는다 — 「대항요건을 갖추고 있는 임차인」 같은 설명 문장이 걸린다(표본 01 실측).
 DOC_REQUEST_RE = re.compile(r"제출|지참|구비|첨부|발급받아|제시")
 
+# 서류명 자체가 단계를 확정하는 사전. 조항 표제·문장 판정보다 먼저 본다 — 이 서류들은
+# 어느 공고에서도 "입찰기간 중에" 내는 신청서라, 공고문 작성자가 그 서류를 어느 조항
+# 아래 적어 놓았는지와 무관하게 단계가 고정된다(stage-classification-design.md §1-A-3·§2-A).
+#
+# 근거: 압류재산 인터넷공매 입찰참가자준수규칙 제7조(공동명의 입찰·대리입찰·미성년자 명의
+# 입찰의 신청서를 "입찰기간 중에" 제출), 전자자산처분시스템 적정최고가입찰참가자준수규칙
+# 제6조⑤⑥(공동입찰참가신청서·대리입찰신청서를 "입찰기간 중에" 제출) — 두 규칙 모두 온비드
+# 자료실 > 법령/규정에서 전문을 확보했다.
+#
+# 서식 자체는 재산유형별로 변형이 있다(docs/90_MVP개발/08_온비드자료실_오픈API28종_조사_20260907.md
+# 191~206행, 온비드 서식자료 71건 전수조사) — 공동입찰참가신청서 5종(국유재산·이용기관
+# 입찰용·캠코 공유재산·수탁재산·유입자산/수탁담보주택), 대리입찰신청서 5종(동일 구성),
+# 미성년자입찰참가동의서 2종(이용기관 입찰용·캠코 공유재산). 합치면 12개의 변형 문자열이다.
+# 🔴 설계 문서(§1-A-4)는 이 묶음을 "9건"이라 적었지만 바로 다음 문장이 실제로 나열한
+# 변형은 5+5+2=12개다 — 설계 문서 자체의 집계와 본문이 어긋나 있어서, 추측으로 9개로
+# 줄이지 않고 근거 문서(08번 조사)가 실제로 나열한 12개를 그대로 반영했다. 다만
+# DOC_NAME_PATTERNS 가 기관명 접두어("(이용기관 입찰용)"·"(캠코 공유재산)"·"유입자산"
+# 등)를 흡수해 12개 변형이 전부 아래 3개 표준 이름 중 하나로 뽑히므로, 사전은 변형별이
+# 아니라 표준 이름 3개로 충분하다.
+FORM_NAME_STAGE_RULES: dict[str, str] = {
+    "공동입찰참가신청서": "입찰 전",
+    "대리입찰신청서": "입찰 전",
+    "미성년자 입찰참가 동의서": "입찰 전",
+}
+
 # 이 절/문장이 입찰 전 준비물인지 낙찰 후 계약 서류인지 표시한다.
 #
 # 🔴 옛 CONTRACT_STAGE_RE(자유 서술문 어디서나 키워드를 찾는 방식)는 폐기했다 — 블록
 # 전체에서 계약/낙찰 키워드를 찾아 그 블록의 모든 서류를 끌고 가는 방식이라, 서류와
 # 무관한 문장(예: 계약보증금 안내)이 뒤에 나오는 서류까지 전부 오염시켰다
 # (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§4 ·
-# 23개 표본 재현에서 41.9% 불일치). 대신 두 단계로 판정한다.
+# 23개 표본 재현에서 41.9% 불일치). 대신 세 단계로 판정한다.
 #
-# ⑴ 조항 표제(번호·문자·■ 로 시작하는 줄)를 만나면 그 표제 문자열 자체를 들고 가서
+# ⑴ FORM_NAME_STAGE_RULES 에 있는 서식명이면 그 즉시 확정한다(위 사전).
+# ⑵ 조항 표제(번호·문자·■ 로 시작하는 줄)를 만나면 그 표제 문자열 자체를 들고 가서
 #    HEADING_STAGE_RULES 사전과 대조한다. 사전에 없는 표제는 판정하지 않는다.
-# ⑵ 표제가 없거나 사전에 없으면, 그 서류명이 «속한 그 줄 하나»만 보고
+# ⑶ 표제가 없거나 사전에 없으면, 그 서류명이 «속한 그 줄 하나»만 보고
 #    SENTENCE_STAGE_RULES 결정적 문구를 찾는다. 다른 줄의 단어는 참조하지 않는다.
-# ⑶ 둘 다 못 정하면 "미분류" — 추측으로 입찰 전/낙찰 후 어느 쪽으로도 밀어 넣지 않는다.
+# ⑷ 셋 다 못 정하면 "미분류" — 추측으로 입찰 전/낙찰 후 어느 쪽으로도 밀어 넣지 않는다.
 #
 # 신호는 설계 문서 §2 신호표·§2-A 규정 근거 사전(appendix 160행 전건 재대조)에서 왔다.
 HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -396,7 +422,9 @@ SENTENCE_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 HEADING_LINE_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.|■|◆)")
 
 
-def resolve_doc_stage(current_heading: str, window: str) -> str:
+def resolve_doc_stage(current_heading: str, window: str, name: str = "") -> str:
+    if name in FORM_NAME_STAGE_RULES:
+        return FORM_NAME_STAGE_RULES[name]
     for pattern, stage in HEADING_STAGE_RULES:
         if current_heading and pattern.search(current_heading):
             return stage
@@ -437,7 +465,7 @@ def governing_heading(text: str, pos: int, carried_heading: str, section_start: 
 
 
 def doc_stage_at(
-    text: str, start: int, end: int, carried_heading: str, section_bounds: tuple[int, int]
+    text: str, start: int, end: int, carried_heading: str, section_bounds: tuple[int, int], name: str = ""
 ) -> tuple[str, bool]:
     """단계와 함께 "조항 표제로 확정했는가"(confident)도 돌려준다.
 
@@ -445,7 +473,12 @@ def doc_stage_at(
     서류 안내에서 한 번, 「■ 제출서류」 낙찰 후 목록에서 또 한 번 나온다). 호출부가 먼저
     나온 쪽만 쓰면 더 확정적인 뒤쪽 조항 표제 판정을 놓친다 — confident 로 그 우선순위를
     판단하게 한다.
+
+    name 이 FORM_NAME_STAGE_RULES 에 있으면(공동입찰참가신청서 등 서식명 자체가 단계를
+    확정하는 서류) 조항 표제보다 먼저 보고 그 즉시 확정한다.
     """
+    if name in FORM_NAME_STAGE_RULES:
+        return FORM_NAME_STAGE_RULES[name], True
     section_start, section_end = section_bounds
     heading = governing_heading(text, start, carried_heading, section_start)
     if heading:
@@ -700,7 +733,7 @@ def extract_doc_items(
                 start, end = first_span[name]
                 start_global, end_global = line_offset + start, line_offset + end
                 stage, _confident = doc_stage_at(
-                    full_text, start_global, end_global, current_heading, section_bounds(start_global)
+                    full_text, start_global, end_global, current_heading, section_bounds(start_global), name
                 )
                 key = (name, " · ".join(labels))
                 if key in seen:
