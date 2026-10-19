@@ -440,6 +440,8 @@ SENTENCE_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"입찰\s*(?:시\s*)?무효|입찰\s*참가\s*불승인"
             r"|입찰.{0,10}(?:마감|기간).{0,15}(?:까지|중)"
             r"|가격\s*개찰.{0,20}이전"
+            # 「사전확인 후 응찰하시기 바랍니다」(국유재산 공고 9-라 · 표본 07·08) — 응찰 전에 갖출 요건이다.
+            r"|사전\s*확인\s*후\s*(?:응찰|입찰)"
         ),
         "입찰 전",
     ),
@@ -463,6 +465,24 @@ HEADING_KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("roman", re.compile(r"^\s*[IVX]+\s*\.")),
     ("symbol", re.compile(r"^\s*[■◆]")),
 )
+
+
+# 바깥 표제를 물려받을 수 있는 목록 항목 줄의 최대 길이. 실공고 항목 줄은 60자 안팎이다
+# (909691 「1). 주민등록등본(법인의 경우 법인등기부등본) 1부」 · 909445 「가. 사업자등록증 및 법인등기부등본 각1부」).
+INHERIT_ITEM_MAX_CHARS = 100
+
+
+# 목록 항목으로 볼 때 번호 뒤에서 첫 서류명까지 허용하는 거리(글자). 「1). 주민등록등본」은 0~1자다.
+ITEM_NAME_OFFSET_MAX = 8
+
+
+def can_inherit_outer_heading(line: str) -> bool:
+    """바깥 층 표제를 물려받아도 되는 줄인가 — 짧은 소제목(서류명 없음)이거나 번호 바로 뒤 서류명 목록 항목."""
+    marker = HEADING_LINE_RE.match(line)
+    if not marker or len(line) > INHERIT_ITEM_MAX_CHARS:
+        return False
+    starts = [start for _name, start, _end in find_doc_name_spans(line)]
+    return not starts or min(starts) - marker.end() <= ITEM_NAME_OFFSET_MAX
 
 
 def heading_kind(line: str) -> str:
@@ -532,8 +552,32 @@ def governing_heading(text: str, pos: int, carried_heading: str, section_start: 
     return carried_heading
 
 
+# 새 문단을 여는 줄 머리. 줄바꿈만 있고 이 머리가 없으면 앞 문장이 이어지는 것(PDF 줄 넘김)으로 본다.
+PARAGRAPH_START_RE = re.compile(r"\n\s*(?:[※\-‐–▪·○ㅇ①-⑮■◆]|\(\d+\)|\d+\s*[.)]|[가-하]\s*\.)")
+
+
+def same_clause_has_prebid_phrase(text: str, start: int, end: int, section_bounds: tuple[int, int]) -> bool:
+    """서류명이 든 문장(다음 문단 머리 전까지)과 그 앞 창에 입찰 전 결정 문구가 있는가.
+
+    창 끝을 다음 문단 머리에서 끊는다. 끊지 않으면 바로 아래 「※ 입찰 참가 시에는 … 입찰 마감일까지」 같은
+    다른 문단의 문구가 위 목록까지 미분류로 만든다(2026-10-19 리뷰 r1 T2 반영 중 관측).
+    """
+    lo = max(section_bounds[0], start - STAGE_WINDOW_BEFORE)
+    hi = min(section_bounds[1], end + STAGE_WINDOW_AFTER)
+    next_paragraph = PARAGRAPH_START_RE.search(text, end, hi)
+    if next_paragraph:
+        hi = next_paragraph.start()
+    return any(pattern.search(text, lo, hi) for pattern, stage in SENTENCE_STAGE_RULES if stage == "입찰 전")
+
+
 def doc_stage_at(
-    text: str, start: int, end: int, carried_heading: str, section_bounds: tuple[int, int], name: str = ""
+    text: str,
+    start: int,
+    end: int,
+    carried_heading: str,
+    section_bounds: tuple[int, int],
+    name: str = "",
+    inherited: bool = False,
 ) -> tuple[str, bool, str]:
     """단계·확정 여부와 함께 "어느 조항 표제를 근거로 썼는가"(source_heading)도 돌려준다.
 
@@ -553,10 +597,19 @@ def doc_stage_at(
     if name in FORM_NAME_STAGE_RULES:
         return FORM_NAME_STAGE_RULES[name], True, ""
     section_start, section_end = section_bounds
-    heading = governing_heading(text, start, carried_heading, section_start)
+    embedded = governing_heading(text, start, "", section_start)
+    heading = embedded or carried_heading
     if heading:
         for pattern, stage in HEADING_STAGE_RULES:
             if pattern.search(heading):
+                # 🔴 바깥 층에서 «물려받은» 낙찰 후 표제가 서류가 든 문장의 입찰 전 결정 문구와 부딪히면 표제를
+                # 버리고 아래 문장 판정으로 내려간다. 더 가까운 근거가 이긴다. 입찰 전 서류를 4단계로만 보내면
+                # 사용자가 그 서류를 놓친다 — 가장 비싼 오배치다(2026-10-19 리뷰 r1 F1·T1·T3 · 표본 07·08
+                # 「사전확인 후 응찰」). 리뷰어는 미분류를 권했고, 팀장은 문장 근거(입찰 전)를 택했다. 둘 다 2단계에 보인다.
+                if inherited and not embedded and stage == "낙찰 후·계약 시" and same_clause_has_prebid_phrase(
+                    text, start, end, section_bounds
+                ):
+                    break
                 return stage, True, heading
     # 창이 넓어지면(표본 20) "회송"(낙찰 후, 같은 줄)과 "입찰무효"(입찰 전, 다음 문장)가
     # 한 창에 같이 걸릴 수 있다. 목록 순서가 아니라 «서류명과의 실제 거리»로 더 가까운
@@ -770,7 +823,18 @@ def extract_doc_items(
             # 경우는 없지만, 캡처를 이름 분기 뒤로 미루면 그 표제가 적용되는 첫 항목을 놓친다.
             if HEADING_LINE_RE.match(line):
                 push_heading(heading_stack, line)
-                current_heading = stage_heading_from_stack(heading_stack)
+                # 바깥 표제를 물려받는 것은 짧은 소제목(서류명 없음 · 「가. 입찰 참가 신청」)이나 번호 바로 뒤에
+                # 서류명이 오는 목록 항목일 때만이다. 「가. 입찰 시 유의사항 … 사업자등록증」 같은 문단이나 긴 줄이
+                # 물려받으면 쪽 전체가 낙찰 후로 끌려간다(리뷰 r1 T5). 그 밖은 옛 동작(그 줄 자체가 표제)이다.
+                if can_inherit_outer_heading(line):
+                    current_heading = stage_heading_from_stack(heading_stack)
+                else:
+                    current_heading = line
+            elif not find_doc_name_spans(line) and any(pattern.search(line) for pattern, _ in SENTENCE_STAGE_RULES):
+                # 번호 없는 문단(※ 등)이 단계를 밝히면 그 아래 목록은 앞 표제를 물려받지 않는다. 충돌 검사 창은
+                # 조항 경계(「1)」 줄)에서 시작해 위 문단을 못 본다(리뷰 r1 T2 · 「※ 입찰 참가 시에는 … 입찰 마감일까지 제출」).
+                heading_stack.clear()
+                current_heading = ""
             conditions = [item for item in find_conditions(line) if not item["negative"]]
             name_spans = find_doc_name_spans(line)
             names: list[str] = []
@@ -810,7 +874,13 @@ def extract_doc_items(
                 start, end = first_span[name]
                 start_global, end_global = line_offset + start, line_offset + end
                 stage, _confident, source_heading = doc_stage_at(
-                    full_text, start_global, end_global, current_heading, section_bounds(start_global), name
+                    full_text,
+                    start_global,
+                    end_global,
+                    current_heading,
+                    section_bounds(start_global),
+                    name,
+                    inherited=bool(heading_stack) and current_heading != heading_stack[-1][1],
                 )
                 key = (name, " · ".join(labels))
                 if key in seen:
@@ -1094,7 +1164,7 @@ def deposit_basis_note(deposit: str, minimum_bid_display: str) -> str:
     제6조① · 최고가 제8조①). 옛 note 는 원문이 「입찰금액 X 5%」인데도 「기준이 되는
     최저입찰가격은 …」이라고 붙여 기준을 잘못 안내했다(2026-10-19 정합성 대조).
     """
-    if re.search(r"입찰\s*금액", deposit):
+    if re.search(r"(?<!최저)(?<!최저 )입찰\s*금액", deposit):
         return "온비드 원문 표시값입니다. 이 보증금은 최저입찰가격이 아니라 내가 써 내는 입찰금액을 기준으로 계산합니다."
     if re.search(r"최저\s*입찰\s*가|예정\s*가", deposit):
         return f"온비드 원문 표시값입니다. 기준이 되는 최저입찰가격은 {minimum_bid_display or '원문 확인'}입니다."
@@ -2894,7 +2964,8 @@ def build_notice(raw_url: str) -> dict[str, object]:
         },
         {
             "title": "제출서류",
-            "value": required_docs[0] if required_docs else str(doc_checklist["headline"]),
+            # 첫 서류 이름 하나만 보이면 서류가 한 건뿐인 것처럼 읽힌다(2026-10-19 여정 점검 · 9건 중 1건 표시).
+            "value": str(doc_checklist["headline"]),
             "note": str(doc_checklist["profile"]["detail"]),
             "status": "check",
         },

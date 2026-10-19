@@ -607,6 +607,34 @@ def test_heading_layers() -> None:
     selection_stage = next((i["stage"] for i in server.extract_doc_items({}, [("첨부:공고문.pdf", selection)]) if i["name"] == "주민등록등본"), None)
     check("A16 음성 「낙찰자 선정 기준」은 낙찰 후로 안 감", selection_stage == "미분류", str(selection_stage))
 
+    # 리뷰 r1(2026-10-19) 재현 입력 — 바깥 낙찰 후 표제를 물려받아 입찰 전 서류가 4단계로만 가면 안 된다.
+    # 각 입력은 4b292c9(옛 동작)에서 낙찰 후가 아니었고, 60b000a 에서 낙찰 후로 옮겨졌던 것이다.
+    def stage_of(text: str, name: str) -> object:
+        return next((i["stage"] for i in server.extract_doc_items({}, [("첨부:공고문.pdf", text)]) if i["name"] == name), None)
+
+    t1 = "8. 낙찰자 제출서류\n가. 주민등록등본 1부\n■ 공동입찰 시 유의사항\n공동입찰자는 입찰 마감일까지 인감증명서를 제출하여야 합니다.\n"
+    check("A16 음성 T1 기호 형제 아래 입찰 전 문장", stage_of(t1, "인감증명서") == "입찰 전", str(stage_of(t1, "인감증명서")))
+    # 직접 호출 — 목록 항목 판정. 소제목·문단은 항목이 아니다.
+    check("A16 물림 판정 목록 항목 「1). 주민등록등본 1부」", server.can_inherit_outer_heading("1). 주민등록등본 1부"), "")
+    check("A16 물림 판정 소제목 「가. 입찰 참가 신청」", server.can_inherit_outer_heading("가. 입찰 참가 신청"), "")
+    check("A16 물림 판정 음성 문단 「가. 입찰 시 유의사항 … 사업자등록증」", not server.can_inherit_outer_heading("가. 입찰 시 유의사항 안내 사업자등록증 사본 1부"), "")
+    check("A16 물림 판정 음성 긴 줄", not server.can_inherit_outer_heading("가. " + "나" * 120), "")
+    # 표본 21 구조 — 서류명 없는 소제목을 지나 바깥 「입찰참가 등록서류」를 물려받는다.
+    nested = "4. 입찰참가 등록서류\n가. 입찰 참가 신청\nㅇ 사업자등록증 1부\n"
+    check("A16 양성 소제목을 지나 바깥 표제를 물려받음", stage_of(nested, "사업자등록증") == "입찰 전", str(stage_of(nested, "사업자등록증")))
+    t2 = "10. 최종낙찰자 제출서류\n가. 개인\n1) 주민등록등본 1부\n※ 입찰 참가 시에는 아래 서류를 입찰 마감일까지 제출\n1) 사업자등록증 1부\n"
+    check("A16 음성 T2 결정 문구 문단 뒤 목록은 물려받지 않음", stage_of(t2, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(t2, "사업자등록증")))
+    check("A16 양성 T2 같은 입력의 앞 목록은 그대로 낙찰 후", stage_of(t2, "주민등록등본") == "낙찰 후·계약 시", str(stage_of(t2, "주민등록등본")))
+    t3 = "가. 낙찰자는 낙찰일로부터 5일 이내에 계약을 체결하여야 합니다.\n1) 입찰 참가 시 사업자등록증을 입찰 마감일까지 제출\n"
+    check("A16 음성 T3 같은 줄 입찰 전 문구가 있으면 낙찰 후 확정 안 함", stage_of(t3, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(t3, "사업자등록증")))
+    t5 = "9. 계약체결 및 대금납부방법 " + "가" * 50 + " 잔대금은 60일 이내 납부\n가. 입찰 시 유의사항 " + "나" * 60 + " 사업자등록증 사본 1부\n"
+    check("A16 음성 T5 긴 줄은 바깥 표제를 물려받지 않음", stage_of(t5, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(t5, "사업자등록증")))
+    farm = "9. 계약체결 및 대금납부방법\n라. 농지법 등 관계 법령에 의하여 농지취득자격증명이 필요한 경우 등 취득이 제한되는 사\n항은 매수자가 갖추어야 할 요건이므로 사전확인 후 응찰하시기 바랍니다.\n"
+    check("A16 음성 표본 07 형태 「사전확인 후 응찰」은 입찰 전", stage_of(farm, "농지취득자격증명") == "입찰 전", str(stage_of(farm, "농지취득자격증명")))
+    # 물림이 일어나는 모양 — 번호 바로 뒤 서류명이라 「9. 계약체결…」을 물려받지만, 같은 문장의 「사전확인 후 응찰」이 이긴다.
+    farm_item = "9. 계약체결 및 대금납부방법\n라. 농지취득자격증명은 사전확인 후 응찰하시기 바랍니다.\n"
+    check("A16 음성 물려받은 낙찰 후 표제보다 같은 문장 「사전확인 후 응찰」이 이김", stage_of(farm_item, "농지취득자격증명") == "입찰 전", str(stage_of(farm_item, "농지취득자격증명")))
+
 
 def test_attachment_wiring() -> None:
     # attachment_parser.detect_kind() — 배선 단정과 별개로 판정 함수 자체를 직접 부른다.
@@ -1162,6 +1190,9 @@ def test_costs() -> None:
     check("B4 입찰금액 기준은 최저입찰가격을 기준으로 말하지 않음", "입찰금액을 기준" in by_bid and "20,128,466" not in by_bid, by_bid)
     by_floor = server.deposit_basis_note("최저입찰가격 X 10%", "20,128,466")
     check("B4 음성 최저입찰가 기준은 그 값을 그대로 안내", "20,128,466" in by_floor and "입찰금액을 기준" not in by_floor, by_floor)
+    # 「최저입찰금액」은 입찰금액 기준이 아니다(리뷰 r1 F3 · 「입찰금액」 부분 일치로 반대 안내가 나갔다).
+    floor_amount = server.deposit_basis_note("최저입찰금액 X 10%", "20,128,466")
+    check("B4 음성 「최저입찰금액」을 입찰금액 기준으로 말하지 않음", "입찰금액을 기준" not in floor_amount, floor_amount)
     unknown_basis = server.deposit_basis_note("공고문 참조", "20,128,466")
     check("B4 기준을 못 읽으면 단정하지 않음", "원문에서 확인" in unknown_basis and "20,128,466" not in unknown_basis, unknown_basis)
     # 배선 — extract_cost_terms 가 실제로 이 판정을 부른다(원문값이 입찰금액 기준인 절).

@@ -1693,7 +1693,7 @@ async function askNoticeQuestion() {
 const ONBID_BID_RULES = [
   "입찰서는 제출한 뒤에 수정하거나 취소할 수 없는 것이 원칙입니다.",
   "입찰보증금 납부 계좌는 입찰서를 제출한 뒤에 발급됩니다. 입찰 마감 시각까지 보증금을 내지 않으면 입찰이 무효가 됩니다.",
-  "입찰서 제출과 보증금 납부가 끝났는지는 나의온비드에서 직접 확인하십시오. 확인하지 않아 생긴 불이익은 입찰자 책임입니다.",
+  "입찰서 제출과 보증금 납부가 끝났는지는 온비드에서 직접 확인하십시오. 확인하지 않아 생긴 불이익은 입찰자 책임입니다.",
 ];
 
 // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리에 두는 정보 리스트다.
@@ -2439,7 +2439,8 @@ function renderPostAwardPanel() {
       const noteHtml = applicable
         ? ""
         : `<p class="post-award-not-applicable">${reasonText} 접어 두었지만 지웠다는 뜻은 아닙니다. 해당 여부는 공고 원문과 담당기관에서 확인하십시오.</p>`;
-      return noteHtml + renderDocGroup(group, docState, false, applicable, "");
+      // 안내는 자기 묶음 «뒤»에 둔다. 앞에 두면 바로 위 묶음의 설명처럼 읽힌다(2026-10-19 여정 점검).
+      return renderDocGroup(group, docState, false, applicable, "") + noteHtml;
     })
     .join("");
   return `<section class="doc-panel post-award-panel">

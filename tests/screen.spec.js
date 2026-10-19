@@ -1115,6 +1115,12 @@ test("S12 준비 단계 — 임대 공고에서는 소유권이전 묶음이 접
   expect(onLease.open).toBe(false);
   expect(onLease.noteCount).toBe(1);
   expect(onLease.itemCount).toBeGreaterThan(0);
+  // 안내는 자기 묶음 «바로 뒤»에 있어야 한다. 앞에 있으면 위 묶음의 설명처럼 읽힌다(2026-10-19 여정 점검).
+  const noteFollowsGroup = await page
+    .locator('.post-award-not-applicable:has-text("처분방식")')
+    .first()
+    .evaluate((el) => el.previousElementSibling?.matches?.('details.doc-group') && el.previousElementSibling.querySelector("h4")?.textContent.trim() === "소유권이전 단계");
+  expect(noteFollowsGroup).toBe(true);
 
   // 판정 함수 직접 호출 — 화면 단정과 별개로 이유 값을 본다.
   const direct = await page.evaluate(() => {
@@ -1171,7 +1177,7 @@ test("S13 준비 단계 — 3단계에 온비드 입찰 규칙 세 줄이 보인
   expect(text).toContain("수정하거나 취소할 수 없는");
   expect(text).toContain("입찰서를 제출한 뒤에 발급");
   expect(text).toContain("무효");
-  expect(text).toContain("나의온비드");
+  expect(text).toContain("직접 확인");
 });
 
 // S11 — 공공데이터 API 연동 블록 세 개가 설계한 자리에 놓이고, 질문 답·기한 어긋남을
