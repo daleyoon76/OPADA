@@ -1331,13 +1331,17 @@ test("S14 음성 — 국유 임대 공고와 재산유형을 못 읽은 공고�
   unknown.assetType = "재산유형 확인";
   unknown.disposition = "";
   unknown.dispositionLabel = "처분방식 확인";
-  unknown.glossary = [];
+  // 실서버는 미상에도 공통 용어를 돌려준다(단위 「용어 음성 미상」). 그 상태의 제목을 본다(리뷰 r1 #5).
+  unknown.glossary = [{ term: "유찰", meaning: "두 가지 뜻으로 쓰입니다.", group: "basic" }];
   await analyzeWith(page, unknown);
   const unknownProcess = page.locator("#task-list .post-award-process");
   await expect(unknownProcess).toContainText("공통 안내만 둡니다");
   await expect(unknownProcess).not.toContainText("7일");
   await expect(unknownProcess).not.toContainText("5영업일");
-  await expect(page.locator("#glossary-list")).toContainText("용어 안내가 없습니다");
+  const unknownTitle = page.locator("#glossary-list .glossary-group-title");
+  await expect(unknownTitle).toHaveCount(1);
+  await expect(unknownTitle).toContainText("모든 공고에 공통인 기본 용어");
+  await expect(unknownTitle).not.toContainText("재산유형 확인");
 
   // ⓒ 나머지 분기 — app.js 전역 함수를 직접 불러 sampleNotice 만 바꿔 가며 센다(N0 와 같은 꼴 · 리뷰 r1 검증 누락 2).
   const branches = await page.evaluate(() => {
@@ -1377,6 +1381,14 @@ test("S14 음성 — 국유 임대 공고와 재산유형을 못 읽은 공고�
   expect(inventory.withSheet).toBe("");
   expect(inventory.empty).toBe("");
   expect(inventory.without).toContain("「명세서」를 찾지 못했습니다");
+
+  // ⓔ 용어 탭 음성 — 표기 매칭만 있고 기본 용어가 없으면 「기본 용어」 제목을 그리지 않는다.
+  const glossaryTitles = await page.evaluate(() => {
+    sampleNotice.glossary = [{ term: "국유재산", meaning: "나라가 소유한 땅과 시설입니다." }];
+    renderGlossary();
+    return [...document.querySelectorAll("#glossary-list .glossary-group-title")].map((el) => el.textContent);
+  });
+  expect(glossaryTitles).toEqual(["공고 표기에 나온 용어"]);
 });
 
 // S11 — 공공데이터 API 연동 블록 세 개가 설계한 자리에 놓이고, 질문 답·기한 어긋남을
