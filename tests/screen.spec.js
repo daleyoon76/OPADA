@@ -1579,6 +1579,8 @@ function jointAndProxyNotice() {
 test("E2E design 시나리오 1 — 조건 질문에 답하지 않은 기본 상태에서 대리입찰·공동입찰 서류가 0건이다 (준수규칙 제7조②③)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1604,6 +1606,8 @@ test("E2E design 시나리오 1 — 조건 질문에 답하지 않은 기본 상
 test("E2E design 시나리오 2 보강 — 대리입찰 서류에 \"인감증명서 또는 본인서명사실확인서\" 대체 표기가 그대로 남는다 (준수규칙 제7조②)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1621,6 +1625,8 @@ test("E2E design 시나리오 2 보강 — 대리입찰 서류에 \"인감증명
 test("E2E design 시나리오 3 — 압류재산 공동입찰에 온비드 등록 대체 예외 문구가 뜬다 (공매공고문 16. 주의사항 자항 ③호 단서)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1640,6 +1646,8 @@ test("E2E design 시나리오 3 음성 대조 — 국유재산 공동입찰에�
   notice.assetType = "국유재산";
   await analyzeWith(page, notice);
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1679,6 +1687,8 @@ test("E2E design 시나리오 5 — 사전에 없는 서류는 \"단계를 확�
   notice.docChecklist.groups.push({ condition: "미분류 서류", items: [notice.docChecklist.items[2]] });
   await analyzeWith(page, notice);
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
