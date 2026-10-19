@@ -1353,6 +1353,21 @@ def test_glossary() -> None:
     check("B6 음성 머리표 하나뿐이고 안 맞으면 원문 그대로", one_head == "[압류재산] 가.", one_head)
     one_head_hit = server._guide_text_for("[압류재산] 가.", "압류재산", "매각")
     check("B6 머리표 하나뿐이어도 맞으면 자른다", one_head_hit == "가.", one_head_hit)
+    # 산문 대괄호는 머리표가 아니다(리뷰 r3 R3-3) — 사전 「공매재산명세서」 text 의 「[입찰정보] 탭」이 그 예다.
+    prose = server._guide_text_for("[압류재산] 상세페이지 [입찰정보] 탭에서 봅니다. [국유재산] 나.", "압류재산", "매각")
+    check("B6 음성 산문 대괄호는 자르지 않는다", prose == "상세페이지 [입찰정보] 탭에서 봅니다.", prose)
+    sheet = next(e["meaning"] for e in entries if e["term"] == "공매재산명세서")
+    check("B6 음성 공매재산명세서 text 는 압류 분류에서도 원문 그대로", sheet == str(server.ONBID_GUIDE_TERMS["공매재산명세서"]["text"]), sheet[:80])
+    # 임대·매각이 한 라벨에 있으면 미상처럼 둘 다 남긴다(리뷰 r3 R3-4).
+    mixed = due_for("국유재산", "임대/매각")
+    check("B6 머리표 혼합 라벨은 매각·대부 둘 다", "60일" in mixed and "5영업일" in mixed, mixed[:80])
+    # 순서 — 재산유형 전용 용어가 공통 용어보다 앞(리뷰 r3 제안).
+    sale_terms = [e["term"] for e in entries if e["group"] == "basic"]
+    check(
+        "B6 순서 유형별 → 매각/임대 → 공통",
+        sale_terms.index("매각결정기일") < sale_terms.index("소유권이전") < sale_terms.index("입찰보증금"),
+        str(sale_terms),
+    )
     no_type = server._guide_text_for("[압류재산] 가. [국유재산] 나.", "", "")
     check("B6 음성 재산유형이 비면 원문 그대로", no_type == "[압류재산] 가. [국유재산] 나.", no_type)
 

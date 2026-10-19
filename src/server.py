@@ -3025,13 +3025,13 @@ ONBID_GUIDE_TERMS: dict[str, dict[str, object]] = {
     # docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1·1-4 다. 뜻과 절차만 적고 판단은 담지 않는다.
     '최저입찰가격': {
         "text": "이 회차에 입찰할 수 있는 가장 낮은 금액입니다. 감정평가금액과 다를 수 있고, 회차가 여러 개인 공고는 회차마다 값이 다를 수 있습니다. 「비공개」로 표시되면 이용기관이 공개하지 않기로 한 것입니다(온비드 화면도 「비공개」로 표시합니다).",
-        "source": '온비드 물건 상세 최저입찰가격 공개 구분(lowstBidPrcHideDivCd) · 캠코 온비드사업처 회의(2026-09-07) · 온비드 국유재산 대부 공고 회차별 표',
+        "source": '온비드 물건 상세 가격 표시 규칙(최저입찰가격 비공개 구분) · 온비드 국유재산 대부 공고 회차별 입찰일정 표',
         "scope": 'common',
         "aliases": ('최저입찰가', '최저 입찰가격'),
     },
     '감정평가금액': {
         "text": "감정평가업자가 평가한 재산의 가격입니다. 최저입찰가격과 다를 수 있고, 둘이 어떤 관계인지는 공고마다 다르므로 공고 원문에서 확인합니다.",
-        "source": '온비드 자료실 용어사전 「감정가액」 · 온비드 물건 상세 감정평가금액 표시값',
+        "source": '온비드 자료실 용어사전 「감정가격」 · 온비드 물건 상세 감정평가금액 표시값',
         "scope": 'common',
         "aliases": ('감정평가액',),
     },
@@ -3150,7 +3150,10 @@ def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> 
 # 용어 탭에 올리는 절차 용어 — ONBID_GUIDE_TERMS(질문창과 같은 사전) 가운데 커뮤니티 조사에서 초보자가
 # 뜻을 물은 용어만 고른 목록이다(docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1~1-4).
 # 사전 전부를 올리면 공통 용어만 30건이 넘어 탭이 읽히지 않는다. 뜻풀이는 사전에서 읽으므로 여기에는 키만 둔다.
-# 항목의 scope(common · sale · lease · 압류재산 · 국유재산 · 수탁재산)가 공고 분류와 맞을 때만 보여 준다.
+# 항목의 scope 가 공고 분류와 맞을 때만 보여 준다. 사전에 실제로 쓰인 scope 값은 common · sale · lease ·
+# 압류재산 · 국유재산 다섯이다(2026-10-19 실측 · 「수탁재산」 scope 항목은 아직 없다).
+# 순서: 재산유형 전용 → 매각/임대 전용 → 공통. 초보자가 가장 찾는 유형별 용어(매각결정기일 · 차순위 · 명세서)가
+# 공통 용어 10여 건 뒤에 묻히지 않게 한다(리뷰 r3 제안).
 GLOSSARY_TAB_TERMS: tuple[str, ...] = (
     "최저입찰가격",
     "감정평가금액",
@@ -3178,13 +3181,14 @@ GLOSSARY_TAB_TERMS: tuple[str, ...] = (
 
 # 사전 text 가 「[압류재산] … [국유재산 매각] … [수탁·유입재산] … [이용기관 물건] …」처럼 재산유형 머리표로
 # 묶여 있으면, 공고 분류에 맞는 조각만 남긴다. 머리표가 없거나 맞는 조각이 없으면 원문 그대로다.
-GUIDE_TEXT_HEAD_RE = re.compile(r"\[([^\]]+)\]\s*")
+# 머리표는 어휘로 잠근다. 사전 text 에는 산문 대괄호(「물건 상세페이지 [입찰정보] 탭」)도 있어, 대괄호를
+# 전부 머리표로 보면 그 뒤 본문이 잘려 나갈 수 있다(리뷰 r3 R3-3 · 2026-10-19 사전 50건 전수에서 머리표 7종).
+GUIDE_TEXT_HEAD_RE = re.compile(r"\[(압류재산|국유재산(?: 매각| 대부)?|수탁(?:·유입)?재산|이용기관 물건)\]\s*")
 
 
 def _guide_text_for(text: str, asset_type: str, disposition_label: str) -> str:
     parts = GUIDE_TEXT_HEAD_RE.split(text)
-    if len(parts) < 3:
-        return text
+    # 머리표가 없으면 heads 가 비어 picked 도 비므로 아래 「not picked」 한 곳에서 원문으로 돌아간다.
     lead = parts[0].strip()
     heads = parts[1::2]
     bodies = [body.strip() for body in parts[2::2]]
@@ -3200,7 +3204,13 @@ def _guide_text_for(text: str, asset_type: str, disposition_label: str) -> str:
         exact = ["압류재산"]
     elif "국유재산" in asset_type:
         # 「국유재산」 하나로만 묶인 글(보증금 귀속)과 매각·대부로 갈라 묶인 글(대금납부기한)이 둘 다 있다.
-        exact = (["국유재산 대부"] if is_lease else ["국유재산 매각"] if is_sale else ["국유재산 매각", "국유재산 대부"]) + ["국유재산"]
+        # 임대와 매각 낱말이 함께 있는 라벨(「임대/매각」)은 미상과 같이 둘 다 남긴다(리뷰 r3 R3-4).
+        if is_lease and not is_sale:
+            exact = ["국유재산 대부", "국유재산"]
+        elif is_sale and not is_lease:
+            exact = ["국유재산 매각", "국유재산"]
+        else:
+            exact = ["국유재산 매각", "국유재산 대부", "국유재산"]
     elif "수탁재산" in asset_type:
         prefix = ["수탁"]
     elif "공유재산" in asset_type or "기타일반재산" in asset_type:
@@ -3235,7 +3245,10 @@ def build_glossary(asset_type: str = "", disposition_label: str = "", title: str
     공고 표기에 든 사전 용어(group=match · TERM_GLOSSARY)를 뒤에 둔다."""
     scopes = _notice_scopes(asset_type, disposition_label)
     entries: list[dict[str, str]] = []
-    for term in GLOSSARY_TAB_TERMS:
+    # 재산유형 전용(0) → 매각/임대 전용(1) → 공통(2). 같은 등급 안에서는 GLOSSARY_TAB_TERMS 순서를 지킨다.
+    scope_rank = {"common": 2, "sale": 1, "lease": 1}
+    ordered = sorted(GLOSSARY_TAB_TERMS, key=lambda t: scope_rank.get(str(ONBID_GUIDE_TERMS.get(t, {}).get("scope")), 0))
+    for term in ordered:
         item = ONBID_GUIDE_TERMS.get(term)
         if not item or item.get("scope") not in scopes:
             continue
