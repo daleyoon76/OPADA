@@ -1389,6 +1389,16 @@ test("S14 음성 — 국유 임대 공고와 재산유형을 못 읽은 공고�
     return [...document.querySelectorAll("#glossary-list .glossary-group-title")].map((el) => el.textContent);
   });
   expect(glossaryTitles).toEqual(["공고 표기에 나온 용어"]);
+
+  // ⓕ 반만 읽힌 공고(재산유형만 읽힘) — 제목 괄호에는 읽힌 값만 들어가고 「처분방식 확인」은 들어가지 않는다(리뷰 r2 R2-2).
+  const halfKnownTitle = await page.evaluate(() => {
+    sampleNotice.assetType = "국유재산";
+    sampleNotice.dispositionLabel = "처분방식 확인";
+    sampleNotice.glossary = [{ term: "유찰", meaning: "두 가지 뜻으로 쓰입니다.", group: "basic" }];
+    renderGlossary();
+    return document.querySelector("#glossary-list .glossary-group-title")?.textContent || "";
+  });
+  expect(halfKnownTitle).toBe("이 공고 유형(국유재산)의 기본 용어");
 });
 
 // S11 — 공공데이터 API 연동 블록 세 개가 설계한 자리에 놓이고, 질문 답·기한 어긋남을

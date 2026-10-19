@@ -3020,6 +3020,39 @@ ONBID_GUIDE_TERMS: dict[str, dict[str, object]] = {
         "scope": '압류재산',
         "aliases": ('공매 취소', '공매 정지', '공매의 취소', '입찰의 취소'),
     },
+    # ---- 아래 5건은 용어 탭 작업 세션(2026-10-19)이 더했다. 근거 정리본은
+    # team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md 와 커뮤니티 조사
+    # docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1·1-4 다. 뜻과 절차만 적고 판단은 담지 않는다.
+    '최저입찰가격': {
+        "text": "이 회차에 입찰할 수 있는 가장 낮은 금액입니다. 감정평가금액과 다를 수 있고, 회차가 여러 개인 공고는 회차마다 값이 다를 수 있습니다. 「비공개」로 표시되면 이용기관이 공개하지 않기로 한 것입니다(온비드 화면도 「비공개」로 표시합니다).",
+        "source": '온비드 물건 상세 최저입찰가격 공개 구분(lowstBidPrcHideDivCd) · 캠코 온비드사업처 회의(2026-09-07) · 온비드 국유재산 대부 공고 회차별 표',
+        "scope": 'common',
+        "aliases": ('최저입찰가', '최저 입찰가격'),
+    },
+    '감정평가금액': {
+        "text": "감정평가업자가 평가한 재산의 가격입니다. 최저입찰가격과 다를 수 있고, 둘이 어떤 관계인지는 공고마다 다르므로 공고 원문에서 확인합니다.",
+        "source": '온비드 자료실 용어사전 「감정가액」 · 온비드 물건 상세 감정평가금액 표시값',
+        "scope": 'common',
+        "aliases": ('감정평가액',),
+    },
+    '입찰참가자격': {
+        "text": "공고가 정한 입찰 가능 조건입니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있습니다. 괄호 안 표기(사업자 등)가 있으면 그 뜻은 참가자격 조항 원문과 담당기관에서 확인합니다.",
+        "source": '온비드 공고문 입찰참가자격 조항 · 공공데이터 온비드 물건 입찰상세(getCltrBidInf2) 자격·지역·기타 제한 필드',
+        "scope": 'common',
+        "aliases": ('참가자격', '입찰자격', '입찰 자격'),
+    },
+    '소유권이전': {
+        "text": "[압류재산] 잔대금을 낸 뒤 매수인이 서류·비용·우표를 준비해 캠코 관할 부점에 우편이나 방문으로 내고, 캠코가 등기를 촉탁합니다. 매수인이 등기소에 직접 낼 수는 없습니다. [국유재산 매각] 잔대금을 낸 뒤 이전서류를 받아 매수자가 직접 이전등기를 합니다. [수탁·유입재산] 위임기관에서 이전서류를 받아 매수자가 등기 신청합니다. [이용기관 물건] 절차와 비용은 공고문이 정합니다.",
+        "source": '온비드 FAQ 「압류재산 소유권이전절차 및 유의사항」 · 온비드 이용안내 > 낙찰절차 안내(압류재산 STEP03~05 · 국유재산 매각 STEP03 · 수탁재산 STEP03 · 기타 탭)',
+        "scope": 'sale',
+        "aliases": ('소유권이전등기', '이전등기', '등기 이전'),
+    },
+    '대부료': {
+        "text": "재산을 빌려 쓰는 대가로 내는 돈입니다. [국유재산 대부] 낙찰일로부터 5영업일 이내에 대부료 잔금을 공사 지정계좌에 내고, 신분증·주민등록등본·인장을 지참해 대부계약을 맺습니다. 계약을 맺지 않으면 낙찰이 무효가 되고 입찰보증금은 국고에 귀속됩니다. [이용기관 물건] 사용료·임대료의 납부 기한과 계약 절차는 공고기관마다 정하므로 공고문을 확인합니다.",
+        "source": '온비드 FAQ 「국유재산 대부계약 체결 방법은?」 · 온비드 이용안내 > 낙찰절차 안내(국유재산 대부 STEP01~02 · 기타 탭) · 국유재산 입찰참가자 준수규칙 제15조①',
+        "scope": 'lease',
+        "aliases": ('대부료 잔금', '연간대부료'),
+    },
 }
 
 # 질문 하나에 붙이는 용어 설명의 상한이다. 많이 붙이면 답보다 설명이 길어진다.
@@ -3114,77 +3147,67 @@ def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> 
 
 
 
-# 절차 기본 용어 — 공고 표기에 그 낱말이 없어도 «이 공고 유형이면» 보여 주는 용어다.
-# TERM_GLOSSARY(표기 매칭 사전)와 따로 둔다. 그 사전은 「보증금」을 담지 않는다는 음성 대조(B6)가
-# 있고, 여기 뜻풀이는 입찰보증금·잔대금처럼 보증금을 직접 설명해야 하기 때문이다.
-# 근거는 온비드 이용안내 「입찰참가 안내」(G1) · 「낙찰절차 안내」(G2) · 입찰참가자 준수규칙(R1 압류 ·
-# R2 국유 · R3 수탁 · R4 이용기관) · 온비드 FAQ 문항 번호다. 정리본은
-# team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md 이고,
-# 커뮤니티 조사(docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1·1-3·1-4)에서
-# 초보자가 뜻을 물은 용어만 담았다. 1차 출처를 못 찾은 용어(배분요구종기·인도명령·공매재산명세서)는 넣지 않았다.
-# scope: common = 모든 공고 · sale = 매각/공매 · lease = 임대/대부 · 그 외는 재산유형 이름(부분 일치).
-PROCESS_TERMS: tuple[dict[str, str], ...] = (
-    {
-        "term": "최저입찰가격 (공매예정가격)",
-        "scope": "common",
-        "meaning": "이 회차에 입찰할 수 있는 가장 낮은 금액입니다. 감정평가금액과 다른 값일 수 있고, 회차가 여러 개인 공고는 회차마다 값이 다를 수 있습니다. 「비공개」로 표시되면 이용기관이 공개하지 않기로 한 것입니다.",
-    },
-    {
-        "term": "감정평가금액",
-        "scope": "common",
-        "meaning": "감정평가업자가 평가한 재산의 가격입니다. 최저입찰가격과 다를 수 있고, 둘이 어떤 관계인지는 공고마다 다르므로 공고 원문에서 확인합니다.",
-    },
-    {
-        "term": "입찰보증금",
-        "scope": "common",
-        "meaning": "입찰서를 제출한 뒤 발급되는 가상계좌에 입찰 마감 시각까지 내는 돈입니다. 계산 기준(최저입찰가격인지 내가 쓰는 입찰금액인지)과 비율은 재산유형과 공고마다 다릅니다. 기한 안에 내지 않으면 입찰이 무효가 됩니다. 낙찰되지 않으면 개찰 뒤 환급계좌로 돌려받습니다(이자 없음).",
-    },
-    {
-        "term": "개찰",
-        "scope": "common",
-        "meaning": "입찰 마감 뒤 공고기관이 입찰서를 열어 결과를 정하는 절차입니다. 「개찰일시」는 개찰을 시작하는 시각이고, 결과는 개찰이 끝난 뒤 온비드 입찰결과 화면에서 직접 확인합니다. 낙찰자가 누구인지는 공개되지 않습니다.",
-    },
-    {
-        "term": "유찰",
-        "scope": "common",
-        "meaning": "두 가지 뜻으로 쓰입니다. 내 입찰이 낙찰되지 않은 경우와, 유효한 입찰자가 입찰 성립 기준에 미치지 못해 물건 자체가 유찰된 경우입니다. 성립 기준(1인 이상인지 2인 이상인지)은 물건마다 다르고, 물건이 유찰되면 다음 회차로 넘어갈 수 있습니다.",
-    },
-    {
-        "term": "입찰참가자격",
-        "scope": "common",
-        "meaning": "공고가 정한 입찰 가능 조건입니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있습니다. 괄호 안 표기(사업자 등)가 있으면 그 뜻은 참가자격 조항 원문에서 확인합니다.",
-    },
-    {
-        "term": "잔대금 (잔금)",
-        "scope": "sale",
-        "meaning": "낙찰 뒤 입찰보증금을 뺀 나머지 매수대금입니다. 납부 기한은 재산유형과 공고가 정하고, 기한 안에 내지 않으면 매각결정이나 계약이 취소되고 입찰보증금은 돌려받지 못할 수 있습니다.",
-    },
-    {
-        "term": "소유권이전",
-        "scope": "sale",
-        "meaning": "잔대금을 낸 뒤 소유권 등기를 넘겨받는 절차입니다. 압류재산은 매수인이 서류를 캠코 관할 부점에 내고 캠코가 등기를 촉탁합니다. 국유재산 매각은 매수자가 직접 이전등기를 합니다. 이용기관 물건은 공고문이 정합니다.",
-    },
-    {
-        "term": "명도",
-        "scope": "sale",
-        "meaning": "낙찰받은 재산을 점유자에게서 넘겨받는 일입니다. 누가 부담하는지는 공고문의 「명도책임」 조항이 정하고, 절차는 담당기관에 확인합니다.",
-    },
-    {
-        "term": "매각결정기일",
-        "scope": "압류재산",
-        "meaning": "개찰 뒤 캠코가 매각을 확정하는 날입니다. 캠코 압류재산은 개찰일로부터 7일 이내(통상 다다음주 월요일 14:00)입니다. 농지 매수자격 서류처럼 이 날 전까지 내야 하는 서류가 있고, 체납액 납부 등의 사유가 생기면 결정이 안 될 수 있습니다.",
-    },
-    {
-        "term": "차순위 매수신고",
-        "scope": "압류재산",
-        "meaning": "낙찰자가 잔대금을 내지 않을 때 다음 순위로 매수할 수 있도록 미리 신청하는 것입니다. 신청하면 낙찰자가 잔대금을 완납할 때까지 내 입찰보증금을 돌려받을 수 없습니다.",
-    },
-    {
-        "term": "대부료",
-        "scope": "lease",
-        "meaning": "재산을 빌려 쓰는 대가로 내는 돈입니다. 국유재산 대부는 낙찰일로부터 5영업일 이내에 대부료 잔금을 내고 대부계약을 맺습니다. 계약을 맺지 않으면 낙찰이 무효가 되고 입찰보증금은 국고에 귀속됩니다.",
-    },
+# 용어 탭에 올리는 절차 용어 — ONBID_GUIDE_TERMS(질문창과 같은 사전) 가운데 커뮤니티 조사에서 초보자가
+# 뜻을 물은 용어만 고른 목록이다(docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1~1-4).
+# 사전 전부를 올리면 공통 용어만 30건이 넘어 탭이 읽히지 않는다. 뜻풀이는 사전에서 읽으므로 여기에는 키만 둔다.
+# 항목의 scope(common · sale · lease · 압류재산 · 국유재산 · 수탁재산)가 공고 분류와 맞을 때만 보여 준다.
+GLOSSARY_TAB_TERMS: tuple[str, ...] = (
+    "최저입찰가격",
+    "감정평가금액",
+    "입찰보증금",
+    "입찰참가자격",
+    "입찰서 제출 뒤 취소·변경",
+    "개찰",
+    "유찰",
+    "낙찰",
+    "보증금 반환",
+    "입찰 무효",
+    "대금납부기한",
+    "보증금 귀속",
+    "소유권이전",
+    "명도책임",
+    "대부료",
+    "매각결정기일",
+    "매각결정통지서",
+    "차순위 매수신청",
+    "공매재산명세서",
+    "배분요구의 종기",
+    "등기촉탁",
+    "공매 취소·정지",
 )
+
+# 사전 text 가 「[압류재산] … [국유재산 매각] … [수탁·유입재산] … [이용기관 물건] …」처럼 재산유형 머리표로
+# 묶여 있으면, 공고 분류에 맞는 조각만 남긴다. 머리표가 없거나 맞는 조각이 없으면 원문 그대로다.
+GUIDE_TEXT_HEAD_RE = re.compile(r"\[([^\]]+)\]\s*")
+
+
+def _guide_text_for(text: str, asset_type: str, disposition_label: str) -> str:
+    parts = GUIDE_TEXT_HEAD_RE.split(text)
+    if len(parts) < 3:
+        return text
+    lead = parts[0].strip()
+    heads = parts[1::2]
+    bodies = [body.strip() for body in parts[2::2]]
+    asset_type = asset_type or ""
+    disposition_label = disposition_label or ""
+    is_lease = bool(re.search(r"임대|대부", disposition_label)) and not re.search(r"매각|공매", disposition_label)
+    is_sale = bool(re.search(r"매각|공매", disposition_label))
+    # exact 는 머리표와 글자까지 같아야 하고, prefix 는 머리표가 그 낱말로 시작하면 된다(「수탁·유입재산」 · 「이용기관 물건」).
+    exact: list[str] = []
+    prefix: list[str] = []
+    if "압류재산" in asset_type:
+        exact = ["압류재산"]
+    elif "국유재산" in asset_type:
+        # 「국유재산」 하나로만 묶인 글(보증금 귀속)과 매각·대부로 갈라 묶인 글(대금납부기한)이 둘 다 있다.
+        exact = (["국유재산 대부"] if is_lease else ["국유재산 매각"] if is_sale else ["국유재산 매각", "국유재산 대부"]) + ["국유재산"]
+    elif "수탁재산" in asset_type:
+        prefix = ["수탁"]
+    elif "공유재산" in asset_type or "기타일반재산" in asset_type:
+        prefix = ["이용기관"]
+    picked = [body for head, body in zip(heads, bodies) if head in exact or any(head.startswith(w) for w in prefix)]
+    if not picked:
+        return text
+    return " ".join(part for part in [lead, *picked] if part)
 
 
 def _notice_scopes(asset_type: str, disposition_label: str) -> set[str]:
@@ -3207,13 +3230,22 @@ def _notice_scopes(asset_type: str, disposition_label: str) -> set[str]:
 
 
 def build_glossary(asset_type: str = "", disposition_label: str = "", title: str = "") -> list[dict[str, str]]:
-    """기본 용어(group=basic)를 앞에, 공고 표기에 든 사전 용어(group=match)를 뒤에 둔다."""
+    """기본 용어(group=basic · ONBID_GUIDE_TERMS 가운데 GLOSSARY_TAB_TERMS 에 든 것)를 앞에,
+    공고 표기에 든 사전 용어(group=match · TERM_GLOSSARY)를 뒤에 둔다."""
     scopes = _notice_scopes(asset_type, disposition_label)
-    entries: list[dict[str, str]] = [
-        {"term": item["term"], "meaning": item["meaning"], "group": "basic"}
-        for item in PROCESS_TERMS
-        if item["scope"] in scopes
-    ]
+    entries: list[dict[str, str]] = []
+    for term in GLOSSARY_TAB_TERMS:
+        item = ONBID_GUIDE_TERMS.get(term)
+        if not item or item.get("scope") not in scopes:
+            continue
+        entries.append(
+            {
+                "term": term,
+                "meaning": _guide_text_for(str(item["text"]), asset_type, disposition_label),
+                "source": str(item.get("source", "")),
+                "group": "basic",
+            }
+        )
     seen: set[str] = set()
     for value in (asset_type, disposition_label, title):
         for term, meaning in TERM_GLOSSARY.items():

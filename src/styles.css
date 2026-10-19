@@ -840,6 +840,11 @@ details.stage-group:first-child > summary .stage-group-heading {
   font-size: 0.95rem;
 }
 
+.glossary-source {
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
 .attachment-inventory-note {
   margin-top: 8px;
 }

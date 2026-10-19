@@ -1278,15 +1278,18 @@ def test_glossary() -> None:
     # 종전 단정 「미상이면 []」은 「미상이면 표기 매칭(match) 0건 · 기본 용어는 공통 scope 만」으로 바뀌었다.
     unknown = server.build_glossary("재산유형 확인", "처분방식 확인", "")
     check("용어 음성 미상 — 표기 매칭 0건", [e for e in unknown if e["group"] == "match"] == [], str(unknown))
-    common_terms = {item["term"] for item in server.PROCESS_TERMS if item["scope"] == "common"}
+    # 기본 용어의 뜻풀이는 질문창과 같은 사전 ONBID_GUIDE_TERMS 에서 읽고, 용어 탭에 올릴 키만 GLOSSARY_TAB_TERMS 가 고른다.
+    missing_keys = [t for t in server.GLOSSARY_TAB_TERMS if t not in server.ONBID_GUIDE_TERMS]
+    check("B6 용어 탭 키가 전부 사전에 있다", missing_keys == [], str(missing_keys))
+    common_terms = {t for t in server.GLOSSARY_TAB_TERMS if server.ONBID_GUIDE_TERMS[t]["scope"] == "common"}
     check(
         "용어 음성 미상 — 기본 용어는 공통 scope 만",
         unknown and all(e["group"] == "basic" and e["term"] in common_terms for e in unknown),
         str([e["term"] for e in unknown]),
     )
-    # 리터럴 음성(리뷰 r1 P-38 ⑴) — 위 단정의 기대값은 PROCESS_TERMS 에서 계산하므로 누가 「매각결정기일」의
+    # 리터럴 음성(리뷰 r1 P-38 ⑴) — 위 단정의 기대값은 사전 scope 에서 계산하므로 누가 「매각결정기일」의
     # scope 를 common 으로 바꾸면 함께 움직여 영원히 초록이다. 유형별 용어 이름을 여기 손으로 박는다.
-    typed_terms = {"매각결정기일", "차순위 매수신고", "대부료", "잔대금 (잔금)", "소유권이전", "명도"}
+    typed_terms = {"매각결정기일", "차순위 매수신청", "대부료", "소유권이전", "명도책임", "등기촉탁"}
     check(
         "용어 음성 미상 — 유형별 용어 없음(리터럴)",
         not any(e["term"] in typed_terms for e in unknown),
@@ -1294,25 +1297,42 @@ def test_glossary() -> None:
     )
     # 감정평가금액 note(price_candidates)는 단정형이 아니라 가정형이어야 한다(리뷰 r1 #3 · 정본에 관계 서술 없음).
     source_text = Path(server.__file__).read_text(encoding="utf-8")
-    check("B6 감정평가금액 note 가정형 배선", "최저입찰가격과 다를 수 있고, 둘의 관계는 공고 원문에서 확인하십시오." in source_text, "")
+    check("B6 감정평가금액 note 가정형 문장 존재(소스 문자열 · 배선은 보지 않음)", "최저입찰가격과 다를 수 있고, 둘의 관계는 공고 원문에서 확인하십시오." in source_text, "")
     check("B6 음성 감정평가금액 단정형 0건", "최저입찰가격과는 다른 값" not in source_text, "")
 
-    # B6 기본 용어(PROCESS_TERMS) — 공고 유형에 따라 다른 묶음이 앞에 선다(2026-10-19 커뮤니티 조사 1-1 반영).
+    # B6 기본 용어(GLOSSARY_TAB_TERMS ∩ ONBID_GUIDE_TERMS) — 공고 유형에 따라 다른 묶음이 앞에 선다(2026-10-19 커뮤니티 조사 1-1 반영).
     groups = [entry["group"] for entry in entries]
     check("B6 기본 용어가 표기 매칭보다 앞", groups == sorted(groups, key=lambda g: 0 if g == "basic" else 1), str(groups))
     basic_sale = {e["term"] for e in entries if e["group"] == "basic"}
-    check("B6 압류·매각 기본 용어에 매각결정기일", any("매각결정기일" in t for t in basic_sale), str(basic_sale))
-    check("B6 압류·매각 기본 용어에 잔대금", any("잔대금" in t for t in basic_sale), str(basic_sale))
+    check("B6 압류·매각 기본 용어에 매각결정기일", "매각결정기일" in basic_sale, str(basic_sale))
+    check("B6 압류·매각 기본 용어에 대금납부기한·소유권이전", {"대금납부기한", "소유권이전"} <= basic_sale, str(basic_sale))
     check("B6 압류·매각 기본 용어에 유찰·개찰·입찰보증금", {"유찰", "개찰", "입찰보증금"} <= basic_sale, str(basic_sale))
-    basic_lease = {e["term"] for e in server.build_glossary("국유재산", "임대/대부입찰", "") if e["group"] == "basic"}
+    lease_entries = server.build_glossary("국유재산", "임대/대부입찰", "")
+    basic_lease = {e["term"] for e in lease_entries if e["group"] == "basic"}
     check("B6 국유·임대 기본 용어에 대부료", "대부료" in basic_lease, str(basic_lease))
-    check("B6 음성 국유·임대 기본 용어에 매각결정기일·잔대금 없음", not any("매각결정기일" in t or "잔대금" in t for t in basic_lease), str(basic_lease))
+    check("B6 음성 국유·임대 기본 용어에 매각결정기일·소유권이전 없음", not ({"매각결정기일", "소유권이전"} & basic_lease), str(basic_lease))
     check("B6 음성 압류·매각 기본 용어에 대부료 없음", "대부료" not in basic_sale, str(basic_sale))
     # 도달 증거 — 두 집합이 실제로 다르다(둘 다 공통만 돌려주면 위 단정들이 영구 초록이 된다).
     check("B6 도달 증거 — 매각·임대 기본 용어 집합이 다름", basic_sale != basic_lease, "")
     # 음성 — 기본 용어는 판단을 담지 않는다. 금지 낱말은 CLAUDE.md 행동 규칙(입찰 여부·수익성·권리 판단).
-    judging = [item["term"] for item in server.PROCESS_TERMS if re.search(r"수익|추천|유리|안전하|권리분석", item["meaning"])]
+    judging = [t for t in server.GLOSSARY_TAB_TERMS if re.search(r"수익|추천|유리|안전하|권리분석", str(server.ONBID_GUIDE_TERMS[t]["text"]))]
     check("B6 음성 기본 용어 뜻풀이에 판단 낱말 없음", judging == [], str(judging))
+    check("B6 기본 용어마다 출처가 있다", all(e.get("source") for e in entries if e["group"] == "basic"), "")
+
+    # B6 머리표 자르기 — 사전 text 가 「[압류재산] … [국유재산 매각] …」로 묶인 항목은 공고 분류의 조각만 남긴다.
+    sale_due = next(e["meaning"] for e in entries if e["term"] == "대금납부기한")
+    lease_due = next(e["meaning"] for e in lease_entries if e["term"] == "대금납부기한")
+    unknown_due = next(e["meaning"] for e in unknown if e["term"] == "대금납부기한")
+    check("B6 머리표 압류 조각만", "매각결정통지서" in sale_due and "국유재산" not in sale_due and "[" not in sale_due, sale_due[:80])
+    check("B6 머리표 국유 대부 조각만", "5영업일" in lease_due and "매각결정통지서" not in lease_due and "60일" not in lease_due, lease_due[:80])
+    check("B6 머리표 미상이면 원문 그대로", unknown_due.startswith("[압류재산]") and "[국유재산 매각]" in unknown_due, unknown_due[:80])
+    lease_deposit = next(e["meaning"] for e in lease_entries if e["term"] == "보증금 귀속")
+    check("B6 머리표 「국유재산」 하나로 묶인 글도 국유 대부에 맞춤", "국고에 귀속" in lease_deposit and "매도자" not in lease_deposit, lease_deposit[:80])
+    local_lease = {e["term"]: e["meaning"] for e in server.build_glossary("공유재산", "임대", "") if e["group"] == "basic"}
+    check("B6 머리표 이용기관 조각(공유 임대 대부료)", "공고기관마다" in local_lease["대부료"] and "5영업일" not in local_lease["대부료"], local_lease["대부료"][:80])
+    # 음성 — 머리표가 없는 글은 손대지 않는다.
+    plain = next(e["meaning"] for e in entries if e["term"] == "유찰")
+    check("B6 머리표 없는 글은 원문 그대로", plain == str(server.ONBID_GUIDE_TERMS["유찰"]["text"]), "")
 
     # 음성 대조: 용어 안내는 «뜻»만 적는다. 처분방식 사이의 금액·보증금 비교를 담으면
     # 임대(사용료)와 매각(매매대금)의 금액 규모를 같게 오해시킨다.
