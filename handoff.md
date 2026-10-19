@@ -33,7 +33,7 @@
 - improve-uiux 세션이 넘긴 P2 둘(그 세션 `verification-r2.md` 3·4절): ① 2-2 첨부 안내 네 줄에 「확인하십시오」가 세 번 · 가장 무거운 「읽지 못했다」 줄이 맨 뒤 ② 압류 공고 2-2 미분류의 농지취득자격증명 원문 근거에 「매각결정기일 전에 … 제출」이 보임.
 - 🔴 제품 판단 대기: #26 · #27 농지취득자격증명(요건 안내 문장이라 목록에서 빠짐 · 낙찰 후 소유권이전에는 필요).
 - 검증자 질의 대상 U1~U5(`researcher-verify-sot-r1.md` 5절)는 묻지 않았다.
-- `team-reports/2026-10-19-bid-stage-sot/`(파일 12개)와 이 handoff 는 main 에 로컬 커밋만 한다(push 는 동원님 확인 뒤).
+- `team-reports/2026-10-19-bid-stage-sot/` 와 이 handoff 는 main 에 커밋·push 했다(cf7d877). develop 은 push 하지 않았다(동원님 결정 대기).
 
 ### 다음 시작점
 1. develop 판 서버 http://127.0.0.1:8979/ 에서 판교 샘플 화면 확인(동원님)
