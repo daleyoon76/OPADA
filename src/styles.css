@@ -2930,3 +2930,10 @@ button.mini-step {
 .board-top-stepper:empty {
   display: none;
 }
+
+/* 3팀 묶음 B · U3: 분석 전 빈 보드는 도구줄과 아래 단계 표시를 hidden 으로 숨긴다.
+   두 요소의 display:flex 규칙이 [hidden] 을 이겨 그대로 보였으므로, 그보다 센 선택자로 다시 숨긴다. */
+.board-page-toolbar[hidden],
+.board-dock .board-status[hidden] {
+  display: none;
+}

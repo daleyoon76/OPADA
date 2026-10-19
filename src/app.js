@@ -474,7 +474,8 @@ const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
 // 「낙찰됐다」는 뜻이 아니다. 그래서 4단계는 잠그지 않고 sequential: false 로 둔다
 // (2026-10-18 ux-design-review 질문 2).
 const PREP_STAGES = [
-  { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"], sequential: true },
+  // bid-qualification 은 서버가 아니라 화면이 만든다(getBidQualificationTask · 자격 제한이 있는 공고에만).
+  { num: 1, title: "공고 확인", taskIds: ["bid-qualification", "notice-type", "bid-period"], sequential: true },
   { num: 2, title: "입찰 전 준비", taskIds: ["documents"], sequential: true },
   { num: 3, title: "입찰 참여", taskIds: ["price"], sequential: true },
   { num: 4, title: "낙찰 후 준비", taskIds: [], sequential: false },
@@ -1120,8 +1121,10 @@ function getDocSummary() {
   return countDocNames(getPreBidDocGroups(), getDocState());
 }
 
+// 해당하지 않을 수 있다고 접어 둔 묶음(notApplicable)은 분모에서 뺀다(2026-10-19 동원님 결정 U1).
+// 화면이 스스로 「해당하지 않을 수 있습니다」라고 접은 서류를 진행률이 다시 요구하면 두 정보가 어긋난다.
 function getPostAwardDocSummary() {
-  return countDocNames(getPostAwardDocGroups(), getDocState());
+  return countDocNames(getPostAwardDocGroups().filter((group) => !group.notApplicable), getDocState());
 }
 
 function currentNoticeCard() {
@@ -1266,10 +1269,33 @@ function getInputWarning() {
   return null;
 }
 
+// 공공데이터 입찰정보에 제한 조건이 하나라도 있으면 2-1 맨 앞에 「입찰 자격 확인」 할 일을 둔다(2026-10-19 동원님 결정 U10 ⑷).
+// 자격 조건은 체크 대상이 아니라 그냥 지나가기 쉬웠다. 제한이 없으면 만들지 않아 진행률 분모가 그대로다.
+// 서버(build_tasks)는 고치지 않는다 — 다른 세션이 server.py 를 맡고 있어 화면 쪽에서만 만든다.
+function getBidQualificationTask() {
+  const limits = Array.isArray(sampleNotice.bidLimits) ? sampleNotice.bidLimits : [];
+  const restricted = limits.filter((limit) => limit.restricted);
+  if (!restricted.length) return null;
+  return {
+    id: "bid-qualification",
+    title: "입찰 자격 확인",
+    action: restricted.map((limit) => limit.label).join(" · "),
+    due: "분석 직후",
+    detail: `공공데이터에 입찰 자격 제한이 있습니다(${restricted.map((limit) => `${limit.label}: ${limit.value}`).join(" / ")}). 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문의 참가자격 조항을 먼저 확인합니다.`,
+    question: "이 물건의 입찰 참가자격 제한에 내가 해당하는지 담당기관이나 공고 원문에서 확인합니다.",
+    source: "공공데이터 온비드 물건 입찰정보(getCltrBidInf2)",
+    cta: "온비드 원문",
+    url: sampleNotice.sourceUrl,
+    defaultDone: false,
+  };
+}
+
 function getApplicableTasks() {
   const userType = getSelectedUserType();
   const boardTasks = Array.isArray(sampleNotice.boardTasks) ? sampleNotice.boardTasks : [];
-  return boardTasks
+  const qualificationTask = getBidQualificationTask();
+  // 정렬 뒤 맨 앞에 붙인다. 정렬에 넣으면 AI 매칭 점수가 높은 할 일이 그 앞으로 올라간다.
+  const sortedTasks = boardTasks
     .filter((task) => !task.userTypes || task.userTypes.includes(userType))
     .map((task, index) => ({ task, index, stage: getTaskStageNum(task.id) ?? PREP_STAGES.length + 1, aiMatch: getTaskAiMatch(task) }))
     .sort((a, b) => {
@@ -1281,6 +1307,7 @@ function getApplicableTasks() {
       return scoreDiff || a.index - b.index;
     })
     .map(({ task }) => task);
+  return qualificationTask ? [qualificationTask, ...sortedTasks] : sortedTasks;
 }
 
 function getTaskState() {
@@ -1310,7 +1337,8 @@ function saveTaskState(state) {
 }
 
 function resetTaskState() {
-  if (!window.confirm("진행 상황을 초기화할까요?")) {
+  // 버튼은 각 단계 페이지에 있지만 이 공고의 모든 단계 체크와 서류 체크를 지운다. 범위를 확인창에 적는다(U11).
+  if (!window.confirm("2-1~2-4 할 일 체크와 서류 체크를 모두 지웁니다. 되돌릴 수 없습니다. 계속할까요?")) {
     return;
   }
   window.localStorage.removeItem(taskStorageKeyFor(sampleNotice));
@@ -1367,11 +1395,13 @@ function formatProgress(summary) {
 function getFitMessage() {
   const inputWarning = getInputWarning();
   if (inputWarning) {
+    // 목적 불일치와 같은 「불일치」 머리표를 쓰지 않는다. 입력이 비었거나 형식이 틀린 것이다(I5).
     return {
       type: "mismatch",
+      badgeLabel: "입력 필요",
       title: inputWarning.title,
       body: inputWarning.body,
-      action: "온비드 URL을 입력한 뒤 공고 분석을 실행하세요.",
+      action: getNoticeInput() ? "온비드 URL을 붙여 넣은 뒤 「분석하기」를 누르십시오." : "URL을 붙여 넣거나 「샘플 불러오기」를 누르십시오.",
       inputBlocked: true,
     };
   }
@@ -1379,9 +1409,14 @@ function getFitMessage() {
   if (analysisError) {
     return {
       type: "mismatch",
+      badgeLabel: "오류",
       title: "공고 분석에 실패했습니다",
       body: analysisError,
-      action: "URL이 온비드 공고/물건 상세 페이지인지 확인한 뒤 다시 실행하세요.",
+      // 서버·연결 오류는 URL 문제가 아니다. URL 을 확인하라고 하면 고칠 방법을 잘못 알려 준다(I5).
+      action:
+        analysisError === ANALYSIS_SERVER_ERROR_MESSAGE
+          ? "「분석하기」를 다시 누르면 같은 URL을 다시 읽습니다."
+          : "URL이 온비드 공고/물건 상세 페이지인지 확인한 뒤 「분석하기」를 다시 누르십시오.",
       inputBlocked: true,
     };
   }
@@ -1390,8 +1425,11 @@ function getFitMessage() {
     return {
       type: "check",
       title: "아직 이 URL을 분석하지 않았습니다",
-      body: "입력 URL이 바뀌었습니다. 공고 분석을 실행해야 이 URL 기준의 준비 보드가 생성됩니다.",
-      action: "다음 버튼을 누르면 유효성 결과와 공고/물건 연결 정보를 먼저 보여줍니다.",
+      // 「바뀌었습니다」는 한 번 분석한 뒤 URL 이 달라졌을 때만 쓴다. 처음 붙여 넣은 사람은 바꾼 것이 없다(U4).
+      body: analyzedInputValue
+        ? "입력 URL이 바뀌었습니다. 공고 분석을 실행해야 이 URL 기준의 준비 보드가 생성됩니다."
+        : "공고 분석을 실행해야 이 URL 기준의 준비 보드가 생성됩니다.",
+      action: "「분석하기」를 누르면 유효성 결과와 공고·물건 연결 정보를 먼저 보여 줍니다.",
       inputBlocked: true,
     };
   }
@@ -1466,7 +1504,7 @@ function renderStage1RestartWarning(warning) {
       ${badge("확인 필요", "warn")}
       <strong>이 공고로 계속 진행하기 전에 확인이 필요합니다</strong>
     </div>
-    ${warning.reasons.map((reason) => `<p>${reason}</p>`).join("")}
+    ${warning.reasons.map((reason) => `<p>${escapeHtml(reason)}</p>`).join("")}
     <p class="small-text">처음으로 돌아가면 지금 분석 중인 공고 데이터를 버리고 유형·목적 선택부터 다시 시작합니다.</p>
     <div class="actions">
       <button type="button" class="primary small-button" data-restart-wizard>처음으로 돌아가시겠어요?</button>
@@ -1525,10 +1563,10 @@ function renderUrlStepFeedback(fit) {
   feedback.className = `url-step-feedback fit-panel ${fit.type}`;
   feedback.innerHTML = `
     <div class="fit-top">
-      ${badge(fit.type === "mismatch" ? "불일치" : "확인 필요", typeBadge)}
+      ${badge(fit.badgeLabel || (fit.type === "mismatch" ? "불일치" : "확인 필요"), typeBadge)}
       <strong>${fit.title}</strong>
     </div>
-    <p>${fit.body}</p>
+    <p>${escapeHtml(fit.body)}</p>
     <p class="small-text">${fit.action}</p>
   `;
 }
@@ -1562,7 +1600,7 @@ function renderAnalysisResult() {
         tag: fit.type === "mismatch" ? "불일치" : fit.type === "check" ? "확인 필요" : "일치",
         tone: typeBadge,
         title: fit.title,
-        text: fit.body,
+        text: escapeHtml(fit.body),
       })}
     </section>
 
@@ -1879,6 +1917,9 @@ function getBoardSnapshot() {
   };
 }
 
+// 502 · 네트워크 오류처럼 시스템이 답을 못 준 경우다. 「담당기관에 문의」는 답할 수 없는 질문에만 쓴다(I5).
+const ASK_SYSTEM_FAILURE_MESSAGE = "답을 받지 못했습니다. 잠시 뒤 다시 질문하십시오.";
+
 async function askNoticeQuestion() {
   // 결과 요소는 여기서 잡아 두지 않는다. 답을 기다리는 사이 코치 영역이 새로 그려질 수 있다(I1).
   const input = byId("coach-question-input");
@@ -1926,13 +1967,18 @@ async function askNoticeQuestion() {
     if (requestId !== askRequestId) return;
     if (response.status === 429) startAskCooldown();
     if (!payload.ok) {
-      setCoachAnswer(`<p class="small-text">${escapeHtml(payload.error || "질문을 처리하지 못했습니다. 담당기관에 문의하세요.")}</p>`);
+      // 서버 내부 오류(5xx)는 원본 문구 대신 다시 물으라고 안내한다. 담당기관은 시스템 장애를 알 수 없다(I5).
+      // 429 · 400(질문을 입력하세요)처럼 사용자가 할 일이 담긴 문구는 그대로 보인다.
+      const systemFailure = response.status >= 500 || !payload.error;
+      if (systemFailure) console.warn("AI 코치 질문 실패", response.status, payload.error);
+      setCoachAnswer(`<p class="small-text">${escapeHtml(systemFailure ? ASK_SYSTEM_FAILURE_MESSAGE : payload.error)}</p>`);
       return;
     }
     setCoachAnswer(renderQuestionAnswer(payload.result));
-  } catch {
+  } catch (error) {
     if (requestId !== askRequestId) return;
-    setCoachAnswer(`<p class="small-text">질문을 처리하지 못했습니다. 담당기관에 문의하세요.</p>`);
+    console.warn("AI 코치 질문 실패", error);
+    setCoachAnswer(`<p class="small-text">${ASK_SYSTEM_FAILURE_MESSAGE}</p>`);
   } finally {
     // 낡은 요청이면 잠금은 이미 clearCoachAnswer 가 풀었다. 여기서 풀면 새 요청의 잠금까지 풀린다.
     if (requestId === askRequestId) {
@@ -1973,6 +2019,12 @@ function renderBidParticipationInfo(taskSummary) {
     <section class="block">
       <h3 class="block-title">입찰 참여 정보</h3>
       <div class="fact-grid">${rows.map(([label, value]) => factCell(label, fieldValue(value))).join("")}</div>
+      ${
+        // 입찰서는 온비드에서 직접 낸다. 이 단계의 실제 다음 행동이 그곳이라 바로 여는 길을 둔다(U12).
+        sampleNotice.sourceUrl
+          ? `<div class="link-chips"><a class="link-chip" href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">온비드에서 이 물건 열기 ↗</a></div>`
+          : ""
+      }
     </section>
     <section class="block bid-rules">
       <h3 class="block-title">온비드 입찰 규칙</h3>
@@ -1984,13 +2036,13 @@ function renderBidParticipationInfo(taskSummary) {
 
 function renderAiReadySummary(coach) {
   const checks = coach?.unresolvedChecks || [];
-  const questionCount = (coach?.askAgency || []).length;
   return infoRow({
     tag: coach?.llmStatus === "connected" ? "AI 분석 완료" : "규칙 기반 점검 완료",
     tone: coach?.llmStatus === "connected" ? "safe" : "warn",
     title: "준비 보드에서 우선순위 체크리스트로 보여드립니다.",
     text: checks.length
-      ? `${checks.length}개 미해결 항목과 ${questionCount}개 담당기관 확인 질문을 준비했습니다.`
+      ? // 담당기관 질문 개수는 화면 어디에도 그리지 않는다. 없는 것을 약속하지 않는다(U8).
+        "확인할 항목을 준비 보드 단계별 할 일로 정리했습니다."
       : "공고별 준비 보드에서 다음 확인 항목을 정리합니다.",
   });
 }
@@ -2062,6 +2114,9 @@ function renderDocSourceNotice() {
     tone: profile.code === "A" ? "safe" : "warn",
     title: profile.label,
     text: profile.detail,
+    // detail 은 서버 문구(DOC_SOURCE_PROFILES)라 「아래 첨부파일」을 고치지 못한다. 1-3 에는 첨부 영역이 없으므로
+    // 실제 위치를 덧붙인다(U7).
+    meta: profile.code === "B" ? "첨부파일은 준비 보드 2-1 에서 함께 확인하십시오." : "",
   });
 }
 
@@ -2314,6 +2369,12 @@ function renderBidLimitsPanel() {
   </section>`;
 }
 
+// 첨부파일 탭은 2-1 에만 있다. 2-2 의 「첨부파일을 확인하십시오」가 가리킬 곳과 그곳으로 가는 버튼이다(U7).
+function renderAttachmentPointer() {
+  return `<p class="small-text attachment-pointer">첨부파일은 2-1 공고 확인의 「공고 자료 › 첨부파일」에서 확인하십시오.
+    <button type="button" class="secondary small-button" data-goto-attachments>2-1 첨부파일 보기</button></p>`;
+}
+
 function renderDocChecklist(locked) {
   const checklist = sampleNotice.docChecklist;
   if (!checklist) return "";
@@ -2369,12 +2430,13 @@ function renderDocChecklist(locked) {
     <p class="doc-reference">${checklist.reference || ""}</p>
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
+    ${profile.code === "B" ? renderAttachmentPointer() : ""}
     ${
       hasAnyPreBidItems
         ? groupsHtml + unclassifiedHtml + needsInquiryHtml
         : rawGroups.length
           ? `<p class="small-text">공동입찰·대리입찰에 해당하지 않아 추가로 준비할 서류가 없습니다. 질문에 "예"로 답하면 관련 서류가 다시 나타납니다.</p>`
-          : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`
+          : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 첨부파일과 온비드 원문을 확인하십시오.</p>${renderAttachmentPointer()}`
     }
     ${
       checklist.tableRows?.length
@@ -2391,7 +2453,7 @@ function renderDocChecklist(locked) {
     }
     <ul class="doc-notes">${(checklist.notes || []).map((note) => `<li>${note}</li>`).join("")}</ul>
     <div class="doc-locker-action">
-      <button type="button" class="primary small-button" data-store-to-locker>내 보관함으로 보내기</button>
+      <button type="button" class="primary small-button" data-store-to-locker>관심 공고에 저장</button>
       <span id="doc-locker-feedback" class="doc-locker-feedback" role="status" aria-live="polite"></span>
     </div>
   </section>`;
@@ -2641,7 +2703,8 @@ function renderBoardPageNav(stageStatus, active) {
   }${
     next
       ? `<button type="button" class="${active.done ? "primary" : "secondary"}" data-board-stage="${next.num}">2-${next.num} ${next.title} →</button>`
-      : ""
+      : // 마지막 단계(2-4)에서 흐름을 닫는 행동이다. 「새 물건 분석으로」와 같은 동작을 쓴다(U12).
+        `<button type="button" class="secondary" data-new-analysis>새 물건 분석</button>`
   }`;
 }
 
@@ -2796,7 +2859,9 @@ function renderPostAwardPanel() {
           <span class="progress" role="progressbar" aria-label="낙찰 후 서류 확인 진행률" aria-valuemin="0" aria-valuemax="${summary.totalCount}" aria-valuenow="${summary.doneCount}"><i style="width:${summary.percent}%"></i></span>
           <p class="small-text">이 진행률은 2-2 입찰 전 준비의 서류 진행률과 따로 계산합니다. 여기를 체크해도 입찰 단계 잠금은 열리지 않습니다.</p>
         </div>`
-        : `<p class="small-text">이 공고에서 낙찰 후 서류를 찾지 못했습니다. 공고 원문과 첨부파일을 확인하십시오.</p>`
+        : groups.length
+          ? `<p class="small-text post-award-none-applicable">이 공고 유형에 해당하는 낙찰 후 서류를 찾지 못했습니다. 아래 접힌 묶음은 다른 재산유형·처분방식 기준입니다.</p>`
+          : `<p class="small-text">이 공고에서 낙찰 후 서류를 찾지 못했습니다. 공고 원문과 첨부파일을 확인하십시오.</p>`
     }
     ${groupsHtml}
   </section>`;
@@ -2867,6 +2932,16 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
       </article>`;
 }
 
+// 분석 전 빈 보드에서는 쓸 수 없는 조작(간단히·자세히 · 초기화 · 새 물건 분석 · 공고 요약·자료 · 단계 표시)을 숨긴다(U3).
+function setBoardChromeHidden(hidden) {
+  document.querySelector("#view-report .section-title [data-new-analysis]")?.toggleAttribute("hidden", hidden);
+  document.querySelector("#view-report .board-page-toolbar")?.toggleAttribute("hidden", hidden);
+  byId("guide-level-hint")?.toggleAttribute("hidden", hidden);
+  byId("board-top-stepper")?.toggleAttribute("hidden", hidden);
+  byId("board-status")?.toggleAttribute("hidden", hidden);
+  if (hidden) byId("board-stage1-extra").hidden = true;
+}
+
 function renderReport() {
   const userType = getSelectedUserType();
   const fit = getFitMessage();
@@ -2878,6 +2953,28 @@ function renderReport() {
   const blockingMessage = inputWarning || (analysisError ? { title: "공고 분석에 실패했습니다", body: analysisError } : null) || staleInputWarning;
   const taskSummary = getTaskSummary();
   const aiAssignments = getAiTaskAssignments(taskSummary.tasks);
+  // 한 번도 분석하지 않은 상태(처음 들어옴 · 샘플만 불러옴 · 「새 물건 분석으로」 뒤)는 실패도 URL 변경도 아니다.
+  // 「분석 실패」·「입력 URL이 바뀌었지만」을 쓰면 아무것도 안 한 사람이 「뭔가 실패했다」로 읽는다(U3 · I4).
+  const neverAnalyzed = analyzedInputValue === "" && !analysisError;
+  setBoardChromeHidden(neverAnalyzed);
+
+  if (neverAnalyzed) {
+    byId("board-top-stepper").innerHTML = "";
+    byId("report-hero").innerHTML = "";
+    byId("board-status").innerHTML = "";
+    byId("board-coach").innerHTML = "";
+    byId("board-page-nav").innerHTML = "";
+    byId("board-step-label").textContent = "Step 2";
+    byId("report-title").textContent = "내 준비 보드";
+    byId("task-list").innerHTML = `
+      <section class="block board-empty">
+        <h3 class="block-title">아직 가져온 공고가 없습니다</h3>
+        <p class="block-lead">공고 가져오기에서 온비드 URL을 분석하면 이 자리에 공고별 준비 단계와 할 일이 생깁니다.</p>
+        <div class="actions"><button type="button" class="primary" data-goto-input>공고 가져오기로</button></div>
+      </section>
+    `;
+    return;
+  }
 
   if (blockingMessage) {
     const sourceLink = byId("source-url-link");
@@ -2888,7 +2985,7 @@ function renderReport() {
     byId("report-hero").innerHTML = `
       <h3>${blockingMessage.title}</h3>
       <p>${badge("분석 필요", "warn")} <span class="small-text">원문 우선</span></p>
-      <p>${blockingMessage.body}</p>
+      <p>${escapeHtml(blockingMessage.body)}</p>
       <p class="small-text">온비드 공고/물건 URL을 입력하고 공고 분석을 다시 실행하세요.</p>
     `;
 
@@ -2911,7 +3008,8 @@ function renderReport() {
       </article>
     `;
     byId("quick-facts").innerHTML = [
-      ["입력 상태", inputWarning ? "URL 확인 필요" : "분석 실패"],
+      // 「분석 실패」는 실제로 실패했을 때만 쓴다. URL 만 바뀐 경우는 실패가 아니다(U3).
+      ["입력 상태", inputWarning ? "URL 확인 필요" : analysisError ? "분석 실패" : "URL 변경 뒤 분석 전"],
       ["실제 분석", "미수행"],
       ["다음 단계", "온비드 URL 재입력"],
       ["안전 경계", "샘플 결과로 대체 표시하지 않음"],
@@ -2947,7 +3045,7 @@ function renderReport() {
       <span class="small-text">${sampleNotice.assetType} ${sampleNotice.dispositionLabel} · ${userTypeLabels[userType]}${
         publicData ? ` · ${publicDataLabel(publicData)}` : ""
       }</span></p>
-    ${fit.type === "match" ? "" : `<p>${fit.body}</p>`}
+    ${fit.type === "match" ? "" : `<p>${escapeHtml(fit.body)}</p>`}
   `;
 
   const stageStatus = getPrepStageStatus();
@@ -3011,6 +3109,18 @@ function renderReport() {
         stageTasks
           .map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked))
           .join("") + leftoverHtml;
+      // 이 단계를 마쳤고 다음 단계가 있으면, 마지막 할 일 카드 바로 아래에 다음 단계로 가는 주 버튼을 둔다(U2).
+      // 다음 버튼이 문서 끝(공고 요약·공고 자료 아래)에만 있어 「다 했는데 어디로?」에서 멈췄다.
+      const nextStage = stageStatus.find((candidate) => candidate.num === stage.num + 1);
+      const stageDoneHtml =
+        stage.done && !stage.locked && nextStage && stageTasks.length
+          ? `<div class="info-list stage-done-next">
+          <div class="info-row">
+            <div class="info-row-head">${badge("완료", "safe")}<strong class="info-row-title">2-${stage.num}을 마쳤습니다</strong></div>
+            <div class="actions"><button type="button" class="primary small-button" data-board-stage="${nextStage.num}">2-${nextStage.num} ${nextStage.title}로 →</button></div>
+          </div>
+        </div>`
+          : "";
       const emptyHtml =
         !cardsHtml && !postAwardHtml
           ? `<p class="block-note">이 단계에 자동으로 만든 할 일이 없습니다. 공고 원문을 확인하십시오.</p>`
@@ -3043,6 +3153,7 @@ function renderReport() {
         ${bidLimitsHtml}
         ${bidApplyHtml}
         ${cardsHtml}
+        ${stageDoneHtml}
         ${emptyHtml}
         ${bidParticipationHtml}
         ${postAwardHtml}
@@ -3266,7 +3377,9 @@ async function runAnalysis() {
     const payload = await response.json();
     if (requestId !== analysisRequestId) return;
     if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "온비드 페이지 분석에 실패했습니다.");
+      const error = new Error(payload.error || "온비드 페이지 분석에 실패했습니다.");
+      error.status = response.status;
+      throw error;
     }
     currentStage = pipelineSteps.length - 1;
     replaceNotice(payload.notice);
@@ -3278,7 +3391,7 @@ async function runAnalysis() {
     setInputStep("result");
   } catch (error) {
     if (requestId !== analysisRequestId) return;
-    analysisError = error.message || "온비드 페이지 분석에 실패했습니다.";
+    analysisError = toAnalysisErrorMessage(error);
     boardGenerated = false;
     currentStage = 0;
     renderAll();
@@ -3291,6 +3404,19 @@ async function runAnalysis() {
       renderActionState();
     }
   }
+}
+
+// 「HTTP Error 500」·「<urlopen error …>」 같은 원본 문구는 사용자가 고칠 수 있는 것이 아니다. 화면에는
+// 다시 시도하라는 문장만 보이고 원본은 콘솔에 남긴다(I5). URL 형식 문제처럼 서버가 이유를 적어 준 400 은 그대로 보인다.
+const ANALYSIS_SERVER_ERROR_MESSAGE = "온비드 페이지를 지금 읽지 못했습니다. 잠시 뒤 다시 분석하십시오.";
+const ANALYSIS_SERVER_ERROR_PATTERN = /HTTP Error|urlopen|Errno|timed out|timeout|Connection|SSL|JSON|Unexpected token|Failed to fetch|NetworkError|Load failed/i;
+
+function toAnalysisErrorMessage(error) {
+  const message = error?.message || "";
+  const serverSide = !error?.status || error.status >= 500 || ANALYSIS_SERVER_ERROR_PATTERN.test(message);
+  if (!serverSide) return message || "온비드 페이지 분석에 실패했습니다.";
+  console.warn("공고 분석 실패", error?.status, message);
+  return ANALYSIS_SERVER_ERROR_MESSAGE;
 }
 
 // 분석 중에는 URL 입력과 샘플 불러오기를 막는다. 막지 않으면 결과와 입력칸의 URL 이 서로 다른 공고가 된다(I2).
@@ -3341,7 +3467,7 @@ function restartWizardToProfile() {
 // 그대로 재사용하고(analysisReady 가 아니면 조용히 건너뜀), 되돌리기는 restartWizardToProfile()을
 // 그대로 재사용한다 — 보관함에서 다시 불러오는 기능은 이번 범위 밖이다.
 function startNewAnalysis() {
-  if (!window.confirm("지금 보던 공고를 내 보관함에 저장하고 새 물건 분석을 시작할까요?")) {
+  if (!window.confirm("지금 공고를 관심 공고에 저장하고 새 물건 분석을 시작할까요?")) {
     return;
   }
   saveNoticeToLocker();
@@ -3377,7 +3503,8 @@ async function renderCodeRevision() {
 
 function init() {
   renderCodeRevision();
-  byId("notice-url").value = sampleNotice.sourceUrl;
+  // 처음 1-2 에 들어온 사람에게 무엇인지 모를 URL 을 미리 채워 두지 않는다. 샘플은 「샘플 불러오기」가 채운다(U4).
+  byId("notice-url").value = "";
   analyzedInputValue = "";
   renderAll();
   renderReferenceLinks();
@@ -3397,7 +3524,7 @@ function init() {
     analyzedInputValue = "";
     boardGenerated = false;
     analysisError = null;
-    byId("asset-focus").value = "lease";
+    // 1-1 에서 고른 검토 목적은 덮어쓰지 않는다. 샘플이 목적과 다르면 1-3 이 그대로 불일치를 보인다(U5).
     currentStage = 0;
     renderAll();
   });
@@ -3536,6 +3663,21 @@ function init() {
       byId("view-report").scrollIntoView({ block: "start" });
       return;
     }
+    if (event.target.closest("[data-goto-input]")) {
+      // 1-1 을 지나지 않았으면 1-1, 지났으면 1-2 로 간다. 결과 화면(1-3)은 분석 전이라 열 수 없다.
+      setView("input");
+      setInputStep(inputStep === "profile" ? "profile" : "url");
+      return;
+    }
+    if (event.target.closest("[data-goto-attachments]")) {
+      boardStageNum = 1;
+      renderReport();
+      const attachmentTab = byId("tab-attachment-list");
+      selectSupportTab(attachmentTab);
+      attachmentTab.scrollIntoView({ block: "center" });
+      attachmentTab.focus();
+      return;
+    }
     if (event.target.closest("[data-restart-wizard]")) {
       restartWizardToProfile();
       return;
@@ -3554,7 +3696,7 @@ function init() {
       const record = saveNoticeToLocker();
       const feedback = byId("doc-locker-feedback");
       if (feedback) {
-        feedback.textContent = record ? "보관함에 저장되었습니다." : "먼저 공고를 분석해야 보관할 수 있습니다.";
+        feedback.textContent = record ? "관심 공고에 저장되었습니다." : "먼저 공고를 분석해야 저장할 수 있습니다.";
       }
       return;
     }
