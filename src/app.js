@@ -447,6 +447,9 @@ let guideDetailed = false;
 // 준비 보드에서 지금 보여 줄 단계(1~4). null 이면 진행 상태에서 고른다(getBoardStage). 사용자가
 // 단계 표시나 이전·다음 버튼을 누르면 그 값으로 고정되고, 새 공고를 분석하면 다시 null 이 된다.
 let boardStageNum = null;
+// 아래 고정 AI 코치를 접어 두었는지다. 보는 사람 브라우저에만 남기는 편의 설정이라 localStorage 에 둔다.
+const coachCollapsedStorageKey = "onbid-public-asset-doc-agent-coach-collapsed-v1";
+let coachCollapsed = readJsonStorage(coachCollapsedStorageKey, false) === true;
 const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
@@ -550,11 +553,24 @@ function renderWizardStep() {
   wizardSteps.forEach((step, index) => {
     byId(`wizard-step-${step}`).classList.toggle("is-active", index === activeIndex);
   });
+  // 단계 표시는 버튼이다. 누르면 그 하위 페이지로 간다(2026-10-19 동원님 지시). 1-3 은 분석이 끝난 뒤에만 열린다.
   document.querySelectorAll("[data-wizard-dot]").forEach((dot) => {
     const dotIndex = wizardSteps.indexOf(dot.dataset.wizardDot);
-    dot.classList.toggle("is-active", dotIndex === activeIndex);
+    const active = dotIndex === activeIndex;
+    const reachable = isWizardStepReachable(dot.dataset.wizardDot);
+    dot.classList.toggle("is-active", active);
     dot.classList.toggle("is-done", dotIndex < activeIndex);
+    dot.disabled = !reachable;
+    dot.title = reachable ? "" : "1-2 에서 「분석하기」를 누르면 열립니다";
+    if (active) dot.setAttribute("aria-current", "step");
+    else dot.removeAttribute("aria-current");
   });
+}
+
+function isWizardStepReachable(step) {
+  if (inputStep === "transition") return false;
+  if (step === "result") return isAnalysisReady();
+  return step === "profile" || step === "url";
 }
 
 function setInputStep(step) {
@@ -1125,7 +1141,11 @@ function readJsonStorage(key, fallback) {
 }
 
 function writeJsonStorage(key, value) {
-  window.localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // 저장하지 못해도 화면은 그대로 동작한다.
+  }
 }
 
 function getRecentNotices() {
@@ -1574,20 +1594,76 @@ function renderAnalysisResult() {
   `;
 }
 
-// 준비 보드 아래에 붙어 따라다니는 코치 질문 줄이다(2026-10-19 동원님 지시). 한 줄로 줄이려고
-// 설명 문장과 경험 수준 질문(「처음이에요」)을 뺐다. 경험 질문은 용어 탭 안내 한 줄에만 쓰여 정보가 적었다.
-function renderBoardCoach(coach) {
+// 준비 보드 아래에 붙어 따라다니는 코치 질문 줄이다(2026-10-19 동원님 지시). 접기 버튼으로 머리 한 줄만 남길 수 있고,
+// 머리 줄에 「이 물건 정보를 알고 답한다」는 사실과 실제로 보내는 항목을 적는다(askNoticeQuestion 의 notice·docs·board).
+// 아래 예시 질문은 지금 보는 단계에서 초보자가 자주 묻는 것이다(커뮤니티 조사 1절 · 서버 COMMON_QUESTION_GUIDES).
+const COACH_SUGGESTIONS = {
+  1: ["개인도 입찰할 수 있나요?", "최저입찰가격과 감정평가금액은 뭐가 달라요?", "이제 뭘 해야 하나요?"],
+  2: ["서류는 언제까지 내야 하나요?", "입찰에 쓰는 인증서는 뭔가요?", "이제 뭘 해야 하나요?"],
+  3: ["입찰금액은 어떻게 정하면 좋을까요?", "제출한 입찰서를 취소할 수 있나요?", "입찰보증금은 얼마를 언제 내나요?", "낙찰됐는지 어디서 확인하나요?"],
+  4: ["낙찰되면 다음 절차는 뭐예요?", "낙찰을 포기하면 보증금은 어떻게 되나요?", "잔금은 언제까지 내야 하나요?"],
+};
+
+function shortNoticeTitle(title, max = 22) {
+  const text = String(title || "").trim();
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function renderBoardCoach(coach, stageNum) {
   // 모델에 붙지 않았으면 「AI 가 했다」고 말하지 않는다. 색만 바꾸면 색을 못 보는 사람에게는
   // 같은 화면이고, 색을 보는 사람에게도 문구가 사실과 어긋난 채 남는다.
   const llmConnected = coach?.llmStatus === "connected";
-  return `<section class="coach-ask-card coach-dock">
-    <div class="coach-ask-row">
+  const title = shortNoticeTitle(sampleNotice.title);
+  const suggestions = COACH_SUGGESTIONS[stageNum] || [];
+  return `<section class="coach-ask-card coach-dock${coachCollapsed ? " is-collapsed" : ""}">
+    <div class="coach-dock-head">
       <span class="coach-dock-label">${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "safe" : "warn")}<strong>AI 코치에게 물어보기</strong></span>
-      <input type="text" id="coach-question-input" placeholder="예: 잔금은 언제까지 내야 하나요?" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
-      <button type="button" class="secondary small-button" data-ask-question>질문하기</button>
+      <span class="coach-context" title="${sampleNotice.title || ""}">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span>
+      <button type="button" class="coach-toggle" data-coach-toggle aria-expanded="${!coachCollapsed}" aria-controls="coach-dock-body">${coachCollapsed ? "펴기 ▴" : "접기 ▾"}</button>
     </div>
-    <div id="coach-question-result" class="coach-ask-result" aria-live="polite"></div>
+    <div id="coach-dock-body" class="coach-dock-body"${coachCollapsed ? " hidden" : ""}>
+      <p class="coach-context-detail">공고 유형 · 입찰기간 · 최저입찰가격 · 입찰보증금 · 담당기관 · 제출서류와 지금 준비 보드의 진행 상황을 함께 보고 답합니다.</p>
+      <div class="coach-ask-row">
+        <input type="text" id="coach-question-input" placeholder="이 물건에 대해 물어보세요. 예: ${suggestions[0] || "잔금은 언제까지 내야 하나요?"}" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
+        <button type="button" class="primary small-button" data-ask-question>질문하기</button>
+      </div>
+      ${
+        suggestions.length
+          ? `<div class="coach-suggest" role="group" aria-label="자주 묻는 질문">
+        <span class="coach-suggest-label">자주 묻는 질문</span>
+        ${suggestions.map((q) => `<button type="button" class="link-chip" data-coach-suggest="${q}">${q}</button>`).join("")}
+      </div>`
+          : ""
+      }
+      <div id="coach-question-result" class="coach-ask-result" aria-live="polite"></div>
+    </div>
   </section>`;
+}
+
+// 보드를 다시 그려도 입력 중인 질문과 받은 답은 남긴다. 체크박스 하나만 눌러도 renderReport 가 돈다.
+function renderBoardCoachKeepingState(coach, stageNum) {
+  const host = byId("board-coach");
+  if (!host) return;
+  const prevInput = byId("coach-question-input")?.value || "";
+  const prevResult = byId("coach-question-result")?.innerHTML || "";
+  host.innerHTML = coach ? renderBoardCoach(coach, stageNum) : "";
+  const input = byId("coach-question-input");
+  if (input) input.value = prevInput;
+  const result = byId("coach-question-result");
+  if (result) result.innerHTML = prevResult;
+}
+
+function setCoachCollapsed(collapsed) {
+  coachCollapsed = collapsed;
+  writeJsonStorage(coachCollapsedStorageKey, collapsed);
+  const card = document.querySelector(".coach-dock");
+  const body = byId("coach-dock-body");
+  const toggle = document.querySelector("[data-coach-toggle]");
+  if (!card || !body || !toggle) return;
+  card.classList.toggle("is-collapsed", collapsed);
+  body.hidden = collapsed;
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  toggle.textContent = collapsed ? "펴기 ▴" : "접기 ▾";
 }
 
 // 할 일 카드의 「자세히」를 모두 펼칠지 정하는 두 칸 버튼이다. 지금 상태가 눌린 모양(aria-pressed)으로
@@ -1646,7 +1722,32 @@ function renderOnbidReferences(references, collapsed = false) {
     </div>`;
 }
 
+// 초보자가 자주 묻는 질문에 서버가 붙인 고정 안내(server.py COMMON_QUESTION_GUIDES)다. 모델이 쓴 글이 아니므로
+// 「AI」라고 말하지 않는다. 낙찰 뒤 절차는 재산유형별 문장이 화면 쪽(postAwardProcessNote)에 있어 여기서 붙인다.
+function renderCommonGuide(guide, references) {
+  const lines = [...(guide.lines || [])];
+  let source = guide.source || "";
+  if (guide.id === "after-award") {
+    const process = postAwardProcessNote();
+    lines.push(`이 공고(${process.label}) 기준 순서: ${process.order}`, process.deposit);
+    source = process.source;
+  }
+  const contact = [sampleNotice.agency, sampleNotice.contact].filter((value) => value && value !== NOTICE_VALUE_FALLBACK).join(" ");
+  return `<div class="coach-ask-answer coach-guide">
+    <p class="coach-guide-head">${badge("온비드 규칙 기반 안내", "neutral")}<strong>${guide.title}</strong></p>
+    <ul class="coach-guide-lines">${lines.map((line) => `<li>${line}</li>`).join("")}</ul>
+    <p class="small-text">근거: ${source}. 공고마다 예외가 있을 수 있으니 공고 원문과 담당기관 확인이 우선입니다.${contact ? ` 담당기관: ${contact}` : ""}</p>
+    ${
+      guide.jump && guide.jump !== getBoardStage(getPrepStageStatus()).num
+        ? `<button type="button" class="secondary small-button" data-board-stage="${guide.jump}">${guide.jumpLabel}</button>`
+        : ""
+    }
+    ${renderOnbidReferences(references, true)}
+  </div>`;
+}
+
 function renderQuestionAnswer(answer) {
+  if (answer?.guide) return renderCommonGuide(answer.guide, answer.references);
   const referencesHtml = renderOnbidReferences(answer?.references);
   const referencesWithNote = (note) =>
     referencesHtml ? `<div class="coach-ask-answer"><p class="small-text coach-ask-note">${note}</p>${referencesHtml}</div>` : "";
@@ -1711,6 +1812,7 @@ async function askNoticeQuestion() {
   const input = byId("coach-question-input");
   const result = byId("coach-question-result");
   if (!input || !result) return;
+  const conditionAnswers = getDocConditionAnswers();
   const question = input.value.trim();
   if (!question) {
     result.innerHTML = `<p class="small-text">질문을 입력하세요.</p>`;
@@ -1734,6 +1836,10 @@ async function askNoticeQuestion() {
           appraisalPrice: sampleNotice.appraisalPrice,
           agency: sampleNotice.agency,
           contact: sampleNotice.contact,
+          bidDeposit: (sampleNotice.costs || []).find((item) => item.title === "입찰보증금")?.value || "",
+          evictionResponsibility: sampleNotice.evictionResponsibility || "",
+          jointBidAnswer: conditionAnswers.joint === "yes" ? "공동입찰 예정" : "공동입찰 아님",
+          proxyBidAnswer: conditionAnswers.proxy === "yes" ? "대리입찰 예정" : "대리입찰 아님",
         },
         docs: (sampleNotice.requiredDocs || []).slice(0, 10),
         board: getBoardSnapshot(),
@@ -1778,84 +1884,16 @@ function renderBidParticipationInfo(taskSummary) {
     ["최저입찰가격", priceTask?.action || NOTICE_VALUE_FALLBACK],
   ];
   return `<div class="bid-participation-info">
-    <p>입찰 참여를 위해 챙겨야 할 정보입니다.</p>
-    <div class="fact-list">
-      ${rows
-        .map(
-          ([label, value]) => `<div class="fact-row">
-            <span>${label}</span>
-            <strong class="${value === NOTICE_VALUE_FALLBACK ? "is-fallback" : ""}">${value}</strong>
-          </div>`,
-        )
-        .join("")}
-    </div>
-    <div class="bid-rules">
-      <h4>온비드 입찰 규칙</h4>
-      <ul>${ONBID_BID_RULES.map((rule) => `<li>${rule}</li>`).join("")}</ul>
-      <p class="small-text">근거는 온비드 이용안내 「입찰참가 안내」와 입찰참가자 준수규칙입니다. 공고마다 예외가 있을 수 있으니 공고 원문도 확인하십시오.</p>
-    </div>
+    <section class="block">
+      <h3 class="block-title">입찰 참여 정보</h3>
+      <div class="fact-grid">${rows.map(([label, value]) => factCell(label, fieldValue(value))).join("")}</div>
+    </section>
+    <section class="block bid-rules">
+      <h3 class="block-title">온비드 입찰 규칙</h3>
+      <ul class="info-list">${ONBID_BID_RULES.map((rule) => `<li class="info-row"><p class="info-row-text">${rule}</p></li>`).join("")}</ul>
+      <p class="block-note">근거는 온비드 이용안내 「입찰참가 안내」와 입찰참가자 준수규칙입니다. 공고마다 예외가 있을 수 있으니 공고 원문도 확인하십시오.</p>
+    </section>
   </div>`;
-}
-
-// 3단계 전용 AI 질문창. 기존 /api/ask(question_prompt·sanitize_ai_text)를 그대로 재사용하고,
-// 공고 핵심 맥락 + 2단계 공동입찰/대리입찰 답만 요약해 함께 보낸다.
-function renderBidAskBox() {
-  return `<section class="coach-ask-card">
-    <div class="coach-ask-head">
-      <strong>입찰 참여, 궁금한 점을 물어보세요</strong>
-    </div>
-    <p class="small-text">공고 내용과 지금까지 답한 내용을 바탕으로 답합니다. 낙찰 가능성이나 적정 가격은 판단하지 않습니다.</p>
-    <div class="coach-ask-row">
-      <input type="text" id="bid-ask-input" placeholder="예: 입찰보증금은 어떻게 내나요?" maxlength="200" aria-label="입찰 참여 관련 질문">
-      <button type="button" class="secondary small-button" data-ask-bid-question>질문하기</button>
-    </div>
-    <div id="bid-ask-result" class="coach-ask-result" aria-live="polite"></div>
-  </section>`;
-}
-
-async function askBidParticipationQuestion() {
-  const input = byId("bid-ask-input");
-  const result = byId("bid-ask-result");
-  if (!input || !result) return;
-  const question = input.value.trim();
-  if (!question) {
-    result.innerHTML = `<p class="small-text">질문을 입력하세요.</p>`;
-    return;
-  }
-  result.innerHTML = `<p class="small-text">답변을 찾는 중입니다...</p>`;
-  const conditionAnswers = getDocConditionAnswers();
-  try {
-    const response = await window.fetch("/api/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question,
-        notice: {
-          title: sampleNotice.title,
-          assetType: sampleNotice.assetType,
-          dispositionLabel: sampleNotice.dispositionLabel,
-          bidMethod: sampleNotice.bidMethod,
-          bidPeriod: sampleNotice.bidPeriod,
-          bidDeadline: sampleNotice.bidDeadline,
-          minimumBidPrice: sampleNotice.minimumBidPrice,
-          appraisalPrice: sampleNotice.appraisalPrice,
-          agency: sampleNotice.agency,
-          contact: sampleNotice.contact,
-          jointBidAnswer: conditionAnswers.joint === "yes" ? "공동입찰 예정" : "공동입찰 아님",
-          proxyBidAnswer: conditionAnswers.proxy === "yes" ? "대리입찰 예정" : "대리입찰 아님",
-        },
-        docs: (sampleNotice.requiredDocs || []).slice(0, 10),
-      }),
-    });
-    const payload = await response.json();
-    if (!payload.ok) {
-      result.innerHTML = `<p class="small-text">${payload.error || "지금은 답변을 가져올 수 없습니다. 담당기관에 문의하세요."}</p>`;
-      return;
-    }
-    result.innerHTML = renderQuestionAnswer(payload.result);
-  } catch {
-    result.innerHTML = `<p class="small-text">지금은 답변을 가져올 수 없습니다. 담당기관에 문의하세요.</p>`;
-  }
 }
 
 function renderAiReadySummary(coach) {
@@ -2135,10 +2173,16 @@ function renderBidParticipationApplyPanel() {
   const info = sampleNotice.bidParticipationApply;
   if (!info || typeof info.required !== "boolean") return "";
   if (!info.required) {
-    return `<div class="bid-apply-panel is-not-required">
-      <strong>입찰참가신청 불필요</strong>
-      <p class="small-text">이 물건은 공고기관의 사전 승인 없이 바로 입찰할 수 있습니다. 근거는 ${info.source} 입니다.</p>
-    </div>`;
+    return `<section class="block bid-apply-panel is-not-required">
+      <h3 class="block-title">입찰참가신청</h3>
+      ${infoRow({
+        tag: "불필요",
+        tone: "safe",
+        title: "입찰참가신청 불필요",
+        text: "이 물건은 공고기관의 사전 승인 없이 바로 입찰할 수 있습니다.",
+        meta: `근거: ${info.source}`,
+      })}
+    </section>`;
   }
   const detailHtml = [
     info.docs ? `<li>신청 서류: ${info.docs}</li>` : "",
@@ -2147,13 +2191,15 @@ function renderBidParticipationApplyPanel() {
   ]
     .filter(Boolean)
     .join("");
-  return `<div class="bid-apply-panel is-required">
-    ${badge("먼저 할 일", "warn")}
-    <strong>이 물건은 공고기관 승인을 받아야 입찰할 수 있습니다.</strong>
-    <p>서류를 먼저 내고 승인을 기다려야 합니다. 승인 전에는 입찰 자체가 되지 않으므로, 아래 서류 준비보다 이것이 먼저입니다.</p>
-    ${detailHtml ? `<ul>${detailHtml}</ul>` : ""}
-    <p class="small-text">신청 절차와 마감 시각은 공고문 원문에서 반드시 확인하십시오. 근거는 ${info.source} 입니다.</p>
-  </div>`;
+  return `<section class="block bid-apply-panel is-required">
+    <h3 class="block-title">입찰참가신청</h3>
+    <div class="info-row">
+      <div class="info-row-head">${badge("먼저 할 일", "warn")}<strong class="info-row-title">이 물건은 공고기관 승인을 받아야 입찰할 수 있습니다.</strong></div>
+      <p class="info-row-text">서류를 먼저 내고 승인을 기다려야 합니다. 승인 전에는 입찰 자체가 되지 않으므로, 아래 서류 준비보다 이것이 먼저입니다.</p>
+      ${detailHtml ? `<ul class="info-row-list">${detailHtml}</ul>` : ""}
+    </div>
+    <p class="block-note">신청 절차와 마감 시각은 공고문 원문에서 반드시 확인하십시오. 근거는 ${info.source} 입니다.</p>
+  </section>`;
 }
 
 // 자격제한·지역제한·기타제한. 「이 물건에 응찰할 자격이 되는가」는 사용자가 가장 먼저 알아야
@@ -2164,22 +2210,22 @@ function renderBidLimitsPanel() {
   if (!Array.isArray(limits) || !limits.length) return "";
   const rowsHtml = limits
     .map(
-      (limit) => `<li${limit.restricted ? ' class="is-restricted"' : ""}>
-        <strong>${limit.label}</strong>
-        <span>${limit.value}</span>
+      (limit) => `<li class="info-row${limit.restricted ? " is-restricted" : ""}">
+        <div class="info-row-head">${badge(limit.restricted ? "제한 있음" : "제한 없음", limit.restricted ? "warn" : "neutral")}<strong class="info-row-title">${limit.label}</strong></div>
+        <p class="info-row-text">${limit.value}</p>
       </li>`,
     )
     .join("");
   const hasRestriction = limits.some((limit) => limit.restricted);
-  return `<div class="bid-limits-panel${hasRestriction ? " has-restriction" : ""}">
-    <h4>입찰 자격 조건 (공공데이터 기준)</h4>
+  return `<section class="block bid-limits-panel${hasRestriction ? " has-restriction" : ""}">
+    <h3 class="block-title">입찰 자격 조건 <span class="block-meta">공공데이터 기준</span></h3>
     ${
       hasRestriction
-        ? `<p>제한 조건이 있습니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문에서 먼저 확인하십시오.</p>`
-        : `<p class="small-text">제한 조건이 확인되지 않았습니다. 그래도 공고문 원문의 참가자격 조항을 한 번 확인하십시오. 조항에 괄호 안 표기(사업자 등)가 있으면 그 뜻은 원문과 담당기관에서 확인하십시오.</p>`
+        ? `<p class="block-lead">제한 조건이 있습니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문에서 먼저 확인하십시오.</p>`
+        : `<p class="block-lead">제한 조건이 확인되지 않았습니다. 그래도 공고문 원문의 참가자격 조항을 한 번 확인하십시오. 조항에 괄호 안 표기(사업자 등)가 있으면 그 뜻은 원문과 담당기관에서 확인하십시오.</p>`
     }
-    <ul>${rowsHtml}</ul>
-  </div>`;
+    <ul class="info-list">${rowsHtml}</ul>
+  </section>`;
 }
 
 function renderDocChecklist(locked) {
@@ -2472,6 +2518,23 @@ function renderPrepStageStepper(stageStatus, activeNum = null) {
   return `<ol class="prep-stage-stepper mini-stepper" role="list" aria-label="준비 단계">${items}</ol>`;
 }
 
+// 준비 보드 위쪽 단계 표시. 공고 가져오기(1-1~1-3)와 같은 버튼 모양이고, 누르면 그 단계 페이지로 간다.
+// 잠긴 단계도 눌러서 미리 볼 수 있다(아래 고정 단계 표시와 같은 동작). 상태는 버튼 툴팁과 화면 읽기용 글로 준다.
+function renderBoardTopStepper(stageStatus, activeNum) {
+  return `<ol class="mini-stepper wizard-progress" aria-label="준비 보드 단계">${stageStatus
+    .map((stage) => {
+      const viewing = stage.num === activeNum;
+      const state = stage.locked ? "잠김 · 앞 단계를 마치면 열립니다" : stage.notYet ? "낙찰 뒤에 할 일" : stage.done ? "완료" : "진행 중";
+      const cls = [viewing ? "is-active" : "", !viewing && stage.done ? "is-done" : "", stage.locked ? "is-locked" : ""]
+        .filter(Boolean)
+        .join(" ");
+      return `<li><button type="button" class="mini-step ${cls}" data-board-stage="${stage.num}" title="${state}"${viewing ? ` aria-current="step"` : ""}>
+        <span class="mini-step-num">2-${stage.num}</span><span class="mini-step-label">${stage.title}</span><span class="sr-only"> · ${state}</span>
+      </button></li>`;
+    })
+    .join("")}</ol>`;
+}
+
 // 처음 보여 줄 단계는 아직 끝나지 않았고 열려 있는 첫 단계다. 그런 단계가 없으면 열려 있는 마지막 단계다.
 function getBoardStage(stageStatus) {
   const chosen = stageStatus.find((stage) => stage.num === boardStageNum);
@@ -2625,16 +2688,21 @@ function renderPostAwardPanel() {
     })
     .join("");
   const process = postAwardProcessNote();
-  return `<section class="doc-panel post-award-panel">
-    <p class="post-award-caution">입찰 전에 내야 하는 서류가 여기 섞여 있을 수 있습니다. 2-2 입찰 전 준비 목록도 함께 확인하십시오.</p>
-    <p class="small-text">낙찰된 뒤에 할 일입니다. 지금 당장 준비할 필요는 없지만, 기한을 놓치면 낙찰이 취소될 수 있는 항목이 있어 미리 열어 둡니다.</p>
-    <div class="post-award-process">
-      <p><strong>낙찰 뒤 절차 순서</strong> · ${process.label}</p>
-      <p>${process.order}</p>
-      <p>${process.deposit}</p>
-      <p class="small-text">근거: ${process.source}. 기한과 서류는 공고 원문과 담당기관 확인이 우선입니다.</p>
+  return `<section class="block post-award-panel">
+    <h3 class="block-title">낙찰 뒤 절차 <span class="block-meta">${process.label}</span></h3>
+    <p class="block-lead">낙찰된 뒤에 할 일입니다. 지금 당장 준비할 필요는 없지만, 기한을 놓치면 낙찰이 취소될 수 있는 항목이 있어 미리 열어 둡니다.</p>
+    <div class="info-list">
+      <div class="info-row post-award-caution">
+        <div class="info-row-head">${badge("함께 확인", "warn")}<strong class="info-row-title">입찰 전에 내야 하는 서류가 여기 섞여 있을 수 있습니다. 2-2 입찰 전 준비 목록도 함께 확인하십시오.</strong></div>
+      </div>
+      <div class="info-row post-award-process">
+        <div class="info-row-head">${badge("순서", "neutral")}<strong class="info-row-title">낙찰 뒤 절차 순서</strong></div>
+        <p class="info-row-text">${process.order}</p>
+        <p class="info-row-text">${process.deposit}</p>
+        <p class="info-row-meta">근거: ${process.source}. 기한과 서류는 공고 원문과 담당기관 확인이 우선입니다.</p>
+      </div>
     </div>
-    <p class="small-text">${DOC_DUE_CAUTION}</p>
+    <p class="block-note">${DOC_DUE_CAUTION}</p>
     ${
       summary.totalCount
         ? `<div class="doc-progress">
@@ -2730,6 +2798,7 @@ function renderReport() {
     if (sourceLink) {
       sourceLink.href = sampleNotice.sourceUrl;
     }
+    byId("board-top-stepper").innerHTML = "";
     byId("report-hero").innerHTML = `
       <h3>${blockingMessage.title}</h3>
       <p>${badge("분석 필요", "warn")} <span class="small-text">원문 우선</span></p>
@@ -2795,9 +2864,6 @@ function renderReport() {
     ${fit.type === "match" ? "" : `<p>${fit.body}</p>`}
   `;
 
-  const coach = sampleNotice.aiCoach;
-  byId("board-coach").innerHTML = coach ? renderBoardCoach(coach) : "";
-
   const stageStatus = getPrepStageStatus();
   const documentsStageNum = getTaskStageNum("documents");
   const documentsStageLocked = stageStatus.find((stage) => stage.num === documentsStageNum)?.locked || false;
@@ -2806,12 +2872,14 @@ function renderReport() {
   renderGlossary();
   renderGuideLevel();
   const activeStage = getBoardStage(stageStatus);
+  renderBoardCoachKeepingState(sampleNotice.aiCoach, activeStage.num);
   // 준비 보드 하위 페이지는 공고 가져오기와 같은 「Step 2-N」 표기를 쓰고, 한 번에 한 단계만 보인다.
   byId("board-step-label").textContent = `Step 2-${activeStage.num}`;
   byId("report-title").textContent = activeStage.title;
   // 공고 요약과 공고 자료 탭은 2-1(공고 확인) 페이지에만 둔다.
   byId("board-stage1-extra").hidden = activeStage.num !== 1;
   byId("board-page-nav").innerHTML = renderBoardPageNav(stageStatus, activeStage);
+  byId("board-top-stepper").innerHTML = renderBoardTopStepper(stageStatus, activeStage.num);
   byId("board-status").innerHTML = `
     ${renderPrepStageStepper(stageStatus, activeStage.num)}
     <div class="board-progress">
@@ -2868,10 +2936,10 @@ function renderReport() {
       // 먼저 보여야 하는 것은 「승인을 먼저 받아야 하는가」다.
       const bidLimitsHtml = stage.num === 1 ? renderBidLimitsPanel() : "";
       const bidApplyHtml = stage.num === 2 ? renderBidParticipationApplyPanel() : "";
-      // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리 — 정보 리스트 + AI 질문창.
-      // 잠겨 있어도 보여준다(ux-audit §⑴ "잠긴 상태에서도 자세히·원문 링크는 항상 보인다" 원칙과 동일).
-      const bidParticipationHtml =
-        stage.num === 3 ? renderBidParticipationInfo(taskSummary) + renderBidAskBox() : "";
+      // 3단계(입찰 참여)의 정보 블록. 잠겨 있어도 보여준다(ux-audit §⑴ "잠긴 상태에서도 자세히·원문 링크는
+      // 항상 보인다" 원칙과 동일). 이 단계 전용 질문창은 지웠다 — 아래 고정 AI 코치와 겹쳤다(2026-10-19 동원님 지시).
+      // 대신 아래 코치가 이 단계의 자주 묻는 질문(입찰금액·취소·보증금·결과 확인)을 예시로 보인다.
+      const bidParticipationHtml = stage.num === 3 ? renderBidParticipationInfo(taskSummary) : "";
       // 잠긴 단계는 기본으로 접는다 — 체크박스만 비활성화하고 카드 내용을 전부 펼쳐 두면
       // 아직 손댈 수 없는 두세 단계 분량이 한 화면에 그대로 쏟아져 "한 번에 너무 많다"는
       // 체감으로 이어진다(2026-10-11 사용자 지적). 눌러서 미리 볼 수 있는 길은 남긴다.
@@ -3237,6 +3305,9 @@ function init() {
   byId("prepare").addEventListener("click", () => {
     if (!isAnalysisReady()) return;
     boardGenerated = true;
+    // 1-3 에서 넘어오면 항상 2-1 부터 보인다. 비워 두면 getBoardStage 가 「아직 끝나지 않은 첫 단계」를 고르므로,
+    // 같은 공고의 2-1 체크가 저장돼 있으면 2-2 로 건너뛰었다(2026-10-19 동원님 제보).
+    boardStageNum = 1;
     currentStage = pipelineSteps.length;
     renderPipeline();
     setInputStep("transition");
@@ -3246,6 +3317,8 @@ function init() {
     transitionTimer = window.setTimeout(() => {
       inputStep = "result";
       renderWizardStep();
+      // setView 는 다시 그리지 않는다. 위에서 고른 2-1 이 화면에 반영되도록 여기서 보드를 다시 그린다.
+      renderReport();
       setView("report");
       byId("report-title").setAttribute("tabindex", "-1");
       byId("report-title").focus();
@@ -3318,10 +3391,6 @@ function init() {
       event.preventDefault();
       askNoticeQuestion();
     }
-    if (event.target?.id === "bid-ask-input") {
-      event.preventDefault();
-      askBidParticipationQuestion();
-    }
   });
 
   // ARIA tabs 패턴 — 좌우 화살표로 탭 이동, Home/End로 처음·끝 탭 선택
@@ -3348,6 +3417,11 @@ function init() {
     if (guideButton) {
       guideDetailed = guideButton.dataset.guideLevel === "detail";
       renderReport();
+      return;
+    }
+    const wizardDot = event.target.closest("[data-wizard-dot]");
+    if (wizardDot) {
+      if (!wizardDot.disabled && isWizardStepReachable(wizardDot.dataset.wizardDot)) setInputStep(wizardDot.dataset.wizardDot);
       return;
     }
     const stageButton = event.target.closest("[data-board-stage]");
@@ -3389,8 +3463,15 @@ function init() {
       askNoticeQuestion();
       return;
     }
-    if (event.target.closest("[data-ask-bid-question]")) {
-      askBidParticipationQuestion();
+    const suggestButton = event.target.closest("[data-coach-suggest]");
+    if (suggestButton) {
+      const input = byId("coach-question-input");
+      if (input) input.value = suggestButton.dataset.coachSuggest;
+      askNoticeQuestion();
+      return;
+    }
+    if (event.target.closest("[data-coach-toggle]")) {
+      setCoachCollapsed(!coachCollapsed);
       return;
     }
     const target = event.target.closest("[data-jump]");

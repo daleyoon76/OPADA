@@ -2565,3 +2565,368 @@ button.mini-step {
     padding: 8px 10px 10px;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 2026-10-19 준비 보드를 공고 가져오기 1-3 화면 템플릿으로 맞춘다(동원님 지시: 「공고 가져오기 페이지의 UI 가
+ * 훨씬 좋다 · 준비 보드도 통일」). 1-3 은 흰 블록(.block) 안에 굵은 블록 제목, 그 아래 정보 행(.info-row)과
+ * 값 칸(.fact-grid)만 쓴다. 준비 보드의 옛 장식(왼쪽 색 띠 · 분홍 바탕 · 파선 패널)을 걷어내고 같은 모양으로 그린다.
+ * 상태는 색이 아니라 정보 행의 머리표 문구(제한 있음 · 먼저 할 일 · 함께 확인)로 말한다.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* 공고 머리 — 1-3 블록과 같은 흰 카드 */
+.report-hero {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+}
+
+.report-hero h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+/* 할 일 목록과 그 안의 블록 사이 간격을 1-3 결과 화면(블록 사이 14px)과 맞춘다. */
+.task-list {
+  gap: 14px;
+}
+
+.stage-group {
+  display: grid;
+  gap: 14px;
+}
+
+.stage-group > .block {
+  margin-top: 0;
+}
+
+/* 단계 머리 — 정보 행 모양(머리표 + 제목). 페이지 제목이 이미 단계 이름이라 작게 둔다. */
+.stage-group-heading,
+.stage-group-heading.is-active,
+.stage-group-heading.is-done,
+.stage-group-heading.is-not-yet,
+.stage-group-heading.is-locked {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 14px;
+}
+
+/* 할 일 카드 — 블록과 같은 흰 카드 · 같은 안쪽 여백 */
+.task-item,
+.task-item.has-ai-nudge {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.task-item:hover {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.task-item.is-done {
+  background: #ffffff;
+  border-color: #c8d1a0;
+}
+
+.task-check strong {
+  font-size: 15px;
+}
+
+/* 「공고 원문에서 확인된 값」 — 1-3 값 칸(라벨 12px + 값 14px 굵게)과 같은 모양 */
+.task-action-value,
+.task-action-value.is-fallback {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.task-action-value-label,
+.task-precheck-label {
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.task-action-value strong {
+  font-size: 14px;
+}
+
+/* 「규칙 기반 사전 확인」 — 1-3 정보 행과 같은 모양 */
+.task-precheck {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.task-item details {
+  margin-top: 8px;
+}
+
+/* 입찰참가신청 · 입찰 자격 조건 · 입찰 규칙 · 낙찰 뒤 절차 — 블록 + 정보 행 */
+.bid-apply-panel,
+.bid-apply-panel.is-required,
+.bid-apply-panel.is-not-required,
+.bid-limits-panel,
+.bid-limits-panel.has-restriction,
+.bid-rules,
+.post-award-panel {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-style: solid;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+}
+
+.bid-apply-panel.is-required strong {
+  display: inline;
+  margin: 0;
+  font-size: 14px;
+}
+
+.bid-limits-panel ul.info-list,
+.bid-rules ul.info-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bid-limits-panel li.is-restricted strong {
+  text-decoration: none;
+}
+
+.info-row-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.info-row p.info-row-text:first-child {
+  margin-top: 0;
+}
+
+.block-lead {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.bid-participation-info {
+  display: grid;
+  gap: 14px;
+}
+
+.bid-participation-info .block {
+  margin-top: 0;
+}
+
+.post-award-caution,
+.post-award-process {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-weight: 400;
+}
+
+.post-award-process p {
+  margin: 6px 0 0;
+}
+
+.post-award-panel .info-list {
+  margin-bottom: 4px;
+}
+
+.post-award-not-applicable {
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 13px;
+}
+
+/* 서류 체크리스트 패널도 같은 카드 모서리·바탕을 쓴다. */
+.doc-panel {
+  border-radius: var(--radius-md);
+  background: #ffffff;
+}
+
+/* ── 아래 고정 AI 코치: 접기 · 물건 정보 힌트 · 자주 묻는 질문 ─────────────────────── */
+.coach-dock-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.coach-context {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.coach-toggle {
+  flex: none;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.coach-toggle:hover {
+  border-color: var(--green);
+}
+
+.coach-dock-body {
+  margin-top: 8px;
+}
+
+.coach-context-detail {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.coach-dock .coach-ask-row input {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+}
+
+.coach-suggest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.coach-suggest-label {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.coach-suggest .link-chip {
+  flex: none;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.coach-suggest .link-chip:hover {
+  border-color: var(--green);
+}
+
+/* 자주 묻는 질문 고정 안내(서버 COMMON_QUESTION_GUIDES) */
+.coach-guide-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.coach-ask-answer .coach-guide-head {
+  margin: 0;
+  font-size: 13px;
+}
+
+.coach-guide-lines {
+  margin: 8px 0 6px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.coach-guide .small-button {
+  margin-top: 6px;
+}
+
+@media (max-width: 600px) {
+  .coach-context {
+    display: none;
+  }
+
+  .coach-context-detail {
+    font-size: 11px;
+  }
+}
+
+/* .stage-group 에 display 를 줬으므로 hidden 속성이 다시 숨기도록 명시한다. */
+.stage-group[hidden] {
+  display: none;
+}
+
+/* 좁은 화면에서도 접기 버튼이 머리 줄 안에 남는다. 위 900px 규칙의 .coach-dock-label { width: 100% } 를 머리 줄에서는 끈다. */
+.coach-dock-head .coach-dock-label {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.coach-dock-head .coach-toggle {
+  margin-left: auto;
+}
+
+/* 단계 표시 버튼(공고 가져오기 1-1~1-3 · 준비 보드 위쪽 2-1~2-4). 누르면 그 하위 페이지로 간다. */
+.wizard-progress li {
+  display: block;
+}
+
+.wizard-progress button.mini-step {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.wizard-progress button.mini-step:hover:not(:disabled):not(.is-active) {
+  border-color: var(--green);
+  color: var(--ink);
+}
+
+.wizard-progress button.mini-step:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.wizard-progress .mini-step.is-locked:not(.is-active) {
+  background: var(--soft-neutral);
+}
+
+.board-top-stepper:empty {
+  display: none;
+}
