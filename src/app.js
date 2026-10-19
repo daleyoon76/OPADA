@@ -431,6 +431,16 @@ let analysisRequestId = 0;
 let analysisError = null;
 let analyzedInputValue = "";
 let boardGenerated = false;
+// AI 코치 질문의 진행 상태다. renderReport 는 체크박스 하나에도 코치 영역 innerHTML 을 통째로 바꾸므로,
+// 받은 답과 잠금 상태를 DOM 이 아니라 여기 두고 다시 그릴 때 이 값에서 되살린다(3팀 진단 I1·I3).
+// DOM 에 두면 답을 기다리는 사이 다시 그려진 새 요소에 「찾는 중」만 남고 답은 떨어진 옛 요소에 써진다.
+let coachAnswerHtml = "";
+let askInFlight = false;
+let askRequestId = 0;
+// 서버는 IP 당 1분 5회로 막는다. 429 를 받은 뒤 바로 다시 누르면 또 막히므로 그동안 버튼을 잠근다.
+// 공고와 무관한 제한이라 새 공고로 넘어가도 풀지 않는다.
+let askCooldownUntil = 0;
+let askCooldownTimer = null;
 // 입력~분석 마법사(1p 유형/목적 → 2p URL → 3p 결과 → 전환화면)의 현재 화면.
 // currentView("input")는 그대로 바뀌지 않고, 그 안에서 보여줄 하위 화면만 이 값으로 고른다.
 let inputStep = "profile";
@@ -449,7 +459,15 @@ let guideDetailed = false;
 let boardStageNum = null;
 // 아래 고정 AI 코치를 접어 두었는지다. 보는 사람 브라우저에만 남기는 편의 설정이라 localStorage 에 둔다.
 const coachCollapsedStorageKey = "onbid-public-asset-doc-agent-coach-collapsed-v1";
-let coachCollapsed = readJsonStorage(coachCollapsedStorageKey, false) === true;
+// 사용자가 접기/펴기를 고른 적이 없으면, 좁거나 낮은 화면에서는 접힌 상태로 시작한다(R2). 펼친 고정 영역이
+// 390px 에서 화면의 29%, 가로 모드에서 59% 를 덮어 첫 화면에 보드 본문이 거의 없었다. 고른 값이 있으면 그것을 따른다.
+const COACH_COMPACT_QUERY = "(max-width: 600px), (max-height: 500px)";
+function getInitialCoachCollapsed() {
+  const saved = readJsonStorage(coachCollapsedStorageKey, null);
+  if (saved === true || saved === false) return saved;
+  return Boolean(window.matchMedia?.(COACH_COMPACT_QUERY).matches);
+}
+let coachCollapsed = getInitialCoachCollapsed();
 const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
@@ -464,7 +482,8 @@ const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
 // 「낙찰됐다」는 뜻이 아니다. 그래서 4단계는 잠그지 않고 sequential: false 로 둔다
 // (2026-10-18 ux-design-review 질문 2).
 const PREP_STAGES = [
-  { num: 1, title: "공고 확인", taskIds: ["notice-type", "bid-period"], sequential: true },
+  // bid-qualification 은 서버가 아니라 화면이 만든다(getBidQualificationTask · 자격 제한이 있는 공고에만).
+  { num: 1, title: "공고 확인", taskIds: ["bid-qualification", "notice-type", "bid-period"], sequential: true },
   { num: 2, title: "입찰 전 준비", taskIds: ["documents"], sequential: true },
   { num: 3, title: "입찰 참여", taskIds: ["price"], sequential: true },
   { num: 4, title: "낙찰 후 준비", taskIds: [], sequential: false },
@@ -546,6 +565,7 @@ function setView(view) {
   if (location.hash.replace("#", "") !== view) {
     history.replaceState(null, "", `#${view}`);
   }
+  updateDockHeightVar();
 }
 
 function renderWizardStep() {
@@ -1110,8 +1130,10 @@ function getDocSummary() {
   return countDocNames(getPreBidDocGroups(), getDocState());
 }
 
+// 해당하지 않을 수 있다고 접어 둔 묶음(notApplicable)은 분모에서 뺀다(2026-10-19 동원님 결정 U1).
+// 화면이 스스로 「해당하지 않을 수 있습니다」라고 접은 서류를 진행률이 다시 요구하면 두 정보가 어긋난다.
 function getPostAwardDocSummary() {
-  return countDocNames(getPostAwardDocGroups(), getDocState());
+  return countDocNames(getPostAwardDocGroups().filter((group) => !group.notApplicable), getDocState());
 }
 
 function currentNoticeCard() {
@@ -1256,10 +1278,40 @@ function getInputWarning() {
   return null;
 }
 
+// 공공데이터 입찰정보에 제한 조건이 하나라도 있으면 2-1 맨 앞에 「입찰 자격 확인」 할 일을 둔다(2026-10-19 동원님 결정 U10 ⑷).
+// 자격 조건은 체크 대상이 아니라 그냥 지나가기 쉬웠다. 제한이 없으면 만들지 않아 진행률 분모가 그대로다.
+// 서버(build_tasks)는 고치지 않는다 — 다른 세션이 server.py 를 맡고 있어 화면 쪽에서만 만든다.
+function getBidQualificationTask() {
+  const limits = Array.isArray(sampleNotice.bidLimits) ? sampleNotice.bidLimits : [];
+  const restricted = limits.filter((limit) => limit.restricted);
+  if (!restricted.length) return null;
+  // 값 칸은 항목 이름이 아니라 실제 제한 내용이다. 이름만 두면 바로 위 「입찰 자격 조건」 블록을 되풀이할 뿐 카드에 정보가 없다(r1 P2-1).
+  const first = restricted[0];
+  const firstValue = String(first.value || "").length > 40 ? `${String(first.value).slice(0, 40)}…` : first.value;
+  return {
+    id: "bid-qualification",
+    title: "입찰 자격 확인",
+    action: `${first.label}: ${firstValue}${restricted.length > 1 ? ` 외 ${restricted.length - 1}건` : ""}`,
+    // 출처가 공고 원문이 아니라 공공데이터다. 다른 카드와 같은 라벨을 쓰면 출처를 잘못 말한다(r1 P2-1).
+    valueLabel: "공공데이터에서 확인된 값",
+    // AI 매칭과 무관하게, 끝내기 전까지 늘 「확인 필요」다. 놓치면 입찰이 무효가 될 수 있는 조건이다.
+    needsCheck: true,
+    due: "분석 직후",
+    detail: `공공데이터에 입찰 자격 제한이 있습니다(${restricted.map((limit) => `${limit.label}: ${limit.value}`).join(" / ")}). 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문의 참가자격 조항을 먼저 확인합니다.`,
+    question: "이 물건의 입찰 참가자격 제한에 내가 해당하는지 담당기관이나 공고 원문에서 확인합니다.",
+    source: "공공데이터 온비드 물건 입찰정보(getCltrBidInf2)",
+    cta: "온비드 원문",
+    url: sampleNotice.sourceUrl,
+    defaultDone: false,
+  };
+}
+
 function getApplicableTasks() {
   const userType = getSelectedUserType();
   const boardTasks = Array.isArray(sampleNotice.boardTasks) ? sampleNotice.boardTasks : [];
-  return boardTasks
+  const qualificationTask = getBidQualificationTask();
+  // 정렬 뒤 맨 앞에 붙인다. 정렬에 넣으면 AI 매칭 점수가 높은 할 일이 그 앞으로 올라간다.
+  const sortedTasks = boardTasks
     .filter((task) => !task.userTypes || task.userTypes.includes(userType))
     .map((task, index) => ({ task, index, stage: getTaskStageNum(task.id) ?? PREP_STAGES.length + 1, aiMatch: getTaskAiMatch(task) }))
     .sort((a, b) => {
@@ -1271,6 +1323,7 @@ function getApplicableTasks() {
       return scoreDiff || a.index - b.index;
     })
     .map(({ task }) => task);
+  return qualificationTask ? [qualificationTask, ...sortedTasks] : sortedTasks;
 }
 
 function getTaskState() {
@@ -1300,7 +1353,8 @@ function saveTaskState(state) {
 }
 
 function resetTaskState() {
-  if (!window.confirm("진행 상황을 초기화할까요?")) {
+  // 버튼은 각 단계 페이지에 있지만 이 공고의 모든 단계 체크와 서류 체크를 지운다. 범위를 확인창에 적는다(U11).
+  if (!window.confirm("2-1~2-4 할 일 체크와 서류 체크를 모두 지웁니다. 되돌릴 수 없습니다. 계속할까요?")) {
     return;
   }
   window.localStorage.removeItem(taskStorageKeyFor(sampleNotice));
@@ -1357,11 +1411,16 @@ function formatProgress(summary) {
 function getFitMessage() {
   const inputWarning = getInputWarning();
   if (inputWarning) {
+    // 목적 불일치와 같은 「불일치」 머리표를 쓰지 않는다. 입력이 비었거나 형식이 틀린 것이다(I5).
+    // 1-2 에 처음 들어와 칸이 빈 것은 잘못이 아니다. 「분석하기」를 빈 칸으로 누른 뒤에만(aria-invalid) 경고 톤이다(r1 P2-3).
+    const notTriedYet = !getNoticeInput() && byId("notice-url")?.getAttribute("aria-invalid") !== "true";
     return {
       type: "mismatch",
+      neutral: notTriedYet,
+      badgeLabel: notTriedYet ? "안내" : "입력 필요",
       title: inputWarning.title,
       body: inputWarning.body,
-      action: "온비드 URL을 입력한 뒤 공고 분석을 실행하세요.",
+      action: getNoticeInput() ? "온비드 URL을 붙여 넣은 뒤 「분석하기」를 누르십시오." : "URL을 붙여 넣거나 「샘플 불러오기」를 누르십시오.",
       inputBlocked: true,
     };
   }
@@ -1369,9 +1428,14 @@ function getFitMessage() {
   if (analysisError) {
     return {
       type: "mismatch",
+      badgeLabel: "오류",
       title: "공고 분석에 실패했습니다",
       body: analysisError,
-      action: "URL이 온비드 공고/물건 상세 페이지인지 확인한 뒤 다시 실행하세요.",
+      // 서버·연결 오류는 URL 문제가 아니다. URL 을 확인하라고 하면 고칠 방법을 잘못 알려 준다(I5).
+      action:
+        analysisError === ANALYSIS_SERVER_ERROR_MESSAGE
+          ? "「분석하기」를 다시 누르면 같은 URL을 다시 읽습니다."
+          : "URL이 온비드 공고/물건 상세 페이지인지 확인한 뒤 「분석하기」를 다시 누르십시오.",
       inputBlocked: true,
     };
   }
@@ -1380,8 +1444,11 @@ function getFitMessage() {
     return {
       type: "check",
       title: "아직 이 URL을 분석하지 않았습니다",
-      body: "입력 URL이 바뀌었습니다. 공고 분석을 실행해야 이 URL 기준의 준비 보드가 생성됩니다.",
-      action: "다음 버튼을 누르면 유효성 결과와 공고/물건 연결 정보를 먼저 보여줍니다.",
+      // 「바뀌었습니다」는 한 번 분석한 뒤 URL 이 달라졌을 때만 쓴다. 처음 붙여 넣은 사람은 바꾼 것이 없다(U4).
+      body: analyzedInputValue
+        ? "입력 URL이 바뀌었습니다. 공고 분석을 실행해야 이 URL 기준의 준비 보드가 생성됩니다."
+        : "공고 분석을 실행해야 이 URL 기준의 준비 보드가 생성됩니다.",
+      action: "「분석하기」를 누르면 유효성 결과와 공고·물건 연결 정보를 먼저 보여 줍니다.",
       inputBlocked: true,
     };
   }
@@ -1456,7 +1523,7 @@ function renderStage1RestartWarning(warning) {
       ${badge("확인 필요", "warn")}
       <strong>이 공고로 계속 진행하기 전에 확인이 필요합니다</strong>
     </div>
-    ${warning.reasons.map((reason) => `<p>${reason}</p>`).join("")}
+    ${warning.reasons.map((reason) => `<p>${escapeHtml(reason)}</p>`).join("")}
     <p class="small-text">처음으로 돌아가면 지금 분석 중인 공고 데이터를 버리고 유형·목적 선택부터 다시 시작합니다.</p>
     <div class="actions">
       <button type="button" class="primary small-button" data-restart-wizard>처음으로 돌아가시겠어요?</button>
@@ -1492,7 +1559,8 @@ function getAiPrecheckForTask(task, fit) {
       const precheck =
         task.id === "price" && task.action === "비공개"
           ? "공고 원문에서 가격이 비공개로 설정된 것으로 보입니다. 원문·담당기관 확인을 우선합니다."
-          : `공고 원문에서 ${task.action}로 확인된 것으로 보입니다. 원문·담당기관 확인을 우선합니다.`;
+          : // 값은 바로 위 「공고 원문에서 확인된 값」 칸에 있다. 같은 값을 문장으로 되풀이하지 않는다(U10 ⑶).
+            "공고 원문에서 확인된 것으로 보입니다. 원문·담당기관 확인을 우선합니다.";
       return { precheck };
     }
     return {
@@ -1511,14 +1579,14 @@ function renderUrlStepFeedback(fit) {
     feedback.innerHTML = "";
     return;
   }
-  const typeBadge = fit.type === "match" ? "safe" : "warn";
-  feedback.className = `url-step-feedback fit-panel ${fit.type}`;
+  const typeBadge = fit.neutral ? "neutral" : fit.type === "match" ? "safe" : "warn";
+  feedback.className = `url-step-feedback fit-panel ${fit.neutral ? "is-neutral" : fit.type}`;
   feedback.innerHTML = `
     <div class="fit-top">
-      ${badge(fit.type === "mismatch" ? "불일치" : "확인 필요", typeBadge)}
+      ${badge(fit.badgeLabel || (fit.type === "mismatch" ? "불일치" : "확인 필요"), typeBadge)}
       <strong>${fit.title}</strong>
     </div>
-    <p>${fit.body}</p>
+    <p>${escapeHtml(fit.body)}</p>
     <p class="small-text">${fit.action}</p>
   `;
 }
@@ -1552,7 +1620,7 @@ function renderAnalysisResult() {
         tag: fit.type === "mismatch" ? "불일치" : fit.type === "check" ? "확인 필요" : "일치",
         tone: typeBadge,
         title: fit.title,
-        text: fit.body,
+        text: escapeHtml(fit.body),
       })}
     </section>
 
@@ -1609,22 +1677,25 @@ function shortNoticeTitle(title, max = 22) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+// 코치가 무엇을 보고 답하는지 적은 문장이다. 고정 영역에서 한 줄을 늘 차지해 머리 줄 툴팁과 입력칸 설명으로 옮겼다(R2 · V9).
+const COACH_CONTEXT_DETAIL = "공고 유형 · 입찰기간 · 최저입찰가격 · 입찰보증금 · 담당기관 · 제출서류와 지금 준비 보드의 진행 상황을 함께 보고 답합니다.";
+
 function renderBoardCoach(coach, stageNum) {
   // 모델에 붙지 않았으면 「AI 가 했다」고 말하지 않는다. 색만 바꾸면 색을 못 보는 사람에게는
   // 같은 화면이고, 색을 보는 사람에게도 문구가 사실과 어긋난 채 남는다.
   const llmConnected = coach?.llmStatus === "connected";
   const title = shortNoticeTitle(sampleNotice.title);
   const suggestions = COACH_SUGGESTIONS[stageNum] || [];
-  return `<section class="coach-ask-card coach-dock${coachCollapsed ? " is-collapsed" : ""}">
+  return `<section class="coach-ask-card coach-dock${coachCollapsed ? " is-collapsed" : ""}${coachAnswerHtml ? " has-answer" : ""}">
     <div class="coach-dock-head">
-      <span class="coach-dock-label">${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "safe" : "warn")}<strong>AI 코치에게 물어보기</strong></span>
-      <span class="coach-context" title="${sampleNotice.title || ""}">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span>
+      <span class="coach-dock-label">${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "neutral" : "warn")}<strong>AI 코치에게 물어보기</strong></span>
+      <span class="coach-context" title="${sampleNotice.title ? `${sampleNotice.title} · ` : ""}${COACH_CONTEXT_DETAIL}"><span class="coach-context-long">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span><span class="coach-context-short">이 물건 정보를 알고 답합니다</span></span>
       <button type="button" class="coach-toggle" data-coach-toggle aria-expanded="${!coachCollapsed}" aria-controls="coach-dock-body">${coachCollapsed ? "펴기 ▴" : "접기 ▾"}</button>
     </div>
     <div id="coach-dock-body" class="coach-dock-body"${coachCollapsed ? " hidden" : ""}>
-      <p class="coach-context-detail">공고 유형 · 입찰기간 · 최저입찰가격 · 입찰보증금 · 담당기관 · 제출서류와 지금 준비 보드의 진행 상황을 함께 보고 답합니다.</p>
+      <p id="coach-context-help" class="sr-only">${COACH_CONTEXT_DETAIL}</p>
       <div class="coach-ask-row">
-        <input type="text" id="coach-question-input" placeholder="이 물건에 대해 물어보세요. 예: ${suggestions[0] || "잔금은 언제까지 내야 하나요?"}" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
+        <input type="text" id="coach-question-input" placeholder="이 물건에 대해 물어보세요. 예: ${suggestions[0] || "잔금은 언제까지 내야 하나요?"}" maxlength="200" aria-label="AI 코치에게 물어볼 질문" aria-describedby="coach-context-help">
         <button type="button" class="primary small-button" data-ask-question>질문하기</button>
       </div>
       ${
@@ -1635,22 +1706,97 @@ function renderBoardCoach(coach, stageNum) {
       </div>`
           : ""
       }
+      <div class="coach-answer-tools"${coachAnswerHtml ? "" : " hidden"}><button type="button" class="text-action coach-clear-answer" data-coach-clear>답 지우기</button></div>
       <div id="coach-question-result" class="coach-ask-result" aria-live="polite"></div>
     </div>
   </section>`;
 }
 
 // 보드를 다시 그려도 입력 중인 질문과 받은 답은 남긴다. 체크박스 하나만 눌러도 renderReport 가 돈다.
+// 입력 중인 질문은 아직 상태 변수가 없어 DOM 에서 옮기고, 답·잠금은 상태 변수에서 되살린다.
 function renderBoardCoachKeepingState(coach, stageNum) {
   const host = byId("board-coach");
   if (!host) return;
   const prevInput = byId("coach-question-input")?.value || "";
-  const prevResult = byId("coach-question-result")?.innerHTML || "";
   host.innerHTML = coach ? renderBoardCoach(coach, stageNum) : "";
   const input = byId("coach-question-input");
   if (input) input.value = prevInput;
   const result = byId("coach-question-result");
-  if (result) result.innerHTML = prevResult;
+  if (result) result.innerHTML = coachAnswerHtml;
+  applyCoachAskControls();
+}
+
+// 서버 오류 문구처럼 밖에서 온 글을 innerHTML 에 넣을 때 태그가 아니라 글자로 보이게 한다.
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// 답 HTML 을 보관하고, 쓰는 그 시점에 결과 요소를 다시 찾아 쓴다. 요소 참조를 들고 기다리면
+// 그사이 renderReport 가 새 요소로 바꿔 답이 화면에 나오지 않는다(I1).
+function setCoachAnswer(html) {
+  coachAnswerHtml = html;
+  const result = byId("coach-question-result");
+  if (result) result.innerHTML = html;
+  // 답이 있으면 좁은 화면에서 「자주 묻는 질문」 줄을 숨기고(CSS · has-answer), 답만 지우는 버튼을 보인다(R1).
+  document.querySelector(".coach-dock")?.classList.toggle("has-answer", Boolean(html));
+  const tools = document.querySelector(".coach-answer-tools");
+  if (tools) tools.hidden = !html;
+}
+
+function isCoachAskLocked() {
+  return askInFlight || Date.now() < askCooldownUntil;
+}
+
+// 질문하기 · 자주 묻는 질문 칩의 잠금과 버튼 글자를 상태 변수대로 맞춘다. 코치 영역을 새로 그린 뒤에도 부른다.
+function applyCoachAskControls() {
+  const coolingDown = Date.now() < askCooldownUntil;
+  const locked = isCoachAskLocked();
+  const askButton = document.querySelector("#board-coach [data-ask-question]");
+  if (askButton) {
+    askButton.disabled = locked;
+    askButton.textContent = coolingDown ? "1분 뒤 다시" : "질문하기";
+  }
+  document.querySelectorAll("#board-coach [data-coach-suggest]").forEach((chip) => {
+    chip.disabled = locked;
+  });
+  const result = byId("coach-question-result");
+  if (result) {
+    if (askInFlight) result.setAttribute("aria-busy", "true");
+    else result.removeAttribute("aria-busy");
+  }
+}
+
+// 새 공고로 넘어가면 이전 공고에 대한 답을 지우고, 기다리던 답은 번호를 올려 버린다.
+// 번호를 올리지 않으면 늦게 온 옛 공고의 답이 새 공고의 코치 영역에 써진다.
+function clearCoachAnswer() {
+  askRequestId += 1;
+  askInFlight = false;
+  setCoachAnswer("");
+  applyCoachAskControls();
+}
+
+function startAskCooldown() {
+  askCooldownUntil = Date.now() + 60000;
+  clearTimeout(askCooldownTimer);
+  askCooldownTimer = setTimeout(() => {
+    askCooldownUntil = 0;
+    applyCoachAskControls();
+  }, 60000);
+  applyCoachAskControls();
+}
+
+// 고정 영역 높이를 --dock-h 에 넣어 html 의 scroll-padding-bottom 으로 쓴다. Tab 으로 옮긴 포커스가 고정 영역 뒤에
+// 가려졌다(I6 · 1280 16건 · 390 18건). 준비 보드가 아닐 때는 고정 영역이 없으므로 0 이다.
+// 여백 16px 은 여기서 더해 둔다. 그래야 다른 화면에서 값이 정확히 0 이 된다.
+function updateDockHeightVar() {
+  const dock = document.querySelector(".board-dock");
+  const onBoard = currentView === "report" && dock && dock.getClientRects().length > 0;
+  document.documentElement.style.setProperty("--dock-h", onBoard ? `${Math.ceil(dock.getBoundingClientRect().height) + 16}px` : "0px");
 }
 
 function setCoachCollapsed(collapsed) {
@@ -1717,7 +1863,7 @@ function renderOnbidReferences(references, collapsed = false) {
     </details>`;
   }
   return `<div class="coach-ask-reference">
-      ${badge("온비드 안내 기준 용어 설명", "safe")}
+      ${badge("온비드 안내 기준 용어 설명", "neutral")}
       ${items}
     </div>`;
 }
@@ -1773,7 +1919,7 @@ function renderQuestionAnswer(answer) {
           ? "공매 절차 일반 안내"
           : "공고 원문 기반 답변";
     return `<div class="coach-ask-answer">
-      ${badge(badgeLabel, "safe")}
+      ${badge(badgeLabel, "neutral")}
       <p>${answer.answer}</p>
       ${renderOnbidReferences(answer.references, true)}
     </div>`;
@@ -1808,17 +1954,25 @@ function getBoardSnapshot() {
   };
 }
 
+// 502 · 네트워크 오류처럼 시스템이 답을 못 준 경우다. 「담당기관에 문의」는 답할 수 없는 질문에만 쓴다(I5).
+const ASK_SYSTEM_FAILURE_MESSAGE = "답을 받지 못했습니다. 잠시 뒤 다시 질문하십시오.";
+
 async function askNoticeQuestion() {
+  // 결과 요소는 여기서 잡아 두지 않는다. 답을 기다리는 사이 코치 영역이 새로 그려질 수 있다(I1).
   const input = byId("coach-question-input");
-  const result = byId("coach-question-result");
-  if (!input || !result) return;
+  if (!input || !byId("coach-question-result")) return;
+  // 버튼 · 칩 · Enter 세 경로가 모두 여기로 온다. 진행 중이거나 429 직후면 보내지 않는다(I3 · 연타 3번에 3건이 나갔다).
+  if (isCoachAskLocked()) return;
   const conditionAnswers = getDocConditionAnswers();
   const question = input.value.trim();
   if (!question) {
-    result.innerHTML = `<p class="small-text">질문을 입력하세요.</p>`;
+    setCoachAnswer(`<p class="small-text">질문을 입력하세요.</p>`);
     return;
   }
-  result.innerHTML = `<p class="small-text">답변을 찾는 중입니다...</p>`;
+  const requestId = ++askRequestId;
+  askInFlight = true;
+  setCoachAnswer(`<p class="small-text">답변을 찾는 중입니다...</p>`);
+  applyCoachAskControls();
   try {
     const response = await window.fetch("/api/ask", {
       method: "POST",
@@ -1846,13 +2000,28 @@ async function askNoticeQuestion() {
       }),
     });
     const payload = await response.json();
+    // 새 공고로 넘어가며 번호가 올라갔으면 이 답은 지금 화면의 공고에 대한 것이 아니다.
+    if (requestId !== askRequestId) return;
+    if (response.status === 429) startAskCooldown();
     if (!payload.ok) {
-      result.innerHTML = `<p class="small-text">${payload.error || "질문을 처리하지 못했습니다. 담당기관에 문의하세요."}</p>`;
+      // 서버 내부 오류(5xx)는 원본 문구 대신 다시 물으라고 안내한다. 담당기관은 시스템 장애를 알 수 없다(I5).
+      // 429 · 400(질문을 입력하세요)처럼 사용자가 할 일이 담긴 문구는 그대로 보인다.
+      const systemFailure = response.status >= 500 || !payload.error;
+      if (systemFailure) console.warn("AI 코치 질문 실패", response.status, payload.error);
+      setCoachAnswer(`<p class="small-text">${escapeHtml(systemFailure ? ASK_SYSTEM_FAILURE_MESSAGE : payload.error)}</p>`);
       return;
     }
-    result.innerHTML = renderQuestionAnswer(payload.result);
-  } catch {
-    result.innerHTML = `<p class="small-text">질문을 처리하지 못했습니다. 담당기관에 문의하세요.</p>`;
+    setCoachAnswer(renderQuestionAnswer(payload.result));
+  } catch (error) {
+    if (requestId !== askRequestId) return;
+    console.warn("AI 코치 질문 실패", error);
+    setCoachAnswer(`<p class="small-text">${ASK_SYSTEM_FAILURE_MESSAGE}</p>`);
+  } finally {
+    // 낡은 요청이면 잠금은 이미 clearCoachAnswer 가 풀었다. 여기서 풀면 새 요청의 잠금까지 풀린다.
+    if (requestId === askRequestId) {
+      askInFlight = false;
+      applyCoachAskControls();
+    }
   }
 }
 
@@ -1881,12 +2050,20 @@ function renderBidParticipationInfo(taskSummary) {
   const rows = [
     ["입찰기간", bidPeriodTask?.action || NOTICE_VALUE_FALLBACK],
     ["입찰 장소", bidPlace],
-    ["최저입찰가격", priceTask?.action || NOTICE_VALUE_FALLBACK],
+    // 2-1 공고 요약에서 이 칸을 뺐으므로(U10 ⑴) 준비 보드에서 최저입찰가격을 보는 곳은 여기다. price 할 일이
+    // 없는 공고도 옛 요약 칸처럼 공고 값을 보인다.
+    ["최저입찰가격", priceTask?.action || sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK],
   ];
   return `<div class="bid-participation-info">
     <section class="block">
       <h3 class="block-title">입찰 참여 정보</h3>
       <div class="fact-grid">${rows.map(([label, value]) => factCell(label, fieldValue(value))).join("")}</div>
+      ${
+        // 입찰서는 온비드에서 직접 낸다. 이 단계의 실제 다음 행동이 그곳이라 바로 여는 길을 둔다(U12).
+        sampleNotice.sourceUrl
+          ? `<div class="link-chips"><a class="link-chip" href="${sampleNotice.sourceUrl}" target="_blank" rel="noreferrer">온비드에서 이 물건 열기 ↗</a></div>`
+          : ""
+      }
     </section>
     <section class="block bid-rules">
       <h3 class="block-title">온비드 입찰 규칙</h3>
@@ -1898,13 +2075,13 @@ function renderBidParticipationInfo(taskSummary) {
 
 function renderAiReadySummary(coach) {
   const checks = coach?.unresolvedChecks || [];
-  const questionCount = (coach?.askAgency || []).length;
   return infoRow({
     tag: coach?.llmStatus === "connected" ? "AI 분석 완료" : "규칙 기반 점검 완료",
     tone: coach?.llmStatus === "connected" ? "safe" : "warn",
     title: "준비 보드에서 우선순위 체크리스트로 보여드립니다.",
     text: checks.length
-      ? `${checks.length}개 미해결 항목과 ${questionCount}개 담당기관 확인 질문을 준비했습니다.`
+      ? // 담당기관 질문 개수는 화면 어디에도 그리지 않는다. 없는 것을 약속하지 않는다(U8).
+        "확인할 항목을 준비 보드 단계별 할 일로 정리했습니다."
       : "공고별 준비 보드에서 다음 확인 항목을 정리합니다.",
   });
 }
@@ -1976,6 +2153,9 @@ function renderDocSourceNotice() {
     tone: profile.code === "A" ? "safe" : "warn",
     title: profile.label,
     text: profile.detail,
+    // detail 은 서버 문구(DOC_SOURCE_PROFILES)라 「아래 첨부파일」을 고치지 못한다. 1-3 에는 첨부 영역이 없으므로
+    // 실제 위치를 덧붙인다(U7).
+    meta: profile.code === "B" ? "첨부파일은 준비 보드 2-1 에서 함께 확인하십시오." : "",
   });
 }
 
@@ -1995,8 +2175,35 @@ function renderDocCheckRow(item, docState, locked, lockMsgId) {
         ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
         : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
     }
-    <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
+    ${isUnclassifiedDoc(item) && UPON_REQUEST_DOC_RE.test(String(item.evidence || "")) ? `<span class="doc-howto">${UPON_REQUEST_DOC_NOTE}</span>` : ""}
+    <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p>${
+      item.sourceHeading ? `<p class="small-text">시점 근거: ${escapeHtml(item.sourceHeading)}</p>` : ""
+    }</details>
   </li>`;
+}
+
+// D7(2026-10-19) · 「예술의전당의 요청이 있을 경우 … 제출」처럼 기관이 요청할 때만 내는 서류는 시점이 없어 미분류로
+// 남는다. 「입찰 전에 필요할 수 있다」는 구획 안내와 다르다는 것을 그 행에 따로 적는다.
+// 「보완 요청 시 7일 이내 제출」 같은 입찰 서류 문장에도 걸리는 「요청 시」는 뺐다(리뷰 d8378b6 r2 P2-A).
+const UPON_REQUEST_DOC_RE = /요청이\s*있을\s*경우|요청하는\s*경우/;
+const UPON_REQUEST_DOC_NOTE = "기관이 요청할 때만 내는 서류일 수 있습니다.";
+
+// D2(2026-10-19) · 서버는 첨부를 4개까지 · 8MB 까지만 읽는다. 읽지 못한 첨부가 있으면 그 수와 이유를 말한다 —
+// 말하지 않으면 목록이 첨부까지 다 읽은 결과처럼 보인다(원문 36건 중 18건이 일부를 못 읽음).
+const ATTACHMENT_READ_REASON = {
+  not_tried: "한 번에 읽는 개수를 넘음",
+  too_large: "파일이 너무 큼",
+  failed: "내용을 읽지 못함",
+};
+function renderAttachmentReadNotice(checklist) {
+  const unread = (Array.isArray(checklist?.attachmentReads) ? checklist.attachmentReads : []).filter(
+    (read) => read && read.status !== "read",
+  );
+  if (!unread.length) return "";
+  const names = unread
+    .map((read) => `${escapeHtml(String(read.name || ""))}(${ATTACHMENT_READ_REASON[read.status] || "읽지 못함"})`)
+    .join(", ");
+  return `<p class="small-text attachment-unread">첨부 ${unread.length}개를 읽지 못했습니다: ${names}. 그 첨부에 서류가 더 있을 수 있으니 직접 확인하십시오.</p>`;
 }
 
 // 조건별 서류 그룹 1개. 2단계(renderDocChecklist)와 4단계(renderPostAwardPanel)가 같은 마크업을
@@ -2031,7 +2238,9 @@ function renderUnclassifiedDocSection(docState, locked, lockMsgId) {
   return renderDocFlatSection(
     "doc-group-unclassified",
     "단계를 확정하지 못한 서류",
-    `<p class="small-text">단계를 확정하지 못했습니다. 공고문 원문을 확인하십시오.</p>`,
+    // 2026-10-19 · 판정이 실패했다는 사실만 말하면 초보자는 서비스가 고장 난 것으로 읽는다. 왜 여기 있는지를 말한다
+    // (team-reports/2026-10-19-bid-stage-sot/implementation-plan.md 4단계 · D1: 시점을 못 찾은 서류는 2단계에 남긴다).
+    `<p class="small-text">공고문에서 이 서류의 제출 시점을 찾지 못했습니다. 입찰 전에 필요할 수 있어 여기에 함께 두었습니다. 「원문 근거」를 열어 확인하고, 그래도 모르면 담당기관에 확인하십시오.</p>`,
     items,
     docState,
     locked,
@@ -2178,8 +2387,8 @@ function renderBidParticipationApplyPanel() {
       ${infoRow({
         tag: "불필요",
         tone: "safe",
-        title: "입찰참가신청 불필요",
-        text: "이 물건은 공고기관의 사전 승인 없이 바로 입찰할 수 있습니다.",
+        // 블록 제목 · 머리표가 이미 「입찰참가신청 · 불필요」라 행 제목은 뜻만 말한다(V11).
+        title: "사전 승인 없이 바로 입찰할 수 있습니다",
         meta: `근거: ${info.source}`,
       })}
     </section>`;
@@ -2211,7 +2420,7 @@ function renderBidLimitsPanel() {
   const rowsHtml = limits
     .map(
       (limit) => `<li class="info-row${limit.restricted ? " is-restricted" : ""}">
-        <div class="info-row-head">${badge(limit.restricted ? "제한 있음" : "제한 없음", limit.restricted ? "warn" : "neutral")}<strong class="info-row-title">${limit.label}</strong></div>
+        <div class="info-row-head">${badge(limit.restricted ? "제한 있음" : "제한 없음", limit.restricted ? "warn" : "safe")}<strong class="info-row-title">${limit.label}</strong></div>
         <p class="info-row-text">${limit.value}</p>
       </li>`,
     )
@@ -2226,6 +2435,12 @@ function renderBidLimitsPanel() {
     }
     <ul class="info-list">${rowsHtml}</ul>
   </section>`;
+}
+
+// 첨부파일 탭은 2-1 에만 있다. 2-2 의 「첨부파일을 확인하십시오」가 가리킬 곳과 그곳으로 가는 버튼이다(U7).
+function renderAttachmentPointer() {
+  return `<p class="small-text attachment-pointer">첨부파일은 2-1 공고 확인의 「공고 자료 › 첨부파일」에서 확인하십시오.
+    <button type="button" class="secondary small-button" data-goto-attachments>2-1 첨부파일 보기</button></p>`;
 }
 
 function renderDocChecklist(locked) {
@@ -2283,12 +2498,14 @@ function renderDocChecklist(locked) {
     <p class="doc-reference">${checklist.reference || ""}</p>
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
+    ${profile.code === "B" ? renderAttachmentPointer() : ""}
+    ${renderAttachmentReadNotice(checklist)}
     ${
       hasAnyPreBidItems
         ? groupsHtml + unclassifiedHtml + needsInquiryHtml
         : rawGroups.length
           ? `<p class="small-text">공동입찰·대리입찰에 해당하지 않아 추가로 준비할 서류가 없습니다. 질문에 "예"로 답하면 관련 서류가 다시 나타납니다.</p>`
-          : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`
+          : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 첨부파일과 온비드 원문을 확인하십시오.</p>${renderAttachmentPointer()}`
     }
     ${
       checklist.tableRows?.length
@@ -2305,7 +2522,7 @@ function renderDocChecklist(locked) {
     }
     <ul class="doc-notes">${(checklist.notes || []).map((note) => `<li>${note}</li>`).join("")}</ul>
     <div class="doc-locker-action">
-      <button type="button" class="primary small-button" data-store-to-locker>내 보관함으로 보내기</button>
+      <button type="button" class="primary small-button" data-store-to-locker>관심 공고에 저장</button>
       <span id="doc-locker-feedback" class="doc-locker-feedback" role="status" aria-live="polite"></span>
     </div>
   </section>`;
@@ -2436,7 +2653,8 @@ function renderGlossary() {
 function countdownBadge() {
   const countdown = sampleNotice.countdown;
   if (!countdown?.label) return "";
-  const type = countdown.state === "urgent" ? "urgent" : countdown.state === "closed" ? "warn" : "safe";
+  // 머리표 뜻은 셋이다 — 주의(warn) · 정보(neutral) · 충족(safe). 긴급이 아닌 마감 D-n 은 정보다(V2).
+  const type = countdown.state === "urgent" ? "urgent" : countdown.state === "closed" ? "warn" : "neutral";
   return `${badge(countdown.label, type)} <span class="small-text">${countdown.deadline} 마감 · 알림 발송은 하지 않습니다</span>`;
 }
 
@@ -2493,7 +2711,7 @@ function renderPrepStageStepper(stageStatus, activeNum = null) {
       // 그 상태를 "완료"로 보여주면 잠금을 숨기는 것이 된다.
       // notYet 은 done 보다 먼저 본다 — 항목이 0개인 4단계는 파생값에서 done 을 눌러 두지만,
       // 표시 쪽에서도 순서를 지켜 「완료」가 뜰 경로를 남기지 않는다(P0-1).
-      const icon = stage.locked ? "🔒" : stage.notYet ? "⏳" : stage.done ? "✅" : "▶";
+      const icon = getStageIcon(stage);
       const label = stage.locked
         ? `잠김, 2-${stage.num - 1} 단계를 마치면 열립니다`
         : stage.notYet
@@ -2508,7 +2726,7 @@ function renderPrepStageStepper(stageStatus, activeNum = null) {
       return `<li class="${cls}${viewing ? " is-viewing" : ""}" role="listitem">
         <button type="button" class="mini-step" data-board-stage="${stage.num}" title="${label}"${viewing ? ` aria-current="step"` : ""}>
           <span class="mini-step-num">2-${stage.num}</span>
-          <span class="prep-stage-icon" aria-hidden="true">${icon}</span>
+          ${icon ? `<span class="prep-stage-icon" aria-hidden="true">${icon}</span>` : ""}
           <span class="mini-step-label">${stage.title}</span>
           <span class="sr-only">${label}</span>
         </button>
@@ -2516,6 +2734,12 @@ function renderPrepStageStepper(stageStatus, activeNum = null) {
     })
     .join("");
   return `<ol class="prep-stage-stepper mini-stepper" role="list" aria-label="준비 단계">${items}</ol>`;
+}
+
+// 위·아래 단계 표시가 같은 아이콘을 쓴다. 진행 중은 아이콘이 없다(▶ 는 「접힘」 표시와 같은 모양이라 쓰지 않는다).
+// 아이콘은 aria-hidden 이고 상태 문구는 sr-only · title 에 따로 있다. 색으로만 상태를 구분하지 않게 한다(V5 · I8).
+function getStageIcon(stage) {
+  return stage.locked ? "🔒" : stage.notYet ? "⏳" : stage.done ? "✓" : "";
 }
 
 // 준비 보드 위쪽 단계 표시. 공고 가져오기(1-1~1-3)와 같은 버튼 모양이고, 누르면 그 단계 페이지로 간다.
@@ -2529,7 +2753,7 @@ function renderBoardTopStepper(stageStatus, activeNum) {
         .filter(Boolean)
         .join(" ");
       return `<li><button type="button" class="mini-step ${cls}" data-board-stage="${stage.num}" title="${state}"${viewing ? ` aria-current="step"` : ""}>
-        <span class="mini-step-num">2-${stage.num}</span><span class="mini-step-label">${stage.title}</span><span class="sr-only"> · ${state}</span>
+        <span class="mini-step-num">2-${stage.num}</span>${getStageIcon(stage) ? `<span class="prep-stage-icon" aria-hidden="true">${getStageIcon(stage)}</span>` : ""}<span class="mini-step-label">${stage.title}</span><span class="sr-only"> · ${state}</span>
       </button></li>`;
     })
     .join("")}</ol>`;
@@ -2555,7 +2779,8 @@ function renderBoardPageNav(stageStatus, active) {
   }${
     next
       ? `<button type="button" class="${active.done ? "primary" : "secondary"}" data-board-stage="${next.num}">2-${next.num} ${next.title} →</button>`
-      : ""
+      : // 마지막 단계(2-4)에서 흐름을 닫는 행동이다. 「새 물건 분석으로」와 같은 동작을 쓴다(U12).
+        `<button type="button" class="secondary" data-new-analysis>새 물건 분석</button>`
   }`;
 }
 
@@ -2584,16 +2809,14 @@ function renderStageHeading(stage) {
   }
   if (stage.done) {
     return `<h4 class="stage-group-heading is-done">
-      <span aria-hidden="true">✅</span>
+      <span aria-hidden="true">✓</span>
       <span>2-${stage.num} ${stage.title}</span>
       ${badge("완료", "safe")}
     </h4>`;
   }
-  return `<h4 class="stage-group-heading is-active">
-    <span aria-hidden="true">▶</span>
-    <span>2-${stage.num} ${stage.title}</span>
-    ${badge("진행중", "neutral")}
-  </h4>`;
+  // 진행 중인 단계는 머리를 그리지 않는다. 페이지 제목이 이미 단계 이름이고, ▶ 가 바로 아래 「▶ 자세히」(닫힌 접기)와
+  // 같은 모양이라 「접혀 있다」로 읽혔다(V4 · V5). 잠김 · 낙찰 후 · 완료처럼 할 말이 있을 때만 머리를 둔다.
+  return "";
 }
 
 // 4단계(낙찰 후 준비) 블록. 머리 안내는 과설명이 아니라 단계 판정 오분류의 안전망이다 —
@@ -2710,7 +2933,9 @@ function renderPostAwardPanel() {
           <span class="progress" role="progressbar" aria-label="낙찰 후 서류 확인 진행률" aria-valuemin="0" aria-valuemax="${summary.totalCount}" aria-valuenow="${summary.doneCount}"><i style="width:${summary.percent}%"></i></span>
           <p class="small-text">이 진행률은 2-2 입찰 전 준비의 서류 진행률과 따로 계산합니다. 여기를 체크해도 입찰 단계 잠금은 열리지 않습니다.</p>
         </div>`
-        : `<p class="small-text">이 공고에서 낙찰 후 서류를 찾지 못했습니다. 공고 원문과 첨부파일을 확인하십시오.</p>`
+        : groups.length
+          ? `<p class="small-text post-award-none-applicable">이 공고 유형에 해당하는 낙찰 후 서류를 찾지 못했습니다. 아래 접힌 묶음은 다른 재산유형·처분방식 기준입니다.</p>`
+          : `<p class="small-text">이 공고에서 낙찰 후 서류를 찾지 못했습니다. 공고 원문과 첨부파일을 확인하십시오.</p>`
     }
     ${groupsHtml}
   </section>`;
@@ -2740,14 +2965,14 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
             </span>
           </label>
           <span class="task-badges">
-            ${aiMatch && !done ? badge("확인 필요", "safe") : ""}
+            ${(aiMatch || task.needsCheck) && !done ? badge("확인 필요", "warn") : ""}
             ${badge(done ? "완료" : task.due, dueTone)}
           </span>
         </div>
         ${
           task.action
             ? `<div class="task-action-value ${isFoundValue ? "is-extracted" : "is-fallback"}">
-          <span class="task-action-value-label">공고 원문에서 확인된 값</span>
+          <span class="task-action-value-label">${task.valueLabel || "공고 원문에서 확인된 값"}</span>
           <strong>${task.action}</strong>
         </div>`
             : ""
@@ -2781,6 +3006,22 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
       </article>`;
 }
 
+// 분석 전 빈 보드에서는 쓸 수 없는 조작(간단히·자세히 · 초기화 · 새 물건 분석 · 공고 요약·자료 · 단계 표시)을 숨긴다(U3).
+function setBoardChromeHidden(hidden) {
+  document.querySelector("#view-report .section-title [data-new-analysis]")?.toggleAttribute("hidden", hidden);
+  document.querySelector("#view-report .board-page-toolbar")?.toggleAttribute("hidden", hidden);
+  byId("guide-level-hint")?.toggleAttribute("hidden", hidden);
+  byId("board-top-stepper")?.toggleAttribute("hidden", hidden);
+  byId("board-status")?.toggleAttribute("hidden", hidden);
+  if (hidden) byId("board-stage1-extra").hidden = true;
+}
+
+function focusReportTitle() {
+  const title = byId("report-title");
+  title.setAttribute("tabindex", "-1");
+  title.focus({ preventScroll: true });
+}
+
 function renderReport() {
   const userType = getSelectedUserType();
   const fit = getFitMessage();
@@ -2792,6 +3033,28 @@ function renderReport() {
   const blockingMessage = inputWarning || (analysisError ? { title: "공고 분석에 실패했습니다", body: analysisError } : null) || staleInputWarning;
   const taskSummary = getTaskSummary();
   const aiAssignments = getAiTaskAssignments(taskSummary.tasks);
+  // 한 번도 분석하지 않은 상태(처음 들어옴 · 샘플만 불러옴 · 「새 물건 분석으로」 뒤)는 실패도 URL 변경도 아니다.
+  // 「분석 실패」·「입력 URL이 바뀌었지만」을 쓰면 아무것도 안 한 사람이 「뭔가 실패했다」로 읽는다(U3 · I4).
+  const neverAnalyzed = analyzedInputValue === "" && !analysisError;
+  setBoardChromeHidden(neverAnalyzed);
+
+  if (neverAnalyzed) {
+    byId("board-top-stepper").innerHTML = "";
+    byId("report-hero").innerHTML = "";
+    byId("board-status").innerHTML = "";
+    byId("board-coach").innerHTML = "";
+    byId("board-page-nav").innerHTML = "";
+    byId("board-step-label").textContent = "Step 2";
+    byId("report-title").textContent = "내 준비 보드";
+    byId("task-list").innerHTML = `
+      <section class="block board-empty">
+        <h3 class="block-title">아직 가져온 공고가 없습니다</h3>
+        <p class="block-lead">공고 가져오기에서 온비드 URL을 분석하면 이 자리에 공고별 준비 단계와 할 일이 생깁니다.</p>
+        <div class="actions"><button type="button" class="primary" data-goto-input>공고 가져오기로</button></div>
+      </section>
+    `;
+    return;
+  }
 
   if (blockingMessage) {
     const sourceLink = byId("source-url-link");
@@ -2802,7 +3065,7 @@ function renderReport() {
     byId("report-hero").innerHTML = `
       <h3>${blockingMessage.title}</h3>
       <p>${badge("분석 필요", "warn")} <span class="small-text">원문 우선</span></p>
-      <p>${blockingMessage.body}</p>
+      <p>${escapeHtml(blockingMessage.body)}</p>
       <p class="small-text">온비드 공고/물건 URL을 입력하고 공고 분석을 다시 실행하세요.</p>
     `;
 
@@ -2825,7 +3088,8 @@ function renderReport() {
       </article>
     `;
     byId("quick-facts").innerHTML = [
-      ["입력 상태", inputWarning ? "URL 확인 필요" : "분석 실패"],
+      // 「분석 실패」는 실제로 실패했을 때만 쓴다. URL 만 바뀐 경우는 실패가 아니다(U3).
+      ["입력 상태", inputWarning ? "URL 확인 필요" : analysisError ? "분석 실패" : "URL 변경 뒤 분석 전"],
       ["실제 분석", "미수행"],
       ["다음 단계", "온비드 URL 재입력"],
       ["안전 경계", "샘플 결과로 대체 표시하지 않음"],
@@ -2861,7 +3125,7 @@ function renderReport() {
       <span class="small-text">${sampleNotice.assetType} ${sampleNotice.dispositionLabel} · ${userTypeLabels[userType]}${
         publicData ? ` · ${publicDataLabel(publicData)}` : ""
       }</span></p>
-    ${fit.type === "match" ? "" : `<p>${fit.body}</p>`}
+    ${fit.type === "match" ? "" : `<p>${escapeHtml(fit.body)}</p>`}
   `;
 
   const stageStatus = getPrepStageStatus();
@@ -2925,6 +3189,18 @@ function renderReport() {
         stageTasks
           .map((task) => renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml, stage.locked))
           .join("") + leftoverHtml;
+      // 이 단계를 마쳤고 다음 단계가 있으면, 마지막 할 일 카드 바로 아래에 다음 단계로 가는 주 버튼을 둔다(U2).
+      // 다음 버튼이 문서 끝(공고 요약·공고 자료 아래)에만 있어 「다 했는데 어디로?」에서 멈췄다.
+      const nextStage = stageStatus.find((candidate) => candidate.num === stage.num + 1);
+      const stageDoneHtml =
+        stage.done && !stage.locked && nextStage && stageTasks.length
+          ? `<div class="info-list stage-done-next">
+          <div class="info-row">
+            <div class="info-row-head">${badge("완료", "safe")}<strong class="info-row-title">2-${stage.num}을 마쳤습니다</strong></div>
+            <div class="actions"><button type="button" class="primary small-button" data-board-stage="${nextStage.num}">2-${nextStage.num} ${nextStage.title}로 →</button></div>
+          </div>
+        </div>`
+          : "";
       const emptyHtml =
         !cardsHtml && !postAwardHtml
           ? `<p class="block-note">이 단계에 자동으로 만든 할 일이 없습니다. 공고 원문을 확인하십시오.</p>`
@@ -2957,6 +3233,7 @@ function renderReport() {
         ${bidLimitsHtml}
         ${bidApplyHtml}
         ${cardsHtml}
+        ${stageDoneHtml}
         ${emptyHtml}
         ${bidParticipationHtml}
         ${postAwardHtml}
@@ -2975,21 +3252,12 @@ function renderReport() {
         </div>
       </article>`;
 
+  // 공고 유형 · 입찰기간 · 최저입찰가격은 같은 2-1 화면의 할 일 카드 값과 1-3 핵심 정보에 이미 있다.
+  // 한 화면에 입찰기간이 네 번 나와 진짜 확인할 것이 묻혔다(U10 ⑴). 다른 곳에 없는 칸만 남긴다.
   byId("quick-facts").innerHTML = [
-    ["공고 유형", `${sampleNotice.assetType} · ${sampleNotice.dispositionLabel}`],
-    [
-      "입찰기간",
-      sampleNotice.bidPeriod || NOTICE_VALUE_FALLBACK,
-      sampleNotice.bidPeriod ? "" : "is-fallback",
-    ],
     ["공고번호", sampleNotice.noticeId],
     ["공고기관", sampleNotice.agency],
     ["입찰방식", sampleNotice.bidMethod],
-    [
-      "최저입찰가격",
-      sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK,
-      sampleNotice.minimumBidPrice ? "" : "is-fallback",
-    ],
     // 공동입찰은 못 읽었으면 「원문 확인」이다. 「불가능」·「해당없음」으로 접거나 행을 숨기지 않는다 —
     // 숨기면 사용자가 「해당 없다」로 읽는다.
     ["공동입찰", sampleNotice.jointBidAllowed || "원문 확인"],
@@ -3003,7 +3271,8 @@ function renderReport() {
     .join("");
 
   byId("deadline-cost-list").innerHTML = [
-    ...sampleNotice.alerts.map((item) => ({ ...item, type: "알림" })),
+    // 입찰기간 알림 행은 뺀다. 마감 D-n 행과 할 일 카드가 같은 값을 말한다(U10 ⑵).
+    ...sampleNotice.alerts.filter((item) => item.title !== "입찰기간").map((item) => ({ ...item, type: "알림" })),
     ...sampleNotice.costs.map((item) => ({ ...item, type: "비용" })),
   ]
     .map((item) => {
@@ -3036,7 +3305,7 @@ function renderReport() {
     "보조 데이터 값과 공고 원문이 다를 경우 공고 원문 및 담당기관 확인을 우선합니다.",
     "입찰 여부, 법률 판단, 권리관계 판단, 수익성 판단은 제공하지 않습니다.",
   );
-  byId("source-notes").innerHTML = sourceNotes.map((note) => infoRow({ tag: "확인", tone: "safe", text: note })).join("");
+  byId("source-notes").innerHTML = sourceNotes.map((note) => infoRow({ tag: "확인", tone: "neutral", text: note })).join("");
 }
 
 function renderWatchlist() {
@@ -3067,13 +3336,14 @@ function renderWatchlist() {
   // 합쳐 세면 하나도 저장하지 않은 사용자에게 「관심 공고 2건」이 뜬다.
   const savedByUser = savedItems.filter((item) => !item.sample);
 
-  byId("watch-summary").innerHTML = [
+  // 지표 카드 3개 대신 1-3 과 같은 값 칸 한 블록이다(V6).
+  byId("watch-summary").innerHTML = `<div class="fact-grid">${[
     ["관심 공고", `${savedByUser.length}건`],
     ["최근 살펴본 공고", `${recent.length}건`],
     ["현재 공고 진행률", hasBlockingMessage ? "입력 공고 미분석" : formatProgress(summary)],
   ]
-    .map(([label, value]) => `<div class="summary-item"><b>${label}</b><strong>${value}</strong></div>`)
-    .join("");
+    .map(([label, value]) => factCell(label, `<strong class="field-value">${value}</strong>`))
+    .join("")}</div>`;
 
   const savedHtml = savedItems.length
     ? savedItems.map((item) => watchItemHtml(item, { showFavorite: item.dynamic })).join("")
@@ -3102,7 +3372,6 @@ function renderWatchlist() {
 }
 
 function watchItemHtml(item, options = {}) {
-  const statusType = item.status?.includes("필요") || item.status?.includes("미") ? "warn" : "safe";
   const favoriteLabel = item.favorite ? "관심 공고에서 해제" : "관심 공고에 추가";
   const favoriteButton = options.showFavorite
     ? `<button class="star-button ${item.favorite ? "is-on" : ""}" type="button" data-favorite-id="${item.id}" aria-pressed="${item.favorite ? "true" : "false"}" title="${favoriteLabel}" aria-label="${favoriteLabel}">${item.favorite ? "★" : "☆"}</button>`
@@ -3110,22 +3379,21 @@ function watchItemHtml(item, options = {}) {
   // countdown은 카드가 저장된 시점(공고를 분석했을 때)의 마감 상태다. 다시 분석하지
   // 않으면 갱신되지 않으므로 "지금 이 순간"의 마감 여부와 다를 수 있다.
   const countdown = item.countdown;
-  const countdownType = countdown?.state === "urgent" ? "urgent" : countdown?.state === "closed" ? "warn" : "safe";
-  return `<article class="watch-item">
-    ${favoriteButton}
-    <div>
-      <strong>${item.title || item.notice}${item.sample ? ` ${badge("예시", "warn")}` : ""}</strong>
-      <span>${item.notice}</span>
-      <span>${item.type}</span>
-      ${countdown?.label ? badge(countdown.label, countdownType) : ""}
-    </div>
-    <p>${item.next}</p>
-    <div class="watch-actions">
-      ${badge(item.status, statusType)}
-      ${item.sample
-        ? `<span class="text-action is-disabled" aria-disabled="true">예시 항목(원문 없음)</span>`
-        : `<a class="text-action" href="${item.sourceUrl || "https://www.onbid.co.kr/"}" target="_blank" rel="noreferrer">원문</a>`}
-    </div>
+  const countdownType = countdown?.state === "urgent" ? "urgent" : countdown?.state === "closed" ? "warn" : "neutral";
+  // 정보 행 모양이다(V6) — 머리 줄(별표 · 머리표 · 물건명 · 원문) / 공고번호 · 유형 / 다음 할 일 · 진행.
+  // 같은 말을 두 번 쓰지 않는다. 예시 항목은 공고번호 자리에 제목이 그대로 들어 있고, 최근 공고는 다음 할 일이
+  // 공고 유형 값일 때가 있다.
+  const title = item.title || item.notice;
+  const headBadge = item.sample ? badge("예시", "warn") : countdown?.label ? badge(countdown.label, countdownType) : "";
+  const textParts = [item.notice !== title ? item.notice : "", item.type].filter(Boolean);
+  const metaParts = [item.next !== item.type ? item.next : "", item.status ? `${item.status}` : ""].filter(Boolean);
+  const action = item.sample
+    ? `<span class="info-row-action text-action is-disabled" aria-disabled="true">예시 항목(원문 없음)</span>`
+    : `<a class="info-row-action link-chip" href="${item.sourceUrl || "https://www.onbid.co.kr/"}" target="_blank" rel="noreferrer">원문 ↗</a>`;
+  return `<article class="info-row watch-row">
+    <div class="info-row-head">${favoriteButton}${headBadge}<strong class="info-row-title">${title}</strong>${action}</div>
+    ${textParts.length ? `<p class="info-row-text">${textParts.join(" · ")}</p>` : ""}
+    ${metaParts.length ? `<p class="info-row-meta">${metaParts.join(" · ")}</p>` : ""}
   </article>`;
 }
 
@@ -3151,13 +3419,18 @@ async function runAnalysis() {
   if (inputWarning) {
     analysisError = null;
     currentStage = 0;
+    // aria-invalid 를 먼저 붙여야 다시 그린 안내가 경고 톤(입력 필요)이 된다.
+    focusNoticeUrlAsInvalid();
     renderAll();
     byId("url-step-feedback").scrollIntoView({ block: "center", behavior: "smooth" });
     return;
   }
   const requestId = ++analysisRequestId;
+  // 응답이 왔을 때의 입력값이 아니라 요청에 실은 값을 「분석한 URL」로 기록한다(I2). 응답 시점 값을 쓰면
+  // 분석 중 URL 을 고친 경우 옛 공고 결과가 새 URL 의 것으로 기록되어 「아직 분석하지 않았습니다」 경고가 꺼진다.
+  const requestedInput = getNoticeInput();
   const analyzeButton = byId("analyze");
-  analyzeButton.disabled = true;
+  setAnalysisInputsBusy(true);
   analyzeButton.textContent = "분석 중";
   analysisError = null;
   boardGenerated = false;
@@ -3171,35 +3444,74 @@ async function runAnalysis() {
     // 같은 origin의 이 fetch도 그 대상이라, 헤더 없이는 JSON 대신 HTML을 받아 파싱이 깨진다
     // (2026-09-12 실측 — curl로 재현). 이 헤더는 ngrok 문서가 정한 공식 우회 방법이고,
     // ngrok을 안 거칠 때는 우리 서버가 그냥 무시하는 헤더라 부작용이 없다.
-    const response = await fetch(`/api/analyze?url=${encodeURIComponent(getNoticeInput())}`, {
+    const response = await fetch(`/api/analyze?url=${encodeURIComponent(requestedInput)}`, {
       headers: { "ngrok-skip-browser-warning": "true" },
     });
     const payload = await response.json();
     if (requestId !== analysisRequestId) return;
     if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "온비드 페이지 분석에 실패했습니다.");
+      const error = new Error(payload.error || "온비드 페이지 분석에 실패했습니다.");
+      error.status = response.status;
+      throw error;
     }
     currentStage = pipelineSteps.length - 1;
     replaceNotice(payload.notice);
     boardStageNum = null;
-    analyzedInputValue = getNoticeInput();
+    analyzedInputValue = requestedInput;
+    clearCoachAnswer();
     saveRecentNotice();
     renderAll();
     setInputStep("result");
+    // 분석 성공 뒤 포커스가 사라진 「분석하기」 자리(BODY)에 남지 않게 1-3 제목으로 옮긴다(I7).
+    const resultTitle = document.querySelector("#wizard-step-result h2");
+    resultTitle.setAttribute("tabindex", "-1");
+    resultTitle.focus({ preventScroll: true });
   } catch (error) {
     if (requestId !== analysisRequestId) return;
-    analysisError = error.message || "온비드 페이지 분석에 실패했습니다.";
+    analysisError = toAnalysisErrorMessage(error);
     boardGenerated = false;
     currentStage = 0;
     renderAll();
     setInputStep("url");
     byId("url-step-feedback").scrollIntoView({ block: "center", behavior: "smooth" });
   } finally {
+    // 낡은 응답이면 번호를 올린 쪽(restartWizardToProfile · 샘플 불러오기)이 이미 잠금을 풀었다.
     if (requestId === analysisRequestId) {
-      analyzeButton.disabled = false;
+      setAnalysisInputsBusy(false);
       renderActionState();
+      // 실패면 고칠 자리(URL 칸)로 포커스를 보낸다. 칸은 위에서 잠금이 풀린 뒤라야 포커스를 받는다(I7).
+      if (analysisError) focusNoticeUrlAsInvalid();
     }
   }
+}
+
+function focusNoticeUrlAsInvalid() {
+  const input = byId("notice-url");
+  input.setAttribute("aria-invalid", "true");
+  input.focus({ preventScroll: true });
+}
+
+// 「HTTP Error 500」·「<urlopen error …>」 같은 원본 문구는 사용자가 고칠 수 있는 것이 아니다. 화면에는
+// 다시 시도하라는 문장만 보이고 원본은 콘솔에 남긴다(I5). URL 형식 문제처럼 서버가 이유를 적어 준 400 은 그대로 보인다.
+const ANALYSIS_SERVER_ERROR_MESSAGE = "온비드 페이지를 지금 읽지 못했습니다. 잠시 뒤 다시 분석하십시오.";
+const ANALYSIS_SERVER_ERROR_PATTERN = /HTTP Error|urlopen|Errno|timed out|timeout|Connection|SSL|JSON|Unexpected token|Failed to fetch|NetworkError|Load failed/i;
+
+function toAnalysisErrorMessage(error) {
+  const message = error?.message || "";
+  const serverSide = !error?.status || error.status >= 500 || ANALYSIS_SERVER_ERROR_PATTERN.test(message);
+  if (!serverSide) return message || "온비드 페이지 분석에 실패했습니다.";
+  console.warn("공고 분석 실패", error?.status, message);
+  return ANALYSIS_SERVER_ERROR_MESSAGE;
+}
+
+// 분석 중에는 URL 입력과 샘플 불러오기를 막는다. 막지 않으면 결과와 입력칸의 URL 이 서로 다른 공고가 된다(I2).
+function setAnalysisInputsBusy(busy) {
+  byId("notice-url").disabled = busy;
+  byId("load-sample").disabled = busy;
+  const analyzeButton = byId("analyze");
+  analyzeButton.disabled = busy;
+  if (busy) analyzeButton.setAttribute("aria-busy", "true");
+  else analyzeButton.removeAttribute("aria-busy");
 }
 
 // ARIA tabs 패턴의 roving tabindex — 선택된 탭만 tabindex=0, 나머지는 -1
@@ -3218,6 +3530,9 @@ function selectSupportTab(tab) {
 // 같은 패턴이되, URL 입력칸은 비워서 다른 공고 URL을 새로 입력하게 한다.
 function restartWizardToProfile() {
   analysisRequestId += 1;
+  // 분석 중에 돌아오면 그 응답은 버려지고 finally 가 잠금을 풀지 않으므로 여기서 푼다.
+  setAnalysisInputsBusy(false);
+  clearCoachAnswer();
   boardStageNum = null;
   clearTimeout(transitionTimer);
   replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
@@ -3237,7 +3552,7 @@ function restartWizardToProfile() {
 // 그대로 재사용하고(analysisReady 가 아니면 조용히 건너뜀), 되돌리기는 restartWizardToProfile()을
 // 그대로 재사용한다 — 보관함에서 다시 불러오는 기능은 이번 범위 밖이다.
 function startNewAnalysis() {
-  if (!window.confirm("지금 보던 공고를 내 보관함에 저장하고 새 물건 분석을 시작할까요?")) {
+  if (!window.confirm("지금 공고를 관심 공고에 저장하고 새 물건 분석을 시작할까요?")) {
     return;
   }
   saveNoticeToLocker();
@@ -3273,7 +3588,8 @@ async function renderCodeRevision() {
 
 function init() {
   renderCodeRevision();
-  byId("notice-url").value = sampleNotice.sourceUrl;
+  // 처음 1-2 에 들어온 사람에게 무엇인지 모를 URL 을 미리 채워 두지 않는다. 샘플은 「샘플 불러오기」가 채운다(U4).
+  byId("notice-url").value = "";
   analyzedInputValue = "";
   renderAll();
   renderReferenceLinks();
@@ -3284,7 +3600,8 @@ function init() {
 
   byId("load-sample").addEventListener("click", () => {
     analysisRequestId += 1;
-    byId("analyze").disabled = false;
+    setAnalysisInputsBusy(false);
+    clearCoachAnswer();
     byId("analyze").textContent = "분석하기";
     replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
     boardStageNum = null;
@@ -3292,7 +3609,7 @@ function init() {
     analyzedInputValue = "";
     boardGenerated = false;
     analysisError = null;
-    byId("asset-focus").value = "lease";
+    // 1-1 에서 고른 검토 목적은 덮어쓰지 않는다. 샘플이 목적과 다르면 1-3 이 그대로 불일치를 보인다(U5).
     currentStage = 0;
     renderAll();
   });
@@ -3327,6 +3644,8 @@ function init() {
   byId("user-type").addEventListener("change", renderAll);
   byId("asset-focus").addEventListener("change", renderAll);
   byId("notice-url").addEventListener("input", () => {
+    // 다시 입력하기 시작하면 「잘못된 입력」 표시를 푼다.
+    byId("notice-url").removeAttribute("aria-invalid");
     analysisError = null;
     boardGenerated = false;
     currentStage = 0;
@@ -3415,8 +3734,11 @@ function init() {
   document.addEventListener("click", (event) => {
     const guideButton = event.target.closest("[data-guide-level]");
     if (guideButton) {
-      guideDetailed = guideButton.dataset.guideLevel === "detail";
+      const level = guideButton.dataset.guideLevel;
+      guideDetailed = level === "detail";
       renderReport();
+      // 두 칸 버튼도 다시 그려진다. 같은 칸으로 포커스를 되돌린다(I7).
+      document.querySelector(`[data-guide-level="${level}"]`)?.focus();
       return;
     }
     const wizardDot = event.target.closest("[data-wizard-dot]");
@@ -3429,6 +3751,23 @@ function init() {
       boardStageNum = Number(stageButton.dataset.boardStage);
       renderReport();
       byId("view-report").scrollIntoView({ block: "start" });
+      // 누른 버튼이 다시 그려져 사라지므로 포커스가 BODY 로 빠졌다(I7). 새 페이지 제목으로 옮긴다.
+      focusReportTitle();
+      return;
+    }
+    if (event.target.closest("[data-goto-input]")) {
+      // 1-1 을 지나지 않았으면 1-1, 지났으면 1-2 로 간다. 결과 화면(1-3)은 분석 전이라 열 수 없다.
+      setView("input");
+      setInputStep(inputStep === "profile" ? "profile" : "url");
+      return;
+    }
+    if (event.target.closest("[data-goto-attachments]")) {
+      boardStageNum = 1;
+      renderReport();
+      const attachmentTab = byId("tab-attachment-list");
+      selectSupportTab(attachmentTab);
+      attachmentTab.scrollIntoView({ block: "center" });
+      attachmentTab.focus();
       return;
     }
     if (event.target.closest("[data-restart-wizard]")) {
@@ -3449,7 +3788,7 @@ function init() {
       const record = saveNoticeToLocker();
       const feedback = byId("doc-locker-feedback");
       if (feedback) {
-        feedback.textContent = record ? "보관함에 저장되었습니다." : "먼저 공고를 분석해야 보관할 수 있습니다.";
+        feedback.textContent = record ? "관심 공고에 저장되었습니다." : "먼저 공고를 분석해야 저장할 수 있습니다.";
       }
       return;
     }
@@ -3468,6 +3807,12 @@ function init() {
       const input = byId("coach-question-input");
       if (input) input.value = suggestButton.dataset.coachSuggest;
       askNoticeQuestion();
+      return;
+    }
+    if (event.target.closest("[data-coach-clear]")) {
+      clearCoachAnswer();
+      // 누른 버튼이 사라지므로 포커스를 질문 입력칸으로 옮긴다.
+      byId("coach-question-input")?.focus();
       return;
     }
     if (event.target.closest("[data-coach-toggle]")) {
@@ -3497,6 +3842,9 @@ function init() {
     }
     setView(target.dataset.jump);
   });
+
+  const dockForHeight = document.querySelector(".board-dock");
+  if (dockForHeight && window.ResizeObserver) new ResizeObserver(updateDockHeightVar).observe(dockForHeight);
 
   const initial = location.hash.replace("#", "");
   if (["input", "report", "watchlist"].includes(initial)) {

@@ -194,6 +194,8 @@ test("S1·S2·S5·S6·S7 추출에 성공한 공고를 화면에 그린다", asy
   await page.locator("#prepare").click();
 
   // S2 조건별 그룹·부가조건 칩·발급처. 체크리스트는 기본 접힘이라 먼저 펼친다.
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
   // "대리입찰" 조건부 그룹(대리입찰신청서 포함)은 질문에 "예"로 답해야 보인다(2026-10-12 phase3).
@@ -217,8 +219,10 @@ test("S1·S2·S5·S6·S7 추출에 성공한 공고를 화면에 그린다", asy
   await expect(checklist).not.toContainText("찾지 못했습니다");
 
   // S5 음성 대조: 금액이 정상이면 「비공개」가 뜨지 않는다.
-  await expect(page.locator("#quick-facts")).toContainText("450,000,000");
-  await expect(page.locator("#quick-facts")).not.toContainText("비공개");
+  // 2026-10-19 3팀 묶음 C(U10 ⑴): 2-1 공고 요약에서 최저입찰가격 칸을 뺐다. 준비 보드의 칸은 2-3 「입찰 참여 정보」다.
+  const boardPrice = page.locator("#task-list .bid-participation-info .fact-row", { hasText: "최저입찰가격" });
+  await expect(boardPrice).toContainText("450,000,000");
+  await expect(boardPrice).not.toContainText("비공개");
 
   // S9 공동입찰 값과 명도책임을 원문 표시값 그대로 옮긴다.
   await expect(page.locator("#quick-facts")).toContainText("공동입찰");
@@ -232,8 +236,7 @@ test("S1·S2·S5·S6·S7 추출에 성공한 공고를 화면에 그린다", asy
   await expect(page.locator("#attachment-list")).toContainText("첨부파일이 없습니다");
   await expect(page.locator("#attachment-list a")).toHaveCount(0);
 
-  // S8 공고문 항목·용어 안내.
-  await expect(page.locator("#notice-outline")).toContainText("1. 입찰방법");
+  // S8 용어 안내. 「공고문 항목」 탭은 6cd8487 에서 지웠다(동원님 지시 · 정확한 정보를 주지 못했다).
   await expect(page.locator("#glossary-list")).toContainText("압류재산");
 
   await page.screenshot({ path: "screenshots/validation/20_doc-checklist-extracted.png", fullPage: true });
@@ -274,9 +277,10 @@ test("S1·S3·S4·S5·S6·S7 못 뽑은 공고는 못 뽑았다고 말하고 진
   await expect(page.locator("#task-list input[type=checkbox]:disabled")).toHaveCount(0);
   expect(dialogs).toEqual([]);
 
-  // S5 최저입찰가격은 0이 아니라 「비공개」로 표시한다.
-  await expect(page.locator("#quick-facts")).toContainText("비공개");
-  await expect(page.locator("#quick-facts")).not.toContainText("최저입찰가격0");
+  // S5 최저입찰가격은 0이 아니라 「비공개」로 표시한다. 준비 보드의 칸은 2-3 「입찰 참여 정보」다(3팀 묶음 C).
+  const boardPrice = page.locator("#task-list .bid-participation-info .fact-row", { hasText: "최저입찰가격" });
+  await expect(boardPrice).toContainText("비공개");
+  await expect(boardPrice).not.toContainText("최저입찰가격0");
 
   // S9 못 읽었으면 행을 숨기지 않고 「원문 확인」으로 둔다 — 숨기면 「해당 없다」로 읽힌다.
   await expect(page.locator("#quick-facts")).toContainText("공동입찰");
@@ -293,8 +297,6 @@ test("S1·S3·S4·S5·S6·S7 못 뽑은 공고는 못 뽑았다고 말하고 진
   await expect(attachment).toHaveAttribute("href", /dnldFile\.do\?.*atchFileLstNo=17070043/);
   await expect(attachment).toHaveAttribute("href", /hashCrpsNo=COGFDOFI/);
 
-  // S8 음성 대조: 목차가 비면 안내 문장으로 대체한다.
-  await expect(page.locator("#notice-outline")).toContainText("찾지 못했습니다");
 
   await page.screenshot({ path: "screenshots/validation/21_doc-checklist-missing.png", fullPage: true });
 });
@@ -629,11 +631,13 @@ async function aiClaimHits(page, scope) {
   return AI_CLAIM_PHRASES.filter((phrase) => text.includes(phrase.replace(/\s+/g, " ")));
 }
 
-/** 최저입찰가격 칸의 «보이는» 값. 요약(#quick-facts)과 분석 직후 두 창을 따로 잰다. */
+/** 최저입찰가격 칸의 값. 준비 보드와 분석 직후 두 창을 따로 잰다.
+ * 2026-10-19 3팀 묶음 C(U10 ⑴)로 2-1 공고 요약(#quick-facts)에서 최저입찰가격 칸을 뺐다. 준비 보드의 칸은
+ * 2-3 「입찰 참여 정보」에 남아 있다. 2-3 은 다른 단계를 보는 동안 hidden 이라 innerText 대신 textContent 를 쓴다. */
 async function minimumBidCellTexts(page) {
-  const quick = page.locator("#quick-facts .fact-row", { hasText: "최저입찰가격" }).locator("strong");
+  const quick = page.locator("#task-list .bid-participation-info .fact-row", { hasText: "최저입찰가격" }).locator("strong");
   const preview = page.locator("#analysis-result .preview-grid div", { hasText: "최저입찰가격" }).locator("strong");
-  return { quick: (await quick.innerText()).trim(), preview: (await preview.innerText()).trim() };
+  return { quick: ((await quick.textContent()) || "").trim(), preview: (await preview.innerText()).trim() };
 }
 
 test("N1 「원문에 없음」 단정과 첨부 목록을 같은 화면에 함께 세우지 않는다", async ({ page }) => {
@@ -846,10 +850,12 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   const bidPeriod = page.locator('[data-task-id="bid-period"]');
   const documents = page.locator('[data-task-id="documents"]');
   const price = page.locator('[data-task-id="price"]');
+  const goStage = (n) => page.locator(`#board-top-stepper [data-board-stage="${n}"]`).click();
 
-  // 배치: 단계 표시·진행률은 할 일 목록 바로 아래, AI 코치 카드는 보드 맨 아래다(2026-10-19 동원님 지시).
-  await expect(page.locator(".task-panel > #task-list + #board-status")).toHaveCount(1);
-  await expect(page.locator("#view-report > .panel > #board-coach:last-child")).toHaveCount(1);
+  // 배치(2026-10-19 improve-uiux): 위쪽 단계 버튼이 있고, AI 코치와 아래 단계 표시·진행률은 보드 아래 고정 영역에 있다.
+  await expect(page.locator("#board-top-stepper [data-board-stage]")).toHaveCount(4);
+  await expect(page.locator("#view-report > .board-dock > #board-coach + #board-status")).toHaveCount(1);
+  await expect(page.locator("#board-step-label")).toHaveText("Step 2-1");
 
   // 도달: 1단계는 열려 있고 2·3단계는 잠겨 있다.
   await expect(noticeType).toBeEnabled();
@@ -858,13 +864,10 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   await expect(price).toBeDisabled();
   await expect(page.locator(".stage-group-heading.is-locked")).toHaveCount(2);
 
-  // 잠긴 단계는 기본으로 접혀 있다(2026-10-11 설계, "한 번에 너무 많다" 체감 해소) —
-  // 눌러서 미리 볼 수 있는 길만 남겨 두므로, 먼저 단계 헤딩을 눌러 펼친다.
+  // 잠긴 단계도 단계 버튼으로 미리 볼 수 있다. 「자세히」는 기본으로 접혀 있고(2026-10-19 · 텍스트가 너무 많다는 지적),
+  // 원문 링크는 그 안에 있으므로 한 번 눌러 펼쳐야 보인다.
+  await goStage(2);
   const documentsCard = documents.locator("xpath=ancestor::article[contains(@class,'task-item')]");
-  await documentsCard.locator("xpath=ancestor::details[contains(@class,'stage-group')]").locator("> summary").click();
-  // 펼친 뒤에는 "자세히"·원문 값이 항상 보인다(ux-audit §⑴).
-  // 「자세히」 자체는 기본으로 접혀 있다(2026-10-19 · 텍스트가 너무 많다는 지적). 원문 링크는
-  // 그 안에 있으므로 한 번 눌러 펼쳐야 보인다.
   const documentsDetail = documentsCard.locator("details.task-detail");
   await expect(documentsDetail.locator("> summary")).toBeVisible();
   expect(await documentsDetail.evaluate((el) => el.open)).toBe(false);
@@ -874,6 +877,7 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   await expect(documentsCard.locator("a", { hasText: "온비드 원문" })).toBeVisible();
 
   // 1단계를 모두 체크하면 2단계(문서)만 열리고 3단계(가격)는 그대로 잠긴다.
+  await goStage(1);
   await noticeType.check();
   await bidPeriod.check();
   await expect(documents).toBeEnabled();
@@ -881,25 +885,25 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   await expect(page.locator(".stage-group-heading.is-done")).toHaveCount(1);
 
   // 2단계(문서)까지 체크하면 3단계가 열린다.
+  await goStage(2);
   await documents.check();
   await expect(price).toBeEnabled();
 
   // 되돌리기: 1단계 체크를 해제하면 2단계는 즉시 재잠김 — 단, documents 체크값은 보존된다.
+  await goStage(1);
   await noticeType.uncheck();
   await expect(documents).toBeDisabled();
   await expect(documents).toBeChecked();
   await expect(page.locator(".stage-group-heading.is-locked")).toHaveCount(2);
 
-  // 「안내 수준」 버튼은 「자세히」를 모두 펼치고 다시 접는다. 완료된 카드(bid-period·documents)는
-  // 펼치지 않는다. 버튼은 경험 수준 질문에 답한 뒤에만 보인다.
+  // 「간단히 / 자세히」 두 칸 버튼은 「자세히」를 모두 펼치고 다시 접는다. 완료된 카드(bid-period·documents)는 펼치지 않는다.
   const detailOpen = (taskId) =>
     page.locator(`article.task-item:has([data-task-id="${taskId}"]) details.task-detail`).evaluate((el) => el.open);
-  await page.locator("[data-experience-skip]").click();
   expect(await detailOpen("notice-type")).toBe(false);
-  await page.locator("[data-experience-toggle]").click();
+  await page.locator('[data-guide-level="detail"]').click();
   expect(await detailOpen("notice-type")).toBe(true);
   expect(await detailOpen("documents")).toBe(false);
-  await page.locator("[data-experience-toggle]").click();
+  await page.locator('[data-guide-level="brief"]').click();
   expect(await detailOpen("notice-type")).toBe(false);
 });
 
@@ -1082,13 +1086,17 @@ test("준비 단계 — 항목이 0개인 4단계가 「완료」로 표시되�
 
   // ⑶ 단계 헤딩: 4단계 헤딩이 is-done 이 아니다. 1~3단계가 미완이므로 is-done 은 0건이어야 한다.
   await expect(page.locator(".stage-group-heading.is-not-yet")).toHaveCount(1);
-  await expect(page.locator(".stage-group-heading.is-not-yet")).toContainText("4단계 · 낙찰 후 준비");
+  await expect(page.locator(".stage-group-heading.is-not-yet")).toContainText("2-4 낙찰 후 준비");
   await expect(page.locator(".stage-group-heading.is-done")).toHaveCount(0);
 
   // ⑷ 1~3단계를 모두 체크해도 4단계는 여전히 「완료」가 아니다 — 낙찰은 사용자가 만들 수 없다.
+  // 준비 보드는 한 번에 한 단계 페이지만 보이므로(improve-uiux) 그 단계로 가서 체크한다.
+  const goStage = (n) => page.locator(`#board-top-stepper [data-board-stage="${n}"]`).click();
   await page.locator('[data-task-id="notice-type"]').check();
   await page.locator('[data-task-id="bid-period"]').check();
+  await goStage(2);
   await page.locator('[data-task-id="documents"]').check();
+  await goStage(3);
   await page.locator('[data-task-id="price"]').check();
   await expect(page.locator(".stage-group-heading.is-done")).toHaveCount(3);
   await expect(page.locator(".stage-group-heading.is-not-yet")).toContainText("아직 할 일이 아닙니다");
@@ -1099,11 +1107,12 @@ test("준비 단계 — 4단계 블록에 머리 안내가 보이고, 낙찰 후
   await analyzeWith(page, stagedNotice());
   await page.locator("#prepare").click();
 
-  // 4단계 블록은 잠겨 있지 않으므로 기본으로 펼쳐져 있고, 머리 안내가 바로 보인다.
+  // 4단계 페이지를 열면 머리 안내가 바로 보인다(준비 보드는 단계마다 한 페이지 · improve-uiux).
   // 이 안내는 과설명이 아니라 단계 판정(resolve_doc_stage) 오분류의 안전망이다(P0-2).
+  await page.locator('#board-top-stepper [data-board-stage="4"]').click();
   const postAward = page.locator(".post-award-panel");
   await expect(postAward).toBeVisible();
-  await expect(postAward.locator(".post-award-caution")).toContainText("2단계 목록도 함께 확인하십시오");
+  await expect(postAward.locator(".post-award-caution")).toContainText("2-2 입찰 전 준비 목록도 함께 확인하십시오");
 
   // D(P1-2) 일반 안내가 4단계를 채운다 — 기한을 놓치면 낙찰이 취소되는 묶음이 맨 위다.
   const groupHeadings = postAward.locator(".doc-group > summary h4");
@@ -1117,11 +1126,8 @@ test("준비 단계 — 4단계 블록에 머리 안내가 보이고, 낙찰 후
   await expect(postAward).toContainText("매수인이 등기소에 직접 낼 수는 없습니다");
 
   // 2단계 체크리스트에는 낙찰 후 서류가 «없다» — 두 블록이 물리적으로 갈린다.
-  await page
-    .locator('[data-task-id="documents"]')
-    .locator("xpath=ancestor::details[contains(@class,'stage-group')]")
-    .locator("> summary")
-    .click();
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
+  await page.locator("#doc-checklist-details > summary").click();
   const preBidChecklist = page.locator("#doc-checklist");
   await expect(preBidChecklist).toContainText("인감증명서");
   await expect(preBidChecklist).not.toContainText("등기사항전부증명서");
@@ -1148,8 +1154,12 @@ test("준비 단계 — 4단계 서류를 체크해도 2단계 진행률과 단�
   for (const name of postNames) expect(preNames).not.toContain(name);
 
   // 4단계 서류를 전부 체크해도 documents task 는 켜지지 않고 3단계는 잠긴 채다.
+  // 준비 보드는 단계마다 한 페이지라(improve-uiux) 2-4 로 가서 체크한다. 체크할 때마다 보드를 다시 그리므로
+  // 접힌 묶음은 매번 다시 펼친다.
+  await page.locator('#board-top-stepper [data-board-stage="4"]').click();
   for (const name of postNames) {
-    await page.locator(`[data-doc-name="${name}"]`).first().check();
+    await page.evaluate(() => document.querySelectorAll(".post-award-panel details.doc-group").forEach((d) => { d.open = true; }));
+    await page.locator(`.post-award-panel [data-doc-name="${name}"]`).first().check();
   }
   expect(await page.evaluate(() => window.getTaskState().documents)).not.toBe(true);
   expect(await page.evaluate(() => window.getPrepStageStatus()[2].locked)).toBe(true);
@@ -1330,13 +1340,14 @@ test("S14 공고 유형별 안내 — 용어 탭 기본 용어 · 4단계 절차
   const titles = page.locator("#glossary-list .glossary-group-title");
   await expect(titles).toHaveCount(2);
   // 출처가 있는 기본 용어에만 「근거:」 줄이 붙는다(source 없는 유찰 · match 압류재산에는 없다).
-  const sources = page.locator("#glossary-list .glossary-source");
+  // 6cd8487 부터 용어 행은 정보 행(infoRow)이고 출처는 그 행의 meta 줄이다.
+  const sources = page.locator("#glossary-list .info-row.has-source .info-row-meta");
   await expect(sources).toHaveCount(1);
   await expect(sources).toContainText("근거: 온비드 FAQ");
   await expect(titles.nth(0)).toContainText("압류재산 · 매각");
   await expect(titles.nth(0)).toContainText("기본 용어");
   await expect(titles.nth(1)).toContainText("공고 표기에 나온 용어");
-  const terms = await page.locator("#glossary-list .compact-row strong").allInnerTexts();
+  const terms = await page.locator("#glossary-list .info-row-title").allTextContents();
   expect(terms.indexOf("매각결정기일")).toBeLessThan(terms.indexOf("압류재산"));
   // ⑵ 4단계 머리 — 압류재산 절차와 보증금 귀속.
   const process = page.locator("#task-list .post-award-process");
@@ -1472,7 +1483,8 @@ test("S11 API 연동 블록 — 자리·질문 답 거르기·기한 어긋남 �
 
   // ⑴ 자리 — 자격 조건은 1단계, 입찰참가신청은 2단계이고 서류 패널보다 앞이다.
   const places = await page.evaluate(() => {
-    const stages = [...document.querySelectorAll("#task-list details.stage-group")];
+    // 6cd8487 부터 단계 묶음은 details 가 아니라 단계마다 한 페이지인 section.stage-group 이다.
+    const stages = [...document.querySelectorAll("#task-list .stage-group")];
     const applyStage = stages.findIndex((s) => s.querySelector(".bid-apply-panel"));
     const stage = stages[applyStage];
     const apply = stage?.querySelector(".bid-apply-panel");
@@ -1579,6 +1591,8 @@ function jointAndProxyNotice() {
 test("E2E design 시나리오 1 — 조건 질문에 답하지 않은 기본 상태에서 대리입찰·공동입찰 서류가 0건이다 (준수규칙 제7조②③)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1604,6 +1618,8 @@ test("E2E design 시나리오 1 — 조건 질문에 답하지 않은 기본 상
 test("E2E design 시나리오 2 보강 — 대리입찰 서류에 \"인감증명서 또는 본인서명사실확인서\" 대체 표기가 그대로 남는다 (준수규칙 제7조②)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1621,6 +1637,8 @@ test("E2E design 시나리오 2 보강 — 대리입찰 서류에 \"인감증명
 test("E2E design 시나리오 3 — 압류재산 공동입찰에 온비드 등록 대체 예외 문구가 뜬다 (공매공고문 16. 주의사항 자항 ③호 단서)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1640,6 +1658,8 @@ test("E2E design 시나리오 3 음성 대조 — 국유재산 공동입찰에�
   notice.assetType = "국유재산";
   await analyzeWith(page, notice);
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
@@ -1679,16 +1699,93 @@ test("E2E design 시나리오 5 — 사전에 없는 서류는 \"단계를 확�
   notice.docChecklist.groups.push({ condition: "미분류 서류", items: [notice.docChecklist.items[2]] });
   await analyzeWith(page, notice);
   await page.locator("#prepare").click();
+  // 1-3 에서 넘어오면 항상 2-1 이 열린다(ee2ca95). 서류 체크리스트는 2-2 페이지에 있다.
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
   await page.locator("#doc-checklist-details > summary").click();
   const checklist = page.locator("#doc-checklist");
 
   const unclassified = checklist.locator(".doc-group-unclassified");
   await expect(unclassified).toContainText("단계를 확정하지 못한 서류");
-  await expect(unclassified).toContainText("단계를 확정하지 못했습니다. 공고문 원문을 확인하십시오.");
+  // 2026-10-19 · 실패 사실만 말하던 안내를 이유가 드러나는 안내로 바꿨다(implementation-plan.md 4단계).
+  await expect(unclassified).toContainText("공고문에서 이 서류의 제출 시점을 찾지 못했습니다. 입찰 전에 필요할 수 있어 여기에 함께 두었습니다.");
   await expect(unclassified).toContainText("㉮ 사전에 없는 특수 제출물");
 
   // 음성 대조 — 사전에 있는 표제를 가진 서류(stage: "입찰 전")는 이 구획에 들어가지 않는다.
   // BASE_NOTICE의 기존 두 항목(인감증명서·대리입찰신청서)이 그 반대쪽이다.
   await expect(unclassified).not.toContainText("대리입찰신청서");
   expect(await checklist.locator(".doc-group-unclassified li").count()).toBe(1);
+});
+
+// 2026-10-19 · 미분류 처리 4단계 화면(implementation-plan.md 4단계 · D2 · D7). 서버가 싣는 attachmentReads ·
+// sourceHeading 과 미분류 서류의 근거 문장을 화면이 그대로 드러내는지 본다. 서버 판정 자체는
+// tests/test_docs_extraction.py A17·A18 과 tests/measure_stage_fixtures.py 가 맡는다.
+test("E2E 미분류 4단계 — 읽지 못한 첨부 · 요청 시 서류 · 시점 근거를 보인다", async ({ page }) => {
+  const notice = copyBase();
+  const requested = {
+    name: "영업신고증",
+    conditions: ["공통"],
+    conditionKeys: [],
+    copy: "",
+    validity: "",
+    method: "",
+    due: "",
+    count: "",
+    stage: "미분류",
+    sourceHeading: "",
+    howto: "",
+    howtoUrl: "",
+    sourceSection: "첨부:제안요청서.hwp",
+    evidence: "가. 예술의전당의 요청이 있을 경우 영업신고증 등 관계자료를 제출해야 한다.",
+  };
+  // 음성 대조 — 「보완 요청 시 … 제출」은 입찰 서류 문장에도 쓰여 「요청할 때만」 안내를 붙이지 않는다(리뷰 d8378b6 r2 P2-A).
+  const plain = { ...requested, name: "㉯ 시점 없는 서류", evidence: "서류가 미비하면 보완 요청 시 7일 이내 제출합니다." };
+  notice.docChecklist.items = [...notice.docChecklist.items, requested, plain];
+  // 화면은 groups 안의 항목을 그린다(copyBase 는 items 와 groups 를 따로 복사한다). 둘 다에 넣는다.
+  const sotHeading = "온비드 압류재산 입찰참가자 준수규칙 제7조(입찰 마감시간 전까지 제출)";
+  const firstName = notice.docChecklist.items[0].name;
+  notice.docChecklist.items[0].sourceHeading = sotHeading;
+  for (const group of notice.docChecklist.groups) {
+    for (const item of group.items || []) if (item.name === firstName) item.sourceHeading = sotHeading;
+  }
+  notice.docChecklist.groups.push({ condition: "공통", items: [requested, plain] });
+  notice.docChecklist.attachmentReads = [
+    { name: "1. 공고문.hwp", status: "read" },
+    { name: "감정평가서.pdf", status: "not_tried" },
+    { name: "붙임 1-8. 모집공고문.hwp", status: "too_large" },
+  ];
+  notice.docChecklist.attachmentUnread = 2;
+  await analyzeWith(page, notice);
+  await page.locator("#prepare").click();
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+
+  const unread = checklist.locator(".attachment-unread");
+  await expect(unread).toContainText("첨부 2개를 읽지 못했습니다");
+  await expect(unread).toContainText("감정평가서.pdf(한 번에 읽는 개수를 넘음)");
+  await expect(unread).toContainText("붙임 1-8. 모집공고문.hwp(파일이 너무 큼)");
+  // 음성 대조 — 읽은 첨부는 이름이 나오지 않는다.
+  await expect(unread).not.toContainText("1. 공고문.hwp");
+
+  const unclassified = checklist.locator(".doc-group-unclassified");
+  const requestedRow = unclassified.locator("li", { hasText: "영업신고증" });
+  await expect(requestedRow).toContainText("기관이 요청할 때만 내는 서류일 수 있습니다.");
+  // 음성 대조 — 요청 문구가 없는 미분류 서류에는 그 안내가 붙지 않는다.
+  await expect(unclassified.locator("li", { hasText: "㉯ 시점 없는 서류" })).not.toContainText("기관이 요청할 때만");
+
+  // 확정 항목의 시점 근거는 「원문 근거」를 펼치면 보인다.
+  const firstRow = checklist.locator("li", { hasText: firstName }).first();
+  await firstRow.locator("details > summary").click();
+  await expect(firstRow).toContainText("시점 근거: 온비드 압류재산 입찰참가자 준수규칙 제7조");
+});
+
+test("E2E 미분류 4단계 음성 — 첨부를 다 읽었으면 읽지 못한 첨부 안내가 없다", async ({ page }) => {
+  const notice = copyBase();
+  notice.docChecklist.attachmentReads = [{ name: "1. 공고문.hwp", status: "read" }];
+  notice.docChecklist.attachmentUnread = 0;
+  await analyzeWith(page, notice);
+  await page.locator("#prepare").click();
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
+  await page.locator("#doc-checklist-details > summary").click();
+  await expect(page.locator("#doc-checklist .attachment-unread")).toHaveCount(0);
 });

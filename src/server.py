@@ -301,7 +301,7 @@ DOC_SOURCE_PROFILES = {
     "B": {
         "code": "B",
         "label": "서류 목록이 첨부파일에 있을 가능성이 큰 유형입니다",
-        "detail": "이용기관이 직접 작성하는 공고라 본문은 요약만 두고 목록을 첨부 공고문에 담는 경우가 많습니다. 아래 첨부파일을 함께 확인하십시오.",
+        "detail": "이용기관이 직접 작성하는 공고라 본문은 요약만 두고 목록을 첨부 공고문에 담는 경우가 많습니다. 첨부파일도 함께 확인하십시오.",
     },
     "C": {
         "code": "C",
@@ -365,6 +365,8 @@ DOC_NAME_PATTERNS: tuple[tuple[str, str], ...] = (
     ("제안서 접수조서", r"제안서\s*접수\s*조서"),
     ("입찰참가신청서", r"입찰\s*참가\s*신청서"),
     ("임차신청서", r"임차\s*신청서"),
+    # 이용기관 입주 공고의 신청서(2026-10-19 · 판교 글로벌R&D센터 「다. 입주신청서 1부」 · 수원 바이오센터 서식).
+    ("입주신청서", r"입주\s*신청서"),
     ("제소전화해 신청동의서", r"제소전화해\s*신청\s*동의서"),
     ("시설물설치 이용승낙신청서", r"시설물\s*설치\s*이용\s*승낙\s*신청서"),
     ("재직증명서", r"재직\s*증명서"),
@@ -386,6 +388,138 @@ DOC_NAME_PATTERNS: tuple[tuple[str, str], ...] = (
 # 서류를 요구하는 문장에만 붙는 동사. 이것이 없고 조건 문맥도 없으면 단순 언급으로 본다.
 # 「갖추」는 넣지 않는다 — 「대항요건을 갖추고 있는 임차인」 같은 설명 문장이 걸린다(표본 01 실측).
 DOC_REQUEST_RE = re.compile(r"제출|지참|구비|첨부|발급받아|제시")
+
+# 「…를 제출한 것으로 간주함」은 따로 낼 것이 없다는 뜻이다(2026-10-19 · 청렴계약서 2건).
+# 이 구절을 지운 나머지에 제출 동사가 또 있어야 요구로 본다 — 「간주하며, 낙찰자로 결정된 자는
+# 계약 체결 시 … 제출하여야」처럼 같은 문장에 진짜 요구가 이어지는 경우를 지우지 않기 위해서다.
+DEEMED_SUBMITTED_RE = re.compile(r"제출\s*(?:한|된)\s*것으로\s*(?:간주|본다|봅니다)")
+
+# 「10. 낙찰(예정)자 제출서류」·「3. 증빙서류 목록」처럼 절 제목 자체가 제출 요구인 경우. 그 아래
+# 나열 항목(「라. 사업계획서 1부」)에는 제출 동사가 없다(2026-10-19 · 판교 공고 실측).
+SUBMISSION_LIST_HEADING_RE = re.compile(
+    r"(?:제출|구비|지참|등록|필요|증빙|부대|입증)\s*(?:서류|자료)|서류\s*(?:제출|목록)|제출\s*서류"
+)
+# 제출 목록 절 안에서 동사 없이도 요구로 보는 줄의 최대 길이. 나열 항목·표 칸은 짧고, 긴 줄은 설명 문단이다.
+SUBMISSION_LIST_ITEM_MAX_CHARS = 200
+
+
+# 서류명 바로 뒤가 「…를 제출한 것으로 간주」·「… 등의 각종 공부를 열람」·「… 참조」면 그 서류는 요구가 아니다.
+# 같은 줄의 다른 서류에 붙은 「제출」(「사업계획서를 작성, 제출하시기 바랍니다」)에 끌려 목록에 오르는 것을 막는다.
+# 「간주하며, 낙찰자로 결정된 자는 … 제출하여야」처럼 뒤에 다시 요구가 오면 막지 않는다(폐교 매각 · 청렴계약이행서약서).
+# 「위임장(참고⑧ 양식참조) 1부」처럼 서식을 가리키는 「참조」는 언급이 아니다(김해공항 · 측정 중 회귀 1건).
+# 「등기사항증명서상 근저당설정최고액」처럼 바로 뒤가 「상」이면 그 서류의 내용을 가리키는 말이다.
+DOC_MENTION_AFTER_RE = re.compile(
+    r"^[^.。\n]{0,15}?(?<!양식)(?<!서식)(?<!양식 )(?<!서식 )(?:열람|참조|참고하)|^상\s"
+)
+DOC_MENTION_AFTER_REACH = 25
+
+
+def doc_is_mention_only(line: str, end: int) -> bool:
+    after = line[end : end + DOC_MENTION_AFTER_REACH]
+    deemed = DEEMED_SUBMITTED_RE.search(after)
+    if deemed:
+        return not DOC_REQUEST_RE.search(DEEMED_SUBMITTED_RE.sub("", line[end + deemed.end() :]))
+    return bool(DOC_MENTION_AFTER_RE.search(after)) and not DOC_REQUEST_RE.search(after)
+
+
+def doc_request_in(text: str) -> bool:
+    """제출 동사가 있는가. 「제출한 것으로 간주」 구절은 빼고 본다."""
+    return bool(DOC_REQUEST_RE.search(DEEMED_SUBMITTED_RE.sub("", text)))
+
+
+# 한 줄짜리 첨부에서 서류명 하나가 속한 조항 구간을 자르는 경계. 「1. 」·「가. 」 같은 번호와 ■·※ 같은 기호다.
+# 날짜(「2026. 8. 3.」) 안의 「8. 」도 경계로 잡혀 구간이 짧아질 수 있다 — 짧아지는 쪽은 요구를 놓칠 뿐 지어내지 않는다.
+CLAUSE_BREAK_RE = re.compile(r"(?<![\d.])\d{1,2}\s*[.)]\s+|(?<![가-힣])[가-하]\s*\.\s+|[■◆※○●□▪]")
+CLAUSE_REACH = 300
+
+
+def doc_clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """서류명(start~end)이 든 조항 구간. 앞뒤 CLAUSE_REACH 자 안에서 가장 가까운 경계까지다."""
+    lo = max(0, start - CLAUSE_REACH)
+    hi = min(len(text), end + CLAUSE_REACH)
+    for match in CLAUSE_BREAK_RE.finditer(text, lo, start):
+        lo = match.start()
+    following = CLAUSE_BREAK_RE.search(text, end, hi)
+    if following:
+        hi = following.start()
+    return lo, hi
+
+
+def is_note_heading(line: str) -> bool:
+    """「※ 낙찰자의 계약체결 전 제출서류」처럼 ※ 로 시작하는 짧은 표제 줄인가.
+
+    ※ 줄 전부를 표제로 보면 ※ 문단의 문장 판정 분기(아래 SENTENCE_STAGE_RULES 로 표제 스택을 비우는 곳)가
+    죽어 입찰 전 서류가 빠진다(2026-10-19 리뷰 r1 P1-1 재현 · 원문 36건에 ※ 줄 301개). 그래서 서류명이 없고
+    표제 사전에 걸리는 INHERIT_ITEM_MAX_CHARS 이하 줄로 좁힌다.
+    """
+    stripped = line.strip()
+    # 제출 목록 제목(SUBMISSION_LIST_HEADING_RE)이어야 한다 — 「※ 실거래 신고가 … 매매계약 체결시까지」 같은 설명 문장이
+    # 「계약 체결」 규칙에 걸려 표제가 되는 것을 막는다(인천 남동구 공매 2건 · 측정 중 확인).
+    return (
+        stripped.startswith("※")
+        and len(stripped) <= INHERIT_ITEM_MAX_CHARS
+        and not find_doc_name_spans(stripped)
+        and not PREBID_WORD_RE.search(stripped)
+        and bool(SUBMISSION_LIST_HEADING_RE.search(stripped))
+        and any(heading_rule_search(pattern, stripped) for pattern, _stage in HEADING_STAGE_RULES)
+    )
+
+
+NOTE_ITEM_NUMBER_RE = re.compile(r"^\s*(\d{1,2})\s*[.)]")
+NOTE_ITEM_HANGUL_RE = re.compile(r"^\s*([가-하])\s*\.")
+
+
+def continues_note_scope(scope: dict[str, object], line: str) -> bool:
+    """※ 표제 아래 목록이 이어지는가. 번호는 1씩 늘어야 하고(다음 본 조항 「10.」에서 끊긴다), 긴 줄에서 끊긴다."""
+    if len(line) > SUBMISSION_LIST_ITEM_MAX_CHARS:
+        return False
+    for kind, pattern, to_num in (
+        ("number", NOTE_ITEM_NUMBER_RE, int),
+        ("hangul", NOTE_ITEM_HANGUL_RE, lambda ch: ord(ch) - ord("가")),
+    ):
+        match = pattern.match(line)
+        if match:
+            num = to_num(match.group(1))
+            if scope["kind"] in ("", kind) and (scope["num"] < 0 or num == scope["num"] + 1):
+                scope["kind"], scope["num"] = kind, num
+                return True
+            return False
+    return bool(SUB_ITEM_RE.match(line))
+
+
+# 제출 목록을 여는 짧은 안내 줄(「④ 제출서류 : … 아래 서류를 첨부하여야 하며」 · 「제출서류명」)이 지나간 뒤
+# 다음 목록 머리(번호 · ①~⑮ · ○ · ㅇ)가 나오기 전까지의 줄은 제출 목록 안으로 본다(인천공항 공고의 「A. 관광사업등록증」).
+SUBMISSION_CUE_MAX_CHARS = 200
+LIST_HEAD_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.|[①-⑮○ㅇ■◆])")
+
+# 첨부 PDF는 문장 하나가 여러 줄로 잘린다(「…인감증명서와 주민등록등본 원본을 입찰기간의 마⏎감일 17:00까지 … 제출」).
+# 그래서 첨부 줄의 제출 동사는 그 줄이 속한 문단(앞뒤로 다음 문단 머리까지 · PARAGRAPH_REACH 자 안)에서 찾는다.
+PARAGRAPH_REACH = 300
+
+
+def paragraph_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """start~end 가 든 문단. 문단 머리는 PARAGRAPH_START_RE(번호 · 기호로 시작하는 줄)다."""
+    lo = max(0, start - PARAGRAPH_REACH)
+    for match in PARAGRAPH_START_RE.finditer(text, lo, start + 1):
+        lo = match.start() + 1
+    hi = min(len(text), end + PARAGRAPH_REACH)
+    following = PARAGRAPH_START_RE.search(text, end, hi)
+    if following:
+        hi = following.start()
+    return lo, hi
+
+
+# 한 줄짜리 첨부에서 서류명 앞쪽의 가장 가까운 본 조항 번호(「8. 」)부터 서류명까지에 제출 목록 표제가 있으면
+# 그 목록 안으로 본다(광양 공고 「8. 낙찰자 제출서류 (…) 1) 공유재산 사용허가 신청서 1부. 2) …」).
+TOP_CLAUSE_MARK_RE = re.compile(r"(?<![\d.])\d{1,2}\s*\.\s+")
+TOP_CLAUSE_REACH = 600
+
+
+def under_submission_heading_inline(text: str, start: int) -> bool:
+    lo = max(0, start - TOP_CLAUSE_REACH)
+    marks = list(TOP_CLAUSE_MARK_RE.finditer(text, lo, start))
+    head = marks[-1].start() if marks else lo
+    return bool(SUBMISSION_LIST_HEADING_RE.search(text, head, start))
 
 # 서류명 자체가 단계를 확정하는 사전. 조항 표제·문장 판정보다 먼저 본다 — 이 서류들은
 # 어느 공고에서도 "입찰기간 중에" 내는 신청서라, 공고문 작성자가 그 서류를 어느 조항
@@ -440,6 +574,9 @@ NEEDS_INQUIRY_STAGE = "별도 문의 필요"
 # 신호는 설계 문서 §2 신호표·§2-A 규정 근거 사전·appendix 160행 전건 재대조(§5-2)에서
 # 왔다. 아래 10개 항목 각각 appendix의 "근거" 칸에 인용된 조항 표제 원문 그대로다 —
 # 인용에 없는 표제는 상상해서 넣지 않았다(설계 문서 §555행 "사전 항목 수는 최소 10종").
+# 넓은 규칙 「계약 체결」은 표제의 첫 줄 안에서만 본다(heading_rule_search).
+CONTRACT_HEAD_RE = re.compile(r"계약\s*체결")
+
 HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     # 입찰 전 (2개) — appendix 표본 04~08, 21.
     # 🔴 표본11의 "입찰 전" 판정은 이 표제가 아니라 "3) 제출서류" 조항의 SENTENCE_STAGE_RULES
@@ -452,7 +589,9 @@ HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"구비\s*서류"), "낙찰 후·계약 시"),  # "다. 계약 체결 시 구비서류"(표본11) · "나. 구비서류"(표본12)
     (re.compile(r"계약\s*체결\s*장소"), "낙찰 후·계약 시"),  # "다. 계약체결 장소"(표본12, 나.구비서류 바로 다음 조항)
     # "8. 낙찰자 제출서류 (낙찰일로부터 30일 이내 제출)"(표본13) · "바. 낙찰자의 제출서류"(2026-10-19 실공고 909691 관측)
-    (re.compile(r"낙찰\s*자\s*의?\s*제출\s*서류"), "낙찰 후·계약 시"),
+    # · "10. 낙찰(예정)자 제출서류"(판교 글로벌R&D센터) · "12. 낙찰자의 사용허가 신청시 제출서류"(과천시민회관)
+    # · "※ 낙찰자의 계약체결 전 제출서류"(강남터미널 광고) — 2026-10-19 원문 36건 측정에서 앞 둘이 사전에 안 걸렸다.
+    (re.compile(r"낙찰\s*(?:\(\s*예정\s*\)\s*)?자\s*의?\s*(?:(?!선정|결정|위한)[^\n]){0,12}?제출\s*서류"), "낙찰 후·계약 시"),
     (re.compile(r"낙찰\s*일\s*로\s*부터"), "낙찰 후·계약 시"),  # 표본13 괄호 안 "낙찰일로부터 30일 이내" · 표본20 "낙찰일로부터"
     (re.compile(r"계약\s*체결\s*시\s*필요\s*서류"), "낙찰 후·계약 시"),  # "계약체결시 필요서류"(표본15~17)
     (re.compile(r"계약\s*체결\s*시\s*지참\s*서류"), "낙찰 후·계약 시"),  # "14. 계약체결 시 지참 서류"(표본22)
@@ -460,8 +599,26 @@ HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"제출\s*서류\s*\(\s*방문\s*시\s*계약서\s*날인용\s*도장\s*지참\s*\)"),
         "낙찰 후·계약 시",
     ),  # "■ 제출서류(방문시 계약서 날인용 도장 지참)"(표본20 일부)
-    (re.compile(r"계약\s*체결"), "낙찰 후·계약 시"),  # "7. 계약체결 ① 낙찰자는 낙찰일로부터…"(표본20 일부) 등 번호조항 변형
+    (CONTRACT_HEAD_RE, "낙찰 후·계약 시"),  # "7. 계약체결 ① 낙찰자는 낙찰일로부터…"(표본20 일부) 등 번호조항 변형
 )
+
+
+def heading_rule_search(pattern: re.Pattern[str], heading: str) -> bool:
+    """표제 사전 한 항목이 그 표제에 걸리는가.
+
+    넓은 규칙 「계약 체결」(CONTRACT_HEAD_RE)만은 표제의 «첫 줄» 안에서만 본다.
+    표제 조각(최대 80자)이 줄을 넘어 표 칸까지 삼키면 「1. 입찰개요 ⏎ … 계약기간 ⏎ 계약체결일 ~ 5년」 같은
+    표 내용이 걸려, 입찰 전 서류(예술의전당 「제안서」)가 낙찰 후로 갔다(2026-10-19 원문 36건 측정).
+    처음에는 번호 뒤 20자로 좁혔는데, 그러면 「3) 이행보증보험증권 제출- … 계약체결 시」 같은 한 줄 표제의
+    낙찰 후 판정 3건이 미분류로 떨어졌다(같은 측정). 그래서 폭이 아니라 줄 경계로 자른다.
+    """
+    if pattern is not CONTRACT_HEAD_RE:
+        return bool(pattern.search(heading))
+    first_line = heading.split("\n", 1)[0]
+    # 「라. 입찰 절차 : 입찰공고 → 입찰서 및 제안서 제출 → … → 계약 체결」 같은 흐름 설명은 이 조항의 시점이 아니다(예술의전당).
+    if "→" in first_line:
+        return False
+    return bool(pattern.search(first_line))
 
 # 표제가 없거나(예: 하이픈·ㅇ 로만 이어지는 공고문 본문) 사전에 없는 표제일 때, 서류명이
 # 속한 그 줄만 보고 찾는 결정적 문구. 다른 줄로 번지지 않는다.
@@ -475,6 +632,18 @@ SENTENCE_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         "입찰 전",
     ),
     (re.compile(r"회송|매매계약.{0,30}회송"), "낙찰 후·계약 시"),
+)
+
+# 서류명 근처 문장 판정(doc_stage_at)에만 더 쓰는 낙찰 후 문구. 「낙찰자로 결정된 자가 … 10일 이내에 임차신청서를」
+# (김해공항) · 「낙찰자로 결정된 자는 계약 체결 시 [별지4]를 … 제출」(폐교 매각) — 2026-10-19 원문 36건 측정.
+# SENTENCE_STAGE_RULES 에 넣지 않은 이유: 그 목록은 서류명 없는 문단에서 표제 스택을 비우는 데도 쓰여(extract_doc_items),
+# 흔한 이 문구가 들어가면 뒤 목록의 표제가 통째로 지워진다.
+AWARDEE_SENTENCE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # 「낙찰자로 결정합니다」(선정 방식 설명)는 빼고, 그렇게 정해진 «사람·날»을 가리킬 때만 쓴다(김해공항 「제안서 평가점수 … 합산하여」).
+    (
+        re.compile(r"(?:낙찰자|계약\s*대상자)\s*로\s*(?:결정|선정|통보)\s*(?:된|한|받은)\s*(?:자|날|업체)"),
+        "낙찰 후·계약 시",
+    ),
 )
 
 # 조항 표제로 볼 줄 — 번호·문자 조항(LINE_RESET_RE)과 같지만, "■" 같은 기호 머리글도
@@ -506,6 +675,9 @@ ITEM_NAME_OFFSET_MAX = 8
 
 
 PREBID_WORD_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전")
+# 입찰 때 함께 내는 서류를 말하는 줄(「입찰서 제출 시 … 사본을 함께 제출」). ※ 표제 범위와 중복 처리에서만 쓴다
+# (리뷰 d8378b6 r2 P0-A · P1-A). PREBID_WORD_RE 는 「입찰서」를 잡지 못한다.
+PREBID_COPY_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전|입찰\s*서")
 
 
 def can_inherit_outer_heading(line: str) -> bool:
@@ -537,7 +709,7 @@ def push_heading(stack: list[tuple[str, str]], line: str) -> None:
 def stage_heading_from_stack(stack: list[tuple[str, str]]) -> str:
     """안쪽 층부터 HEADING_STAGE_RULES 에 걸리는 표제를 찾는다. 없으면 가장 안쪽 표제를 준다(옛 동작)."""
     for _kind, line in reversed(stack):
-        if any(pattern.search(line) for pattern, _stage in HEADING_STAGE_RULES):
+        if any(heading_rule_search(pattern, line) for pattern, _stage in HEADING_STAGE_RULES):
             return line
     return stack[-1][1] if stack else ""
 
@@ -546,7 +718,7 @@ def resolve_doc_stage(current_heading: str, window: str, name: str = "") -> str:
     if name in FORM_NAME_STAGE_RULES:
         return FORM_NAME_STAGE_RULES[name]
     for pattern, stage in HEADING_STAGE_RULES:
-        if current_heading and pattern.search(current_heading):
+        if current_heading and heading_rule_search(pattern, current_heading):
             return stage
     for pattern, stage in SENTENCE_STAGE_RULES:
         if pattern.search(window):
@@ -579,7 +751,7 @@ def governing_heading(text: str, pos: int, carried_heading: str, section_start: 
     for marker in reversed(markers):
         snippet = text[marker.start() : min(pos, marker.start() + HEADING_SNIPPET_MAX)]
         for pattern, _stage in HEADING_STAGE_RULES:
-            if pattern.search(snippet):
+            if heading_rule_search(pattern, snippet):
                 return snippet
     return carried_heading
 
@@ -636,7 +808,7 @@ def doc_stage_at(
     heading = embedded or carried_heading
     if heading:
         for pattern, stage in HEADING_STAGE_RULES:
-            if pattern.search(heading):
+            if heading_rule_search(pattern, heading):
                 # 🔴 바깥 층에서 «물려받은» 낙찰 후 표제가 서류가 든 문장의 입찰 전 결정 문구와 부딪히면 표제를
                 # 버리고 아래 문장 판정으로 내려간다. 더 가까운 근거가 이긴다. 입찰 전 서류를 4단계로만 보내면
                 # 사용자가 그 서류를 놓친다 — 가장 비싼 오배치다(2026-10-19 리뷰 r1 F1·T1·T3 · 표본 07·08
@@ -654,8 +826,13 @@ def doc_stage_at(
     center = (start + end) / 2
     best_stage: str | None = None
     best_dist: float | None = None
-    for pattern, stage in SENTENCE_STAGE_RULES:
+    deemed_here = bool(DEEMED_SUBMITTED_RE.search(text, end, min(len(text), end + DOC_MENTION_AFTER_REACH)))
+    for pattern, stage in SENTENCE_STAGE_RULES + AWARDEE_SENTENCE_RULES:
         for match in pattern.finditer(text, lo, hi):
+            if (pattern, stage) in AWARDEE_SENTENCE_RULES and not deemed_here and (
+                match.end() > start or "\n" in text[match.end() : start] or "다." in text[match.end() : start]
+            ):
+                continue
             dist = min(abs(match.start() - center), abs(match.end() - center))
             if best_dist is None or dist < best_dist:
                 best_dist, best_stage = dist, stage
@@ -784,9 +961,97 @@ LINE_RESET_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.)")
 SUB_ITEM_RE = re.compile(r"^\s*(?:[-‐–▪·※○ㅇ①-⑮]|\(\d+\)|\d+\s*\))")
 
 
+# 2026-10-19 · 표제·문장으로 단계를 못 정한(미분류) 서류에만 쓰는 보강 판정 둘. 확정된 판정은 덮지 않는다.
+UNRESOLVED_STAGES = frozenset({"미분류", NEEDS_INQUIRY_STAGE})
+
+# ⑴ 입찰 전 표지. 서류가 든 본 조항(표제 스택 가장 바깥 층의 한 조항) 안에 있을 때만 쓴다. 공고 전체에서
+# 찾으면 안 된다 — 「입찰 마감」 문구는 온비드 툴팁 상용구라 원문 36건 전부에 있다(구현 계획 F2).
+PREBID_MARKER_RES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("제출 기간", re.compile(r"제출\s*(?:기간|기한|일시)\s*[:：]?\s*(?:20\d\d|\d{1,2}\s*[./월])")),
+    ("입찰 마감과 묶은 기한", re.compile(r"입찰\s*(?:서\s*)?(?:제출\s*)?마감\s*(?:일시|일|시간|시)?\s*(?:\([^)]{0,15}\)\s*)?(?:까지|전)")),
+    ("입찰참가 등록·신청", re.compile(r"입찰\s*참가\s*(?:등록|신청)\s*(?:서류|기간|및|·|/)|참가\s*신청\s*(?:및|·|/)?\s*제안서")),
+    ("입찰 제재", re.compile(r"입찰\s*시\s*무효|사전\s*판정에서\s*배제|입찰\s*참가\s*불승인")),
+)
+# 서류가 든 줄 자체가 입찰 뒤 시점을 말하면(「매각결정기일 전에 … 제출」) 같은 조항의 입찰 전 표지를 빌려 쓰지 않는다.
+# 압류재산 공고 「16. 주의사항 · 다. 농지취득자격증명」이 같은 조항의 대리입찰 문장(「입찰마감 시간 전까지」)에 끌려
+# 입찰 전이 된 것을 측정에서 확인했다(2026-10-19 · 5건 × 3종).
+POST_BID_TIMING_RE = re.compile(r"매각\s*결정\s*기일|낙찰|계약\s*체결|잔금|소유권\s*이전|사용\s*허가\s*(?:신청|일)")
+# ⑴-⒝ 는 입찰보증금 문맥이면 서류 기한이 아니다(「보증금은 입찰 마감 전까지 입금」).
+PREBID_DEPOSIT_RE = re.compile(r"보증\s*(?:금|서|보험)")
+PREBID_DEPOSIT_REACH = 40
+# 한 줄짜리 첨부에서는 서류명 앞뒤로 본 조항 번호(「8. 」) 사이를 한 조항으로 보되, 이보다 길면 쓰지 않는다.
+INLINE_BLOCK_MAX_CHARS = 1500
+
+
+def prebid_marker_in(text: str) -> str:
+    """입찰 전 표지가 있으면 그 이름, 없으면 빈 문자열."""
+    for label, pattern in PREBID_MARKER_RES:
+        for match in pattern.finditer(text):
+            if label == "입찰 마감과 묶은 기한":
+                near = text[max(0, match.start() - PREBID_DEPOSIT_REACH) : match.end() + PREBID_DEPOSIT_REACH]
+                if PREBID_DEPOSIT_RE.search(near):
+                    continue
+            return label
+    return ""
+
+
+def inline_block_bounds(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """한 줄짜리 첨부에서 서류명이 든 본 조항(앞뒤 TOP_CLAUSE_MARK_RE 사이). 너무 길면 None."""
+    lo = 0
+    for match in TOP_CLAUSE_MARK_RE.finditer(text, max(0, start - INLINE_BLOCK_MAX_CHARS), start):
+        lo = match.start()
+    following = TOP_CLAUSE_MARK_RE.search(text, end, min(len(text), end + INLINE_BLOCK_MAX_CHARS))
+    hi = following.start() if following else len(text)
+    if hi - lo > INLINE_BLOCK_MAX_CHARS:
+        return None
+    return lo, hi
+
+
+# ⑵ 온비드 준수규칙이 «입찰 마감 전 · 입찰기간 중» 제출을 정한 대리·공동·미성년 서류(구현 계획 3단계 · 검증
+# team-reports/2026-10-19-bid-stage-sot/researcher-verify-sot-r1.md §2·H1~H3). 조문에 이름이 있는 서류만 넣었다.
+# 이용기관(공유·기타일반) 공고는 넣지 않는다 — 최고가 입찰참가자 준수규칙 제6조 단서 「이용기관회원이 별도로 정하는
+# 경우에는 그에 따릅니다」가 시점을 늦추는 것도 막지 않는다(H3).
+SOT_PREBID_CONDITION_DOCS: dict[str, dict[str, frozenset[str]]] = {
+    # 압류재산 인터넷공매 입찰참가자 준수규칙 제7조①②③ 「입찰 마감시간 전까지 … 공사에 제출」
+    "압류재산": {
+        "joint": frozenset({"공동입찰참가신청서", "인감증명서", "본인서명사실확인서"}),
+        "proxy": frozenset({"대리입찰신청서", "인감증명서", "본인서명사실확인서"}),
+        "minor": frozenset({"미성년자 입찰참가 동의서", "인감증명서", "본인서명사실확인서", "주민등록등본", "가족관계증명서"}),
+    },
+    # 국유재산 준수규칙 제7조①②③ 「입찰기간 중에」. 미성년 서류는 기본증명서(특정)라 가족관계증명서·등본을 넣지 않는다.
+    "국유재산": {
+        "joint": frozenset({"공동입찰참가신청서", "위임장", "인감증명서", "본인서명사실확인서"}),
+        "proxy": frozenset({"대리입찰신청서", "위임장", "인감증명서", "본인서명사실확인서"}),
+        "minor": frozenset({"미성년자 입찰참가 동의서", "인감증명서", "본인서명사실확인서"}),
+    },
+    # 수탁재산 준수규칙 제5조② 「입찰기간 중에 … 공동입찰신청서 … 또는 대리입찰신청서」(첨부 인감증명). 미성년 조항 없음.
+    "수탁재산": {
+        "joint": frozenset({"공동입찰참가신청서", "위임장", "인감증명서"}),
+        "proxy": frozenset({"대리입찰신청서", "위임장", "인감증명서"}),
+    },
+}
+SOT_PREBID_SOURCE = {
+    "압류재산": "온비드 압류재산 입찰참가자 준수규칙 제7조(입찰 마감시간 전까지 제출)",
+    "국유재산": "온비드 국유재산 입찰참가자 준수규칙 제7조(입찰기간 중 제출)",
+    "수탁재산": "온비드 수탁재산 입찰참가자 준수규칙 제5조(입찰기간 중 제출)",
+}
+
+
+def sot_prebid_source(asset_type: str, name: str, condition_keys: set[str]) -> str:
+    """대리·공동·미성년 문맥에 묶인 서류를 준수규칙으로 「입찰 전」 확정할 수 있으면 그 근거 문구."""
+    table = SOT_PREBID_CONDITION_DOCS.get(asset_type.strip())
+    if not table:
+        return ""
+    for key in ("joint", "proxy", "minor"):
+        if key in condition_keys and name in table.get(key, frozenset()):
+            return SOT_PREBID_SOURCE[asset_type.strip()]
+    return ""
+
+
 def extract_doc_items(
     sections: dict[str, str],
     attachment_chunks: list[tuple[str, str]] | None = None,
+    asset_type: str = "",
 ) -> list[dict[str, object]]:
     """공고문·제출서류 절과 첨부 텍스트에서 조건별 서류 항목을 뽑는다.
 
@@ -797,9 +1062,12 @@ def extract_doc_items(
     """
     items: list[dict[str, object]] = []
     # 값은 (items 안의 위치, 그 단계가 조항 표제로 확정됐는가). 같은 서류명이 같은 문서
-    # 안에 단계가 다른 두 자리에서 나올 수 있어(표본 20 「신분증」), 먼저 나온 쪽이
-    # 확정적이지 않다면 나중에 나온 확정적 판정으로 덮어쓴다(doc_stage_at 의 confident).
+    # 안에 단계가 다른 두 자리에서 나올 수 있다(표본 20 「신분증」). 2026-10-19 전까지는 주석과 달리 먼저 나온
+    # 쪽만 남았다(리뷰 r1 F7). 지금은 앞이 미분류이고 뒤가 입찰 전이면 바꾸고, 뒤가 낙찰 후면 둘 다 남기고,
+    # 둘 다 확정이고 단계가 다르면 둘 다 남긴다(아래 key 분기 · 리뷰 d8378b6 r1 P0-1).
     seen: dict[tuple[str, str], tuple[int, bool]] = {}
+    # 같은 (서류명, 조건)이 단계를 달리해 두 번 남을 때 같은 단계가 세 번째로 쌓이지 않게 막는다.
+    seen_stage: set[tuple[str, str, str]] = set()
     chunks = [(title, sections.get(title, "")) for title in DOC_SEARCH_SECTIONS]
     chunks.extend(attachment_chunks or [])
     for title, chunk in chunks:
@@ -808,7 +1076,9 @@ def extract_doc_items(
         # 첨부는 온비드 공고 절과 문장 구조가 다르다(표·서식·PDF 텍스트화 결과라 「제출」·「지참」
         # 같은 동사가 그 줄에 없을 때가 많다). DOC_REQUEST_RE 게이트를 그대로 걸면 실측
         # 재현율이 어휘 그대로 매칭한 것보다 낮아진다(2026-09-12 측정 · 배선 38% vs 첨부모의 59%).
-        # 그래서 첨부 줄은 서류명이 잡히면 그 자체로 요구로 본다 — 조건 태깅(carried 로직)은 그대로 살린다.
+        # 그래서 2026-09-12 부터 첨부 줄은 서류명이 잡히면 그 자체로 요구로 봤다. 2026-10-19 부터는 첨부에도
+        # 게이트를 다시 걸되, 제출 목록 절 안의 나열 항목(in_submission_list)을 요구로 인정해 그 재현율을 지킨다.
+        # 검사 생략이 「등기사항증명서 참조」 같은 언급을 목록에 올렸기 때문이다(원문 36건 측정 · 언급 6건).
         is_attachment = title not in DOC_SEARCH_SECTIONS
         carried: list[dict[str, str]] = []
         # 「라. 계약체결시 필요서류」처럼 단계를 밝히는 줄은 제목뿐이고, 그 아래 표 행(「개인
@@ -817,6 +1087,11 @@ def extract_doc_items(
         # (resolve_doc_stage). 안 물리면 표 아래 항목의 단계를 알 길이 없다(2026-09-12 · #15 실측).
         current_heading = ""
         heading_stack: list[tuple[str, str]] = []
+        # 「※ 낙찰자의 계약체결 전 제출서류」 아래 번호 목록(is_note_heading · continues_note_scope).
+        # 그 목록의 「1.」이 번호 층을 새로 열어 표제 스택에서 앞 표제를 걷어내므로, 표제 스택과 따로 든다.
+        note_scope: dict[str, object] | None = None
+        # 제출 목록 안내 줄(SUBMISSION_LIST_HEADING_RE · 서류명 없음)을 지나왔는가.
+        submission_cue = False
         # 단계 판정 창(doc_stage_at)은 줄바꿈이 실제로 있는 공고문에서도 "그 줄 하나"가 아니라
         # «전체 절 텍스트 안에서의 실제 위치»를 기준으로 본다 — 결정적 문구가 서류명과 같은
         # 줄이 아니라 몇 줄 뒤(예: 「ㅇ 공동입찰의 경우…」 다음에 번호 목록, 그 뒤에야 「입찰
@@ -825,12 +1100,32 @@ def extract_doc_items(
         # section_bounds() 로 자른다 — 안 자르면 다음 조항의 결정적 문구를 빌려 쓰게 된다.
         full_text = block_text(strip_tooltips(chunk))
         heading_boundaries: list[int] = []
+        heading_marks: list[tuple[int, str]] = []
+        # heading_stack 과 같은 규칙으로 쌓는 (층, 표제 줄 위치). parent_block 이 조항 범위를 자르는 데 쓴다.
+        pos_stack: list[tuple[str, int]] = []
         _cursor = 0
         for _raw in full_text.split("\n"):
             _stripped = _raw.strip()
             if _stripped and LINE_RESET_RE.match(_stripped):
                 heading_boundaries.append(_cursor + (len(_raw) - len(_raw.lstrip())))
+            if _stripped and HEADING_LINE_RE.match(_stripped):
+                heading_marks.append((_cursor + (len(_raw) - len(_raw.lstrip())), heading_kind(_stripped)))
             _cursor += len(_raw) + 1
+
+        def parent_block(pos: int, line_is_heading: bool) -> str:
+            """서류가 든 줄의 바로 위 조항(그 표제 줄부터 같은 층이나 바깥 층의 다음 표제 전까지)의 글.
+
+            처음에는 가장 바깥 층 조항을 봤는데, 압류재산 공고에서 「1. 입찰방법」 안의 「입찰 마감시간 전까지」가
+            같은 조항 아래 「다. 농지취득자격증명(매각결정기일 전)」까지 입찰 전으로 끌고 갔다(2026-10-19 측정 · 5건 × 3종).
+            그래서 바로 위 조항으로 좁힌다. 서류 줄 자체가 목록 표제(「3) 제출서류: …」)면 그 위 조항을 본다.
+            """
+            parents = pos_stack[:-1] if line_is_heading else pos_stack
+            if not parents:
+                return ""
+            kind, offset = parents[-1]
+            enclosing = {k for k, _off in parents}
+            end_bound = next((off for off, k in heading_marks if off > pos and k in enclosing), len(full_text))
+            return full_text[offset:end_bound]
 
         def section_bounds(pos: int) -> tuple[int, int]:
             start_bound = 0
@@ -856,8 +1151,20 @@ def extract_doc_items(
                 continue
             # 조항 표제는 이름 유무와 무관하게 먼저 캡처한다 — 표제 줄 자체에 서류명이 실리는
             # 경우는 없지만, 캡처를 이름 분기 뒤로 미루면 그 표제가 적용되는 첫 항목을 놓친다.
-            if HEADING_LINE_RE.match(line):
+            if note_scope is not None and not continues_note_scope(note_scope, line):
+                current_heading = str(note_scope["prev"])
+                note_scope = None
+            if is_note_heading(line):
+                note_scope = {"heading": line, "kind": "", "num": -1, "prev": current_heading}
+                current_heading = line
+            elif HEADING_LINE_RE.match(line):
                 push_heading(heading_stack, line)
+                line_kind = heading_kind(line)
+                for index, (existing_kind, _offset) in enumerate(pos_stack):
+                    if existing_kind == line_kind:
+                        del pos_stack[index:]
+                        break
+                pos_stack.append((line_kind, line_offset))
                 # 바깥 표제를 물려받는 것은 짧은 소제목(서류명 없음 · 「가. 입찰 참가 신청」)이나 번호 바로 뒤에
                 # 서류명이 오는 목록 항목일 때만이다. 「가. 입찰 시 유의사항 … 사업자등록증」 같은 문단이나 긴 줄이
                 # 물려받으면 쪽 전체가 낙찰 후로 끌려간다(리뷰 r1 T5). 그 밖은 옛 동작(그 줄 자체가 표제)이다.
@@ -875,7 +1182,23 @@ def extract_doc_items(
                 # 번호 없는 문단(※ 등)이 단계를 밝히면 그 아래 목록은 앞 표제를 물려받지 않는다. 충돌 검사 창은
                 # 조항 경계(「1)」 줄)에서 시작해 위 문단을 못 본다(리뷰 r1 T2 · 「※ 입찰 참가 시에는 … 입찰 마감일까지 제출」).
                 heading_stack.clear()
+                pos_stack.clear()
                 current_heading = ""
+            if note_scope is not None and not PREBID_COPY_RE.search(line):
+                current_heading = str(note_scope["heading"])
+            elif note_scope is not None and not HEADING_LINE_RE.match(line):
+                # 입찰 때 내는 사본을 말하는 「-」 줄은 ※ 표제를 씌우지 않고, 앞 줄이 씌운 표제도 걷어 범위 전 표제로 되돌린다
+                # (리뷰 d8378b6 r2 P1-A · 「※ 낙찰자 제출서류 / - 입찰참가 시 법인등기부등본 사본을 함께 제출」).
+                current_heading = str(note_scope["prev"])
+            # 다음 줄부터의 제출 목록 안내(submission_cue)를 이 줄 판정 «뒤»에 바꾸려고 값을 먼저 잡아 둔다.
+            cue_before = submission_cue
+            if re.match(r"첨부\s*[ː:]", line):
+                submission_cue = True
+            elif not find_doc_name_spans(line):
+                if len(line) <= SUBMISSION_CUE_MAX_CHARS and SUBMISSION_LIST_HEADING_RE.search(line):
+                    submission_cue = True
+                elif LIST_HEAD_RE.match(line):
+                    submission_cue = False
             conditions = [item for item in find_conditions(line) if not item["negative"]]
             name_spans = find_doc_name_spans(line)
             names: list[str] = []
@@ -898,9 +1221,28 @@ def extract_doc_items(
             # 「업종·자격 요건」 축은 `등록증`·`면허` 같은 서류명 토큰으로 잡히므로
             # 그것만으로 제출 요구를 증명하지 못한다. authorizing 축에서 뺀다.
             authorizing = [item for item in conditions if item["key"] != "license"]
-            if not authorizing and not carried_applies and not DOC_REQUEST_RE.search(line) and not is_attachment:
-                # 조건 문맥도 제출 동사도 없으면 단순 언급이다(예: 「부동산의 표시는
-                # 등기사항증명서 기준」). 서류 요구로 세지 않는다. 첨부는 위에서 게이트를 뺐다.
+            # 제출 목록 절(「10. 낙찰(예정)자 제출서류」) 안의 짧은 나열 항목은 동사가 없어도 요구다.
+            in_submission_list = len(line) <= SUBMISSION_LIST_ITEM_MAX_CHARS and (
+                any(SUBMISSION_LIST_HEADING_RE.search(heading) for _kind, heading in heading_stack)
+                or bool(note_scope and SUBMISSION_LIST_HEADING_RE.search(note_scope["heading"]))
+                or cue_before
+            )
+            line_requested = doc_request_in(line)
+            if is_attachment and not line_requested and len(line) <= 1200:
+                para_lo, para_hi = paragraph_bounds(full_text, line_offset, line_offset + len(line))
+                line_requested = doc_request_in(full_text[para_lo:para_hi])
+            # 줄바꿈 없이 문서 전체가 한 줄인 첨부는 줄 단위로 보면 어디엔가 「제출」이 있어 언제나 통과한다.
+            # 그런 줄은 아래에서 서류명마다 그 조항 구간(doc_clause_bounds)만 보고 따로 판정한다.
+            long_line = len(line) > 1200
+            if (
+                not long_line
+                and not authorizing
+                and not carried_applies
+                and not in_submission_list
+                and not line_requested
+            ):
+                # 조건 문맥도 제출 동사도 제출 목록 절도 없으면 단순 언급이다(예: 「부동산의 표시는
+                # 등기사항증명서 기준」 · 첨부의 「등기사항증명서 참조」). 2026-10-19 부터 첨부에도 건다.
                 continue
             extras = doc_extras(line)
             labels = [item["label"] for item in active] or ["공통"]
@@ -913,6 +1255,31 @@ def extract_doc_items(
                 # 줄이 문서 전체일 수 있어, 이름마다 그 위치 기준으로 따로 판정한다
                 # (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§3).
                 start, end = first_span[name]
+                if long_line:
+                    for _n, s0, e0 in name_spans:
+                        if _n != name or doc_is_mention_only(line, e0):
+                            continue
+                        c_lo, c_hi = doc_clause_bounds(line, s0, e0)
+                        c = line[c_lo:c_hi]
+                        if (any(not it["negative"] and it["key"] != "license" for it in find_conditions(c))
+                                or doc_request_in(c) or under_submission_heading_inline(line, s0)):
+                            start, end = s0, e0
+                            break
+                # 제출 목록 절 안의 「위임장(별지 제2호 참조) 1부」는 서식 안내라 언급이 아니다(리뷰 d8378b6 r1 P1-6).
+                if not in_submission_list and doc_is_mention_only(line, end):
+                    continue
+                if long_line:
+                    clause_lo, clause_hi = doc_clause_bounds(line, start, end)
+                    clause = line[clause_lo:clause_hi]
+                    clause_authorizing = [
+                        item for item in find_conditions(clause) if not item["negative"] and item["key"] != "license"
+                    ]
+                    if (
+                        not clause_authorizing
+                        and not doc_request_in(clause)
+                        and not under_submission_heading_inline(line, start)
+                    ):
+                        continue
                 start_global, end_global = line_offset + start, line_offset + end
                 stage, _confident, source_heading = doc_stage_at(
                     full_text,
@@ -923,30 +1290,114 @@ def extract_doc_items(
                     name,
                     inherited=bool(heading_stack) and current_heading != heading_stack[-1][1],
                 )
+                if stage in UNRESOLVED_STAGES:
+                    # 표제·문장으로 못 정했으면 ① 준수규칙(대리·공동·미성년 문맥) ② 같은 본 조항 안의 입찰 전 표지 순으로 본다.
+                    # 둘 다 「입찰 전」으로만 확정한다 — 낙찰 후로 보내는 보강 판정은 두지 않는다(구현 계획 D1).
+                    # 조건은 판정에만 쓴다. 첨부의 화면 조건 라벨(active)은 지금처럼 비운다(위 47%→59% 주석).
+                    decision_conditions = clause_authorizing if long_line else conditions
+                    decision_keys = {item["key"] for item in decision_conditions}
+                    if carried_applies:
+                        decision_keys |= {item["key"] for item in carried}
+                    sot_source = sot_prebid_source(asset_type, name, decision_keys)
+                    if long_line:
+                        bounds = inline_block_bounds(line, start, end)
+                        block = line[bounds[0] : bounds[1]] if bounds else ""
+                    else:
+                        block = parent_block(start_global, bool(HEADING_LINE_RE.match(line)))
+                    own_text = clause if long_line else line
+                    marker = "" if sot_source or POST_BID_TIMING_RE.search(own_text) else prebid_marker_in(block)
+                    if sot_source:
+                        stage, _confident, source_heading = "입찰 전", True, sot_source
+                    elif marker:
+                        stage, _confident, source_heading = "입찰 전", True, f"같은 조항의 입찰 전 표지: {marker}"
                 key = (name, " · ".join(labels))
+                howto, howto_url = DOC_HOWTO.get(name, ("", ""))
+                item = {
+                    "name": name,
+                    "conditions": labels,
+                    "conditionKeys": [item["key"] for item in active],
+                    "copy": extras.get("copy", ""),
+                    "validity": extras.get("validity", ""),
+                    "method": extras.get("method", ""),
+                    "due": extras.get("due", ""),
+                    "count": extras.get("count", ""),
+                    "stage": stage,
+                    "sourceHeading": source_heading,
+                    "howto": howto,
+                    "howtoUrl": howto_url,
+                    "sourceSection": title,
+                    "evidence": line[:300],
+                }
                 if key in seen:
+                    # 같은 서류가 다시 나왔다. 앞이 미분류였고 이번에 단계가 정해졌으면 이번 것으로 바꾼다.
+                    # 둘 다 정해졌는데 단계가 다르면 둘 다 남긴다 — 같은 서류를 입찰 전에 한 번(사본 · 자격 확인),
+                    # 계약 때 또 내는 공고가 있다(강남터미널 광고의 사업자등록증). 앞의 확정 판정은 덮지 않는다.
+                    # 한 줄짜리 첨부(long_line)의 판정은 조항 경계가 흐려 둘째 항목을 더하지 않는다(인천공항 제안요청서 · 측정 중 확인).
+                    at, _was_confident = seen[key]
+                    if items[at]["stage"] in UNRESOLVED_STAGES and stage == "입찰 전":
+                        items[at] = item
+                        seen[key] = (at, _confident)
+                    elif items[at]["stage"] in UNRESOLVED_STAGES and stage == "낙찰 후·계약 시":
+                        # 앞 미분류를 낙찰 후로 바꾸면 그 서류가 2단계에서 사라진다. 입찰 때 내는 사본일 수 있다
+                        # (리뷰 d8378b6 r1 P0-1 · 「입찰서 제출 시 사업자등록증 사본」 뒤 「10. 낙찰자 제출서류」). 둘 다 남긴다.
+                        # 한 줄짜리 첨부는 조항 경계가 흐려 둘째 항목도 더하지 않는다.
+                        if not long_line and (name, key[1], stage) not in seen_stage:
+                            seen_stage.add((name, key[1], stage))
+                            items.append(item)
+                    elif (
+                        items[at]["stage"] == "낙찰 후·계약 시"
+                        and stage in UNRESOLVED_STAGES
+                        and not long_line
+                        and PREBID_COPY_RE.search(line)
+                        and (name, key[1], stage) not in seen_stage
+                    ):
+                        # 거울 경로: 낙찰 후가 먼저 나오고(본문을 첨부보다 먼저 읽는다) 입찰 때 내는 사본이 뒤에 미분류로 나오면
+                        # 그 사본도 남긴다(리뷰 d8378b6 r2 P0-A). 입찰 때를 말하는 줄로 좁힌다 — 좁히지 않으면 잡음이 15건 는다.
+                        seen_stage.add((name, key[1], stage))
+                        items.append(item)
+                    elif (
+                        not long_line
+                        and items[at]["stage"] not in UNRESOLVED_STAGES
+                        and stage not in UNRESOLVED_STAGES
+                        and stage != items[at]["stage"]
+                        and (name, key[1], stage) not in seen_stage
+                    ):
+                        seen_stage.add((name, key[1], stage))
+                        items.append(item)
                     continue
                 seen[key] = (len(items), _confident)
-                howto, howto_url = DOC_HOWTO.get(name, ("", ""))
-                items.append(
-                    {
-                        "name": name,
-                        "conditions": labels,
-                        "conditionKeys": [item["key"] for item in active],
-                        "copy": extras.get("copy", ""),
-                        "validity": extras.get("validity", ""),
-                        "method": extras.get("method", ""),
-                        "due": extras.get("due", ""),
-                        "count": extras.get("count", ""),
-                        "stage": stage,
-                        "sourceHeading": source_heading,
-                        "howto": howto,
-                        "howtoUrl": howto_url,
-                        "sourceSection": title,
-                        "evidence": line[:300],
-                    }
-                )
+                seen_stage.add((name, key[1], stage))
+                items.append(item)
+    link_form_attachment_stages(items)
     return items
+
+
+# 첨부 서식 파일(「붙임 3. 입주신청서_및_심의자료_서식.hwp」) 끝의 「첨부 ː 1. 사업계획서 …」 목록은 그 서식과 함께 낸다.
+# 본문이 그 서식(「다. 입주신청서 1부」)의 시점을 정했으면 서식의 첨부 서류도 같은 시점이다(판교 · 수원 공고).
+# 파일 이름에 서식·양식·신청서가 있고, 그 이름 속 서류명이 본문에서 단계가 정해진 항목일 때만 잇는다.
+FORM_FILE_RE = re.compile(r"서식|양식|신청서")
+
+
+def link_form_attachment_stages(items: list[dict[str, object]]) -> None:
+    body_stage: dict[str, str] = {}
+    for item in items:
+        if item["sourceSection"] in DOC_SEARCH_SECTIONS and item["stage"] not in UNRESOLVED_STAGES:
+            body_stage.setdefault(str(item["name"]), str(item["stage"]))
+    for item in items:
+        section = str(item["sourceSection"])
+        if item["stage"] not in UNRESOLVED_STAGES or section in DOC_SEARCH_SECTIONS:
+            continue
+        file_name = section.split(":", 1)[-1]
+        if not FORM_FILE_RE.search(file_name):
+            continue
+        form_names = find_doc_names(file_name)
+        if len({body_stage.get(n, "") for n in form_names}) != 1:
+            continue
+        for form_name in form_names:
+            if form_name != item["name"] and form_name in body_stage:
+                item["stage"] = body_stage[form_name]
+                item["sourceHeading"] = f"첨부 서식 「{form_name}」에 딸린 서류 · 본문 「{form_name}」 항목과 같은 시점"
+                break
 
 
 # 온비드 「제출서류」 표의 서류명 칸이 구분명 그대로이거나 「공고문 확인」이면
@@ -989,9 +1440,10 @@ def build_doc_checklist(
     attachments: list[dict[str, str]],
     attachment_chunks: list[tuple[str, str]] | None = None,
     contact: str = "",
+    attachment_reads: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
     profile = doc_source_profile(asset_type)
-    items = extract_doc_items(sections, attachment_chunks)
+    items = extract_doc_items(sections, attachment_chunks, asset_type)
     table_rows = extract_docs_table(sections)
     generic_only = bool(table_rows) and all(row["generic"] for row in table_rows)
 
@@ -1066,6 +1518,10 @@ def build_doc_checklist(
         # 가 추출해 둔 담당부점/공고기관 값을 그대로 물려받는다. 못 찾았으면 빈 문자열이고,
         # 화면은 빈 값일 때 "공고 원문에서 확인" 같은 대체 문구를 쓴다(app.js).
         "contact": contact,
+        # 첨부별 읽기 결과(attachment_doc_reads). 화면은 read 가 아닌 것이 있으면 「첨부 N개를 읽지 못했습니다」를 보인다.
+        # None 이면 첨부를 읽으려 하지 않은 호출(테스트 · 첨부 없음)이라 빈 목록으로 둔다.
+        "attachmentReads": list(attachment_reads or []),
+        "attachmentUnread": sum(1 for read in (attachment_reads or []) if read.get("status") != "read"),
     }
 
 
@@ -1144,23 +1600,62 @@ def attachment_text(data: bytes) -> str:
     return result.stdout.decode("utf-8", errors="replace")
 
 
-def attachment_doc_chunks(attachments: list[dict[str, str]]) -> list[tuple[str, str]]:
-    """첨부 목록을 내려받아 텍스트화하고, extract_doc_items 가 쓸 (label, text) 쌍으로 낸다."""
+# 첨부를 읽는 순서(2026-10-19 · 구현 계획 D2). 개수 상한(ATTACHMENT_MAX_COUNT)은 그대로 두고, 서류 목록이 있을
+# 만한 파일을 앞에 둔다. 원문 36건에서 감정평가서가 4자리 중 첫 자리를 차지하고(예술의전당), 변경 공지사항 9개가
+# 뒤로 밀려 열리지 않았다(인천공항). 같은 순위 안에서는 온비드 목록 순서를 지킨다.
+ATTACHMENT_DEFER_RE = re.compile(r"감정\s*평가|도면|평면도|위치도|지적도|등기부|등기사항|건축물\s*대장|사진|쉽게\s*풀어")
+ATTACHMENT_PRIORITY_RE = re.compile(r"공고|제안\s*요청서|현장\s*설명|공지|서식|양식|조건|유의\s*사항|신청서")
+
+
+def attachment_read_order(attachments: list[dict[str, str]]) -> list[dict[str, str]]:
+    def rank(doc: dict[str, str]) -> int:
+        name = str(doc.get("name", ""))
+        if ATTACHMENT_DEFER_RE.search(name):
+            return 2
+        return 0 if ATTACHMENT_PRIORITY_RE.search(name) else 1
+
+    return sorted(attachments, key=rank)
+
+
+def attachment_doc_reads(
+    attachments: list[dict[str, str]],
+) -> tuple[list[tuple[str, str]], list[dict[str, str]]]:
+    """첨부를 읽는 순서대로 내려받아 텍스트화하고, (label, text) 쌍과 첨부별 읽기 결과를 함께 낸다.
+
+    읽기 결과(status): read · not_tried(개수 상한) · too_large(크기 상한) · failed(다운로드 실패 · 빈 텍스트 · 파싱 실패).
+    지금까지는 실패를 조용히 건너뛰어, 화면이 첨부를 다 읽은 것처럼 보였다(원문 36건 중 18건이 일부를 못 읽음).
+    """
     chunks: list[tuple[str, str]] = []
-    for doc in attachments[:ATTACHMENT_MAX_COUNT]:
+    reads: list[dict[str, str]] = []
+    for position, doc in enumerate(attachment_read_order(attachments)):
+        name = str(doc.get("name", ""))
         url = doc.get("downloadUrl", "")
+        if position >= ATTACHMENT_MAX_COUNT:
+            reads.append({"name": name, "status": "not_tried"})
+            continue
         if not url:
+            reads.append({"name": name, "status": "failed"})
             continue
         try:
             data = fetch_attachment_bytes(url)
         except Exception:  # noqa: BLE001 — 첨부 하나 다운로드 실패가 전체를 막지 않는다
+            reads.append({"name": name, "status": "failed"})
             continue
-        if not data or len(data) > ATTACHMENT_MAX_BYTES:
+        if data and len(data) > ATTACHMENT_MAX_BYTES:
+            reads.append({"name": name, "status": "too_large"})
             continue
-        text = attachment_text(data)
+        text = attachment_text(data) if data else ""
         if text.strip():
-            chunks.append((f"첨부:{doc.get('name', '')}", text))
-    return chunks
+            chunks.append((f"첨부:{name}", text))
+            reads.append({"name": name, "status": "read"})
+        else:
+            reads.append({"name": name, "status": "failed"})
+    return chunks, reads
+
+
+def attachment_doc_chunks(attachments: list[dict[str, str]]) -> list[tuple[str, str]]:
+    """첨부 목록을 내려받아 텍스트화하고, extract_doc_items 가 쓸 (label, text) 쌍으로 낸다."""
+    return attachment_doc_reads(attachments)[0]
 
 
 # 공고문 절을 번호 제목 단위로 잘라 목차를 만든다. 첨부 파일(PDF·HWP) 내부는 열지 않는다.
@@ -3677,8 +4172,8 @@ def build_notice(raw_url: str) -> dict[str, object]:
     )
     sections = split_sections(text)
     related_docs = extract_related_docs(text, final_url)
-    attachment_chunks = attachment_doc_chunks(related_docs)
-    doc_checklist = build_doc_checklist(sections, asset_type, related_docs, attachment_chunks, contact)
+    attachment_chunks, attachment_reads = attachment_doc_reads(related_docs)
+    doc_checklist = build_doc_checklist(sections, asset_type, related_docs, attachment_chunks, contact, attachment_reads)
     required_docs = [str(item["name"]) for item in doc_checklist["items"]]
     notice_outline = extract_notice_outline(sections)
     countdown = bid_countdown(bid_period, bid_deadline)

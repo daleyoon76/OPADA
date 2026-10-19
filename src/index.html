@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" as="style" crossorigin="anonymous" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-    <link rel="stylesheet" href="./styles.css?v=20261019-uiux-r3">
+    <link rel="stylesheet" href="./styles.css?v=20261019-uiux-r7">
   </head>
   <body>
     <header class="app-header">
@@ -85,7 +85,7 @@
                 </div>
               </div>
               <label for="notice-url">온비드 공고/물건 URL</label>
-              <textarea id="notice-url" rows="4"></textarea>
+              <textarea id="notice-url" rows="4" placeholder="온비드 공고·물건 URL을 붙여 넣으십시오"></textarea>
               <p class="field-help">온비드에서 보고 있던 공고/물건 URL을 붙여넣으면 공개 페이지를 읽어 준비 보드로 변환합니다. short URL도 최종 상세 URL로 따라갑니다. 모바일 화면이라면 주소창 URL 대신 화면 오른쪽 위 '공유하기' 버튼의 'URL 복사'를 사용하면 더 정확합니다.</p>
 
               <div id="url-step-feedback" class="url-step-feedback" aria-live="polite"></div>
@@ -146,13 +146,13 @@
           <div id="report-hero" class="report-hero"></div>
           <section class="board-page" aria-labelledby="task-title">
             <div class="panel-heading board-page-toolbar">
-              <h3 id="task-title">할 일</h3>
+              <h3 id="task-title" class="block-title">할 일</h3>
               <div class="board-page-tools">
                 <div id="guide-level" class="seg-toggle" role="group" aria-label="할 일 설명 보기"></div>
-                <button id="reset-tasks" class="secondary small-button" type="button">초기화</button>
+                <button id="reset-tasks" class="secondary small-button" type="button">이 공고 체크 모두 지우기</button>
               </div>
             </div>
-            <p id="guide-level-hint" class="small-text guide-level-hint"></p>
+            <p id="guide-level-hint" class="block-note guide-level-hint"></p>
             <div id="task-list" class="task-list"></div>
             <div id="board-stage1-extra" class="board-stage1-extra">
               <section class="block" aria-labelledby="context-title">
@@ -204,20 +204,20 @@
         <section class="panel">
           <div class="section-title">
             <div>
-              <p class="eyebrow">Step 3</p>
+              <p class="eyebrow">저장한 공고</p>
               <h2 id="watchlist-title">관심 공고</h2>
             </div>
           </div>
           <div class="watch-summary" id="watch-summary"></div>
           <div class="watch-board" id="watchlist-table"></div>
           <div class="source-panel">
-            <h3>공고함의 역할</h3>
+            <h3>관심 공고의 역할</h3>
             <p>일회성 문서 저장 대신 여러 공고의 준비 상태를 남겨 두고, 다음에 확인해야 할 일을 이어서 보는 화면입니다. 실제 서비스에서는 사용자 계정에 저장되어 알림과 공고 비교로 확장됩니다.</p>
           </div>
         </section>
       </section>
     </main>
 
-    <script src="./app.js?v=20261019-uiux-r3"></script>
+    <script src="./app.js?v=20261019-uiux-r7"></script>
   </body>
 </html>
