@@ -1612,6 +1612,8 @@ function renderBoardCoach(coach) {
 const ONBID_REFERENCE_SCOPE_TAGS = { 압류재산: "압류재산 기준", 국유재산: "국유재산 기준", 수탁재산: "수탁재산 기준" };
 // 모델이 답하지 않았는데 용어 설명만 보이면 질문에 답한 것처럼 읽힌다(리뷰 r1 P1-2).
 const ONBID_REFERENCE_DECLINED_NOTE = "이 질문에는 답하지 않았습니다. 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
+// 연결이 안 된 것은 답을 거절한 것과 다르다. 용어 질문이면 아래 설명이 곧 답이다(리뷰 r2 P2-c).
+const ONBID_REFERENCE_OFFLINE_NOTE = "AI 코치에 연결되지 않아 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
 // 설명이 질문의 일부만 덮을 수 있다(「유찰되면 보증금은?」에는 유찰 뜻만 붙는다 · 리뷰 r1 P1-1).
 const ONBID_REFERENCE_PARTIAL_NOTE = "질문하신 내용 가운데 위 설명에 없는 것은 공고 원문이나 담당기관에서 확인하세요.";
 
@@ -1638,11 +1640,12 @@ function renderOnbidReferences(references, collapsed = false) {
 
 function renderQuestionAnswer(answer) {
   const referencesHtml = renderOnbidReferences(answer?.references);
-  const declinedHtml = referencesHtml
-    ? `<div class="coach-ask-answer"><p class="small-text coach-ask-note">${ONBID_REFERENCE_DECLINED_NOTE}</p>${referencesHtml}</div>`
-    : "";
+  const referencesWithNote = (note) =>
+    referencesHtml ? `<div class="coach-ask-answer"><p class="small-text coach-ask-note">${note}</p>${referencesHtml}</div>` : "";
+  const declinedHtml = referencesWithNote(ONBID_REFERENCE_DECLINED_NOTE);
   if (!answer?.connected) {
-    if (declinedHtml) return declinedHtml;
+    const offlineHtml = referencesWithNote(ONBID_REFERENCE_OFFLINE_NOTE);
+    if (offlineHtml) return offlineHtml;
     return `<div class="coach-ask-answer">
       ${badge("AI 연결 안 됨", "warn")}
       <p>이 질문에는 지금 자동으로 답할 수 없습니다. 담당기관에 문의하세요.</p>

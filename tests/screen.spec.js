@@ -919,6 +919,7 @@ test("AI 코치 질문 — 온비드 용어 설명이 오면 「담당기관 문
   const ref = (text, scope = "") => ({ term: "매각결정기일", text, source: "시험용 출처", scope });
   const declinedNote = "이 질문에는 답하지 않았습니다. 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
   const partialNote = "질문하신 내용 가운데 위 설명에 없는 것은 공고 원문이나 담당기관에서 확인하세요.";
+  const offlineNote = "AI 코치에 연결되지 않아 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
   const declined = { connected: true, answerable: false, answerType: "none", answer: "", sourceField: "" };
 
   // 모델이 답하지 못해도(none) 설명이 있으면 그것을 «보이게» 둔다. 답하지 않았다는 사실도 함께 적는다.
@@ -934,16 +935,22 @@ test("AI 코치 질문 — 온비드 용어 설명이 오면 「담당기관 문
   // AI 가 연결되지 않아도 같다. scope 가 common 이면 꼬리표를 붙이지 않는다.
   await askWith({ ...declined, connected: false, references: [ref("설명 둘입니다.", "common")] });
   await expect(answerBox.getByText("설명 둘입니다.")).toBeVisible();
-  await expect(answerBox.getByText(declinedNote)).toBeVisible();
+  // 연결이 안 된 것은 거절과 다르다. 「답하지 않았습니다」 대신 연결 안내를 쓴다(리뷰 r2 P2-c).
+  await expect(answerBox.getByText(offlineNote)).toBeVisible();
+  await expect(answerBox).not.toContainText(declinedNote);
   await expect(answerBox).not.toContainText("AI 연결 안 됨");
   await expect(answerBox.locator("p > strong + span.small-text")).toHaveCount(0);
 
   // 제도·용어 질문(general)에 설명이 있으면 모델이 풀어 쓴 답 대신 온비드 설명을 그대로 보인다.
-  await askWith({ connected: true, answerable: true, answerType: "general", answer: "모델이 풀어 쓴 답입니다.", sourceField: "시험용 출처", references: [ref("설명 넷입니다.")] });
+  // 국유재산·수탁재산 전용 설명에도 꼬리표를 붙인다.
+  await askWith({ connected: true, answerable: true, answerType: "general", answer: "모델이 풀어 쓴 답입니다.", sourceField: "시험용 출처", references: [ref("설명 넷입니다.", "국유재산"), ref("설명 다섯입니다.", "수탁재산")] });
   await expect(answerBox.getByText("설명 넷입니다.")).toBeVisible();
+  await expect(answerBox.getByText("(국유재산 기준)")).toBeVisible();
+  await expect(answerBox.getByText("(수탁재산 기준)")).toBeVisible();
   await expect(answerBox.getByText(partialNote)).toBeVisible();
   await expect(answerBox).not.toContainText("모델이 풀어 쓴 답입니다.");
   await expect(answerBox).not.toContainText(declinedNote);
+  await expect(answerBox).not.toContainText(offlineNote);
 
   // 공고 사실 답(notice)이면 답 아래에 설명을 «접어서» 붙인다 — 펼쳐 두면 글이 너무 길어진다.
   await askWith({ connected: true, answerable: true, answerType: "notice", answer: "모델 답 문장입니다.", sourceField: "bidDeadline", references: [ref("설명 셋입니다.")] });

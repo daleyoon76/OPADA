@@ -3034,15 +3034,21 @@ def onbid_reference_entries() -> list[dict[str, object]]:
     return entries
 
 
-def _word_starts(question: str) -> set[int]:
-    """낱말마다 앞 문장부호를 건너뛴 첫 글자가, 띄어쓰기를 지운 질문에서 몇 번째 글자인지 모은다."""
-    starts: set[int] = set()
+def _word_positions(question: str) -> tuple[set[int], set[int]]:
+    """띄어쓰기를 지운 질문에서 낱말 자리를 모은다.
+
+    첫째는 낱말마다 앞 문장부호를 건너뛴 첫 글자 자리, 둘째는 낱말이 시작하는 자리(낱말 경계)다.
+    find_onbid_references 의 compact 와 같은 str.split() 으로 자르므로 두 자리는 compact 기준이다.
+    """
+    heads: set[int] = set()
+    bounds: set[int] = set()
     offset = 0
     for token in (question or "").split():
+        bounds.add(offset)
         # 문장부호만 있는 낱말이면 다음 낱말의 시작 자리가 들어갈 뿐이라 따로 거르지 않는다.
-        starts.add(offset + re.match(r"[^\w]*", token).end())
+        heads.add(offset + re.match(r"[^\w]*", token).end())
         offset += len(token)
-    return starts
+    return heads, bounds
 
 
 def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> list[dict[str, str]]:
@@ -3055,7 +3061,7 @@ def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> 
     compact = "".join((question or "").split())
     if not compact:
         return []
-    word_starts = _word_starts(question)
+    word_starts, word_bounds = _word_positions(question)
     candidates: list[tuple[str, dict[str, object]]] = []
     for entry in onbid_reference_entries():
         for name in entry["names"]:
@@ -3076,9 +3082,10 @@ def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> 
         span = None
         for match in re.finditer(re.escape(key), compact):
             start, end = match.start(), match.end()
-            # 2글자 이름은 낱말 첫머리에서만 받는다. 낱말 가운데(「설명도」의 「명도」)나 띄어쓰기를 건넌 자리
-            # (「공동 점유」의 「동점」)에서 잡으면 엉뚱한 설명이 붙는다(2026-10-19 리뷰 r1 P1-1).
-            if len(key) <= 2 and start not in word_starts:
+            # 2글자 이름은 낱말 첫머리에서 시작하고 낱말 경계를 넘지 않을 때만 받는다. 낱말 가운데(「설명도」의
+            # 「명도」)나 띄어쓰기를 건넌 자리(「공동 점유」의 「동점」·「두 명 도장」의 「명도」)에서 잡으면
+            # 엉뚱한 설명이 붙는다(2026-10-19 리뷰 r1 P1-1 · r2 P2-a).
+            if len(key) <= 2 and (start not in word_starts or any(start < b < end for b in word_bounds)):
                 continue
             if any(start < t_end and t_start < end for t_start, t_end in taken):
                 continue
