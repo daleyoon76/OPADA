@@ -1292,3 +1292,47 @@ test("E2E design S3 음성 대조 — 국유재산 공동입찰에는 압류재�
     "압류재산 공매는 인터넷 공매이므로, 공동입찰신청을 온비드 등록으로 대신할 수 있습니다",
   );
 });
+
+// 시나리오 5 — 공고문이 시점을 적지 않은 서류(신규). 근거: resolve_doc_stage()
+// (src/server.py)가 서식명·조항 표제·문장 사전 모두에서 못 정하면 "미분류"를 반환한다
+// (stage-classification-design.md §3 "미분류를 1급 상태로 두는 설계"). 추측으로 입찰
+// 전/낙찰 후 어느 쪽에도 넣지 않는다. E2E는 window.fetch를 가로채는 고정 표본이라, 서버의
+// 사전 판정 자체가 아니라 그 결과("미분류" stage)를 화면이 올바르게 분리해 보여주는지만
+// 검증한다(사전이 실제로 못 찾는 입력을 만드는 것은 tests/measure_stage_classification.py
+// 쪽 책임이다).
+test("E2E design S5 — 사전에 없는 서류는 \"단계를 확정하지 못한 서류\" 구획에만 나타난다 (resolve_doc_stage 말단 분기)", async ({ page }) => {
+  const notice = copyBase();
+  notice.docChecklist.items = [
+    ...notice.docChecklist.items,
+    {
+      name: "㉮ 사전에 없는 특수 제출물",
+      conditions: [],
+      conditionKeys: [],
+      copy: "",
+      validity: "",
+      method: "",
+      due: "",
+      count: "",
+      stage: "미분류",
+      howto: "",
+      howtoUrl: "",
+      sourceSection: "공고문",
+      evidence: "조항 표제·문장 사전 어디에도 없는 표제라 단계를 정하지 못했습니다.",
+    },
+  ];
+  notice.docChecklist.groups.push({ condition: "미분류 서류", items: [notice.docChecklist.items[2]] });
+  await analyzeWith(page, notice);
+  await page.locator("#prepare").click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+
+  const unclassified = checklist.locator(".doc-group-unclassified");
+  await expect(unclassified).toContainText("단계를 확정하지 못한 서류");
+  await expect(unclassified).toContainText("단계를 확정하지 못했습니다. 공고문 원문을 확인하십시오.");
+  await expect(unclassified).toContainText("㉮ 사전에 없는 특수 제출물");
+
+  // 음성 대조 — 사전에 있는 표제를 가진 서류(stage: "입찰 전")는 이 구획에 들어가지 않는다.
+  // BASE_NOTICE의 기존 두 항목(인감증명서·대리입찰신청서)이 그 반대쪽이다.
+  await expect(unclassified).not.toContainText("대리입찰신청서");
+  expect(await checklist.locator(".doc-group-unclassified li").count()).toBe(1);
+});
