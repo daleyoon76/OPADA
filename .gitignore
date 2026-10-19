@@ -4,6 +4,7 @@ __pycache__/
 
 # Logs
 *.log
+!known-pitfalls-history.log
 
 # OS
 Thumbs.db
