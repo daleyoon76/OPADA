@@ -3099,3 +3099,150 @@ button.mini-step {
     gap: 4px;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 3팀 묶음 D · 고정 영역 · 포커스 · 좁은 화면(2026-10-19).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* I6 Tab 으로 옮긴 포커스가 고정 영역 뒤로 들어가지 않게 한다. --dock-h 는 app.js updateDockHeightVar 가
+   고정 영역 높이 + 16px 로 맞추고, 준비 보드가 아닐 때는 0 이다. */
+html {
+  scroll-padding-bottom: var(--dock-h, 0px);
+}
+
+/* R1 · V9 상한을 답 칸이 아니라 고정 영역 전체에 둔다. 답 칸에만 32vh 를 걸면 나머지 줄 약 240px 이 더해져
+   390px 에서 61%, 가로 모드에서 93% 를 덮었다. 스크롤은 코치 쪽 한 곳에서만 생기고, 단계 표시는 늘 보인다. */
+.board-dock {
+  display: flex;
+  flex-direction: column;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.board-dock .board-coach {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.board-dock .board-status {
+  flex: none;
+}
+
+.coach-dock .coach-ask-result:not(:empty) {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* I11 긴 URL 이 든 답이 가로로 스크롤되지 않게 한다. */
+.coach-ask-result {
+  overflow-wrap: anywhere;
+}
+
+/* 답만 지우는 버튼(답 영역 바로 위 오른쪽) */
+.coach-answer-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.coach-answer-tools[hidden] {
+  display: none;
+}
+
+.coach-clear-answer {
+  font-size: 12px;
+}
+
+/* R5 데스크톱은 칩을 한 줄로 두고, 넘치는 쪽 끝을 흐리게 해 더 있다는 단서를 준다. */
+.coach-suggest {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+
+/* R8 접기 머리(summary)의 누르는 높이 */
+.doc-group summary,
+.task-detail > summary {
+  padding: 6px 0;
+  min-height: 32px;
+}
+
+@media (max-width: 600px), (max-height: 500px) {
+  /* R1 좁거나 낮은 화면은 고정 영역을 화면의 절반 아래로 묶는다(종료 조건 50% 이하). */
+  .board-dock {
+    max-height: 48vh;
+  }
+
+  /* R1 답을 읽는 동안에는 자주 묻는 질문 줄을 숨겨 답에 자리를 준다. */
+  .coach-dock.has-answer .coach-suggest {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  /* R2 단계 표시와 진행률을 한 줄로 둔다(묶음 전 규칙은 세로 두 줄이었다). */
+  .board-dock .board-status {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .board-dock .board-progress b,
+  .board-dock .board-progress .progress {
+    display: none;
+  }
+
+  /* R5 좁은 화면은 칩을 줄바꿈해 두 개까지만 보인다. 가로 스크롤은 넘길 수 있다는 단서가 없었다. */
+  .coach-suggest {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .coach-suggest .link-chip:nth-of-type(n + 3) {
+    display: none;
+  }
+
+  /* R8 · I11 터치 대상. 단계 버튼은 옛 규칙(.wizard-progress .mini-step)이 더 구체적이라 같은 세기로 적는다. */
+  .mini-step,
+  .wizard-progress .mini-step,
+  .prep-stage-stepper .mini-step,
+  .seg-option,
+  .small-button,
+  .coach-toggle,
+  .coach-suggest .link-chip,
+  .task-check {
+    min-height: 40px;
+  }
+
+  .task-check {
+    align-items: center;
+  }
+
+  /* R6 앱 머리를 줄인다. 코드 판은 서버 재시작 · 미커밋 경고가 있을 때만 보인다(시연 운영에 필요한 정보). */
+  .code-revision:not(:has(.code-revision-warn)) {
+    display: none;
+  }
+
+  .app-header {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+
+  .header-status {
+    min-width: 0;
+    padding: 4px 10px;
+    align-self: flex-start;
+  }
+
+  .header-status span {
+    display: none;
+  }
+
+  .header-status strong {
+    font-size: 13px;
+  }
+}

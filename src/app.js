@@ -459,7 +459,15 @@ let guideDetailed = false;
 let boardStageNum = null;
 // 아래 고정 AI 코치를 접어 두었는지다. 보는 사람 브라우저에만 남기는 편의 설정이라 localStorage 에 둔다.
 const coachCollapsedStorageKey = "onbid-public-asset-doc-agent-coach-collapsed-v1";
-let coachCollapsed = readJsonStorage(coachCollapsedStorageKey, false) === true;
+// 사용자가 접기/펴기를 고른 적이 없으면, 좁거나 낮은 화면에서는 접힌 상태로 시작한다(R2). 펼친 고정 영역이
+// 390px 에서 화면의 29%, 가로 모드에서 59% 를 덮어 첫 화면에 보드 본문이 거의 없었다. 고른 값이 있으면 그것을 따른다.
+const COACH_COMPACT_QUERY = "(max-width: 600px), (max-height: 500px)";
+function getInitialCoachCollapsed() {
+  const saved = readJsonStorage(coachCollapsedStorageKey, null);
+  if (saved === true || saved === false) return saved;
+  return Boolean(window.matchMedia?.(COACH_COMPACT_QUERY).matches);
+}
+let coachCollapsed = getInitialCoachCollapsed();
 const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
@@ -557,6 +565,7 @@ function setView(view) {
   if (location.hash.replace("#", "") !== view) {
     history.replaceState(null, "", `#${view}`);
   }
+  updateDockHeightVar();
 }
 
 function renderWizardStep() {
@@ -1658,22 +1667,25 @@ function shortNoticeTitle(title, max = 22) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+// 코치가 무엇을 보고 답하는지 적은 문장이다. 고정 영역에서 한 줄을 늘 차지해 머리 줄 툴팁과 입력칸 설명으로 옮겼다(R2 · V9).
+const COACH_CONTEXT_DETAIL = "공고 유형 · 입찰기간 · 최저입찰가격 · 입찰보증금 · 담당기관 · 제출서류와 지금 준비 보드의 진행 상황을 함께 보고 답합니다.";
+
 function renderBoardCoach(coach, stageNum) {
   // 모델에 붙지 않았으면 「AI 가 했다」고 말하지 않는다. 색만 바꾸면 색을 못 보는 사람에게는
   // 같은 화면이고, 색을 보는 사람에게도 문구가 사실과 어긋난 채 남는다.
   const llmConnected = coach?.llmStatus === "connected";
   const title = shortNoticeTitle(sampleNotice.title);
   const suggestions = COACH_SUGGESTIONS[stageNum] || [];
-  return `<section class="coach-ask-card coach-dock${coachCollapsed ? " is-collapsed" : ""}">
+  return `<section class="coach-ask-card coach-dock${coachCollapsed ? " is-collapsed" : ""}${coachAnswerHtml ? " has-answer" : ""}">
     <div class="coach-dock-head">
       <span class="coach-dock-label">${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "neutral" : "warn")}<strong>AI 코치에게 물어보기</strong></span>
-      <span class="coach-context" title="${sampleNotice.title || ""}">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span>
+      <span class="coach-context" title="${sampleNotice.title ? `${sampleNotice.title} · ` : ""}${COACH_CONTEXT_DETAIL}">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span>
       <button type="button" class="coach-toggle" data-coach-toggle aria-expanded="${!coachCollapsed}" aria-controls="coach-dock-body">${coachCollapsed ? "펴기 ▴" : "접기 ▾"}</button>
     </div>
     <div id="coach-dock-body" class="coach-dock-body"${coachCollapsed ? " hidden" : ""}>
-      <p class="coach-context-detail">공고 유형 · 입찰기간 · 최저입찰가격 · 입찰보증금 · 담당기관 · 제출서류와 지금 준비 보드의 진행 상황을 함께 보고 답합니다.</p>
+      <p id="coach-context-help" class="sr-only">${COACH_CONTEXT_DETAIL}</p>
       <div class="coach-ask-row">
-        <input type="text" id="coach-question-input" placeholder="이 물건에 대해 물어보세요. 예: ${suggestions[0] || "잔금은 언제까지 내야 하나요?"}" maxlength="200" aria-label="AI 코치에게 물어볼 질문">
+        <input type="text" id="coach-question-input" placeholder="이 물건에 대해 물어보세요. 예: ${suggestions[0] || "잔금은 언제까지 내야 하나요?"}" maxlength="200" aria-label="AI 코치에게 물어볼 질문" aria-describedby="coach-context-help">
         <button type="button" class="primary small-button" data-ask-question>질문하기</button>
       </div>
       ${
@@ -1684,6 +1696,7 @@ function renderBoardCoach(coach, stageNum) {
       </div>`
           : ""
       }
+      <div class="coach-answer-tools"${coachAnswerHtml ? "" : " hidden"}><button type="button" class="text-action coach-clear-answer" data-coach-clear>답 지우기</button></div>
       <div id="coach-question-result" class="coach-ask-result" aria-live="polite"></div>
     </div>
   </section>`;
@@ -1719,6 +1732,10 @@ function setCoachAnswer(html) {
   coachAnswerHtml = html;
   const result = byId("coach-question-result");
   if (result) result.innerHTML = html;
+  // 답이 있으면 좁은 화면에서 「자주 묻는 질문」 줄을 숨기고(CSS · has-answer), 답만 지우는 버튼을 보인다(R1).
+  document.querySelector(".coach-dock")?.classList.toggle("has-answer", Boolean(html));
+  const tools = document.querySelector(".coach-answer-tools");
+  if (tools) tools.hidden = !html;
 }
 
 function isCoachAskLocked() {
@@ -1761,6 +1778,15 @@ function startAskCooldown() {
     applyCoachAskControls();
   }, 60000);
   applyCoachAskControls();
+}
+
+// 고정 영역 높이를 --dock-h 에 넣어 html 의 scroll-padding-bottom 으로 쓴다. Tab 으로 옮긴 포커스가 고정 영역 뒤에
+// 가려졌다(I6 · 1280 16건 · 390 18건). 준비 보드가 아닐 때는 고정 영역이 없으므로 0 이다.
+// 여백 16px 은 여기서 더해 둔다. 그래야 다른 화면에서 값이 정확히 0 이 된다.
+function updateDockHeightVar() {
+  const dock = document.querySelector(".board-dock");
+  const onBoard = currentView === "report" && dock && dock.getClientRects().length > 0;
+  document.documentElement.style.setProperty("--dock-h", onBoard ? `${Math.ceil(dock.getBoundingClientRect().height) + 16}px` : "0px");
 }
 
 function setCoachCollapsed(collapsed) {
@@ -2950,6 +2976,12 @@ function setBoardChromeHidden(hidden) {
   if (hidden) byId("board-stage1-extra").hidden = true;
 }
 
+function focusReportTitle() {
+  const title = byId("report-title");
+  title.setAttribute("tabindex", "-1");
+  title.focus({ preventScroll: true });
+}
+
 function renderReport() {
   const userType = getSelectedUserType();
   const fit = getFitMessage();
@@ -3349,6 +3381,7 @@ async function runAnalysis() {
     currentStage = 0;
     renderAll();
     byId("url-step-feedback").scrollIntoView({ block: "center", behavior: "smooth" });
+    focusNoticeUrlAsInvalid();
     return;
   }
   const requestId = ++analysisRequestId;
@@ -3388,6 +3421,10 @@ async function runAnalysis() {
     saveRecentNotice();
     renderAll();
     setInputStep("result");
+    // 분석 성공 뒤 포커스가 사라진 「분석하기」 자리(BODY)에 남지 않게 1-3 제목으로 옮긴다(I7).
+    const resultTitle = document.querySelector("#wizard-step-result h2");
+    resultTitle.setAttribute("tabindex", "-1");
+    resultTitle.focus({ preventScroll: true });
   } catch (error) {
     if (requestId !== analysisRequestId) return;
     analysisError = toAnalysisErrorMessage(error);
@@ -3401,8 +3438,16 @@ async function runAnalysis() {
     if (requestId === analysisRequestId) {
       setAnalysisInputsBusy(false);
       renderActionState();
+      // 실패면 고칠 자리(URL 칸)로 포커스를 보낸다. 칸은 위에서 잠금이 풀린 뒤라야 포커스를 받는다(I7).
+      if (analysisError) focusNoticeUrlAsInvalid();
     }
   }
+}
+
+function focusNoticeUrlAsInvalid() {
+  const input = byId("notice-url");
+  input.setAttribute("aria-invalid", "true");
+  input.focus({ preventScroll: true });
 }
 
 // 「HTTP Error 500」·「<urlopen error …>」 같은 원본 문구는 사용자가 고칠 수 있는 것이 아니다. 화면에는
@@ -3558,6 +3603,8 @@ function init() {
   byId("user-type").addEventListener("change", renderAll);
   byId("asset-focus").addEventListener("change", renderAll);
   byId("notice-url").addEventListener("input", () => {
+    // 다시 입력하기 시작하면 「잘못된 입력」 표시를 푼다.
+    byId("notice-url").removeAttribute("aria-invalid");
     analysisError = null;
     boardGenerated = false;
     currentStage = 0;
@@ -3646,8 +3693,11 @@ function init() {
   document.addEventListener("click", (event) => {
     const guideButton = event.target.closest("[data-guide-level]");
     if (guideButton) {
-      guideDetailed = guideButton.dataset.guideLevel === "detail";
+      const level = guideButton.dataset.guideLevel;
+      guideDetailed = level === "detail";
       renderReport();
+      // 두 칸 버튼도 다시 그려진다. 같은 칸으로 포커스를 되돌린다(I7).
+      document.querySelector(`[data-guide-level="${level}"]`)?.focus();
       return;
     }
     const wizardDot = event.target.closest("[data-wizard-dot]");
@@ -3660,6 +3710,8 @@ function init() {
       boardStageNum = Number(stageButton.dataset.boardStage);
       renderReport();
       byId("view-report").scrollIntoView({ block: "start" });
+      // 누른 버튼이 다시 그려져 사라지므로 포커스가 BODY 로 빠졌다(I7). 새 페이지 제목으로 옮긴다.
+      focusReportTitle();
       return;
     }
     if (event.target.closest("[data-goto-input]")) {
@@ -3716,6 +3768,12 @@ function init() {
       askNoticeQuestion();
       return;
     }
+    if (event.target.closest("[data-coach-clear]")) {
+      clearCoachAnswer();
+      // 누른 버튼이 사라지므로 포커스를 질문 입력칸으로 옮긴다.
+      byId("coach-question-input")?.focus();
+      return;
+    }
     if (event.target.closest("[data-coach-toggle]")) {
       setCoachCollapsed(!coachCollapsed);
       return;
@@ -3743,6 +3801,9 @@ function init() {
     }
     setView(target.dataset.jump);
   });
+
+  const dockForHeight = document.querySelector(".board-dock");
+  if (dockForHeight && window.ResizeObserver) new ResizeObserver(updateDockHeightVar).observe(dockForHeight);
 
   const initial = location.hash.replace("#", "");
   if (["input", "report", "watchlist"].includes(initial)) {
