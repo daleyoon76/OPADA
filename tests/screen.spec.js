@@ -1260,15 +1260,82 @@ test("S12 음성 — 매각 공고와 처분방식을 읽지 못한 공고에서
 // S13 — 3단계 「입찰 참여」에 온비드 공통 입찰 규칙(제출 뒤 수정·취소 불가, 제출 뒤 발급되는 계좌로
 // 마감 전 보증금 납부·미납 시 무효, 나의온비드 직접 확인)을 고정 문구로 보여 준다. 근거는 온비드
 // 이용안내 「입찰참가 안내」와 입찰참가자 준수규칙이다(2026-10-19 정합성 대조).
-test("S13 준비 단계 — 3단계에 온비드 입찰 규칙 세 줄이 보인다", async ({ page }) => {
+// 2026-10-19 커뮤니티 조사 반영으로 두 줄(2회 이상 제출 가능 물건의 재입찰 · 낙찰자 신원 비공개)을
+// 더해 다섯 줄이다.
+test("S13 준비 단계 — 3단계에 온비드 입찰 규칙 다섯 줄이 보인다", async ({ page }) => {
   await analyzeWith(page, stagedNotice());
   const rules = page.locator(".bid-participation-info .bid-rules li");
-  await expect(rules).toHaveCount(3);
+  await expect(rules).toHaveCount(5);
   const text = (await rules.allInnerTexts()).join(" ");
   expect(text).toContain("수정하거나 취소할 수 없는");
   expect(text).toContain("입찰서를 제출한 뒤에 발급");
   expect(text).toContain("무효");
   expect(text).toContain("직접 확인");
+  expect(text).toContain("같은 회차에 다시 입찰");
+  expect(text).toContain("낙찰자가 누구인지는 공개되지 않습니다");
+});
+
+// S14 — 붙여넣은 공고의 재산유형·처분방식에 따라 ⑴ 용어 탭이 「기본 용어」 묶음을 표기 매칭보다 앞에
+// 두고 ⑵ 4단계 머리에 그 유형의 절차 순서·보증금 귀속을 적고 ⑶ 압류재산이면 첨부 파일명에 「명세서」가
+// 없을 때 그 사실을 적는다(2026-10-19 커뮤니티 조사 1-1·1-2·1-4 반영). 음성 대조는 같은 테스트 안의
+// 국유재산 임대 공고와 재산유형을 못 읽은 공고다 — 명세서 안내가 없고, 절차 안내가 유형에 맞게 바뀐다.
+test("S14 공고 유형별 안내 — 용어 탭 기본 용어 · 4단계 절차 순서 · 압류재산 명세서 안내", async ({ page }) => {
+  const seized = stagedNotice();
+  seized.glossary = [
+    { term: "매각결정기일", meaning: "개찰 뒤 캠코가 매각을 확정하는 날입니다.", group: "basic" },
+    { term: "유찰", meaning: "두 가지 뜻으로 쓰입니다.", group: "basic" },
+    { term: "압류재산", meaning: "체납자의 압류 재산을 캠코가 위임받아 처리하는 재산입니다.", group: "match" },
+  ];
+  await analyzeWith(page, seized);
+  // 지원 탭 패널은 hidden 이어도 DOM 에 그려져 있다. 다른 축(S1·S8)과 같이 탭을 누르지 않고 본문을 본다.
+  const titles = page.locator("#glossary-list .glossary-group-title");
+  await expect(titles).toHaveCount(2);
+  await expect(titles.nth(0)).toContainText("압류재산 · 매각");
+  await expect(titles.nth(0)).toContainText("기본 용어");
+  await expect(titles.nth(1)).toContainText("공고 표기에 나온 용어");
+  const terms = await page.locator("#glossary-list .compact-row strong").allInnerTexts();
+  expect(terms.indexOf("매각결정기일")).toBeLessThan(terms.indexOf("압류재산"));
+  // ⑵ 4단계 머리 — 압류재산 절차와 보증금 귀속.
+  const process = page.locator("#task-list .post-award-process");
+  await expect(process).toHaveCount(1);
+  await expect(process).toContainText("매각결정(개찰일로부터 7일 이내)");
+  await expect(process).toContainText("등기촉탁은 캠코");
+  await expect(process).toContainText("입찰보증금은 돌려받지 못합니다");
+  // ⑶ 첨부 — 압류재산인데 파일명에 「명세서」가 없다.
+  await expect(page.locator("#attachment-list .attachment-inventory-note")).toContainText("「명세서」를 찾지 못했습니다");
+});
+
+// S14 음성 — 유형별 안내가 다른 유형으로 새지 않는다. 국유재산 임대 공고에는 명세서 안내가 없고 절차는
+// 대부료 잔금·대부계약이며, 재산유형을 못 읽은 공고에는 공통 안내만 있고 유형별 기한 수치가 없다.
+test("S14 음성 — 국유 임대 공고와 재산유형을 못 읽은 공고에는 압류재산 안내가 새지 않는다", async ({ page }) => {
+  // ⓐ 국유재산 임대: 명세서 안내 없음 · 절차는 대부료 잔금·대부계약 · 국고 귀속.
+  const lease = stagedNotice();
+  lease.assetType = "국유재산";
+  lease.disposition = "임대";
+  lease.dispositionLabel = "임대/대부입찰";
+  lease.relatedDocs = ["국유재산 대부입찰공고문.pdf"];
+  lease.glossary = [{ term: "대부료", meaning: "재산을 빌려 쓰는 대가로 내는 돈입니다.", group: "basic" }];
+  await analyzeWith(page, lease);
+  await expect(page.locator("#attachment-list")).toContainText("국유재산 대부입찰공고문.pdf");
+  await expect(page.locator("#attachment-list .attachment-inventory-note")).toHaveCount(0);
+  await expect(page.locator("#task-list .post-award-process")).toContainText("대부료 잔금 납부");
+  await expect(page.locator("#task-list .post-award-process")).toContainText("국고에 귀속");
+  await expect(page.locator("#task-list .post-award-process")).not.toContainText("매각결정");
+  await expect(page.locator("#glossary-list .glossary-group-title")).toHaveCount(1);
+  await expect(page.locator("#glossary-list .glossary-group-title")).toContainText("국유재산 · 임대/대부입찰");
+
+  // ⓑ 재산유형을 못 읽은 공고: 공통 안내만 · 유형별 기한 수치 없음.
+  const unknown = stagedNotice();
+  unknown.assetType = "재산유형 확인";
+  unknown.disposition = "";
+  unknown.dispositionLabel = "처분방식 확인";
+  unknown.glossary = [];
+  await analyzeWith(page, unknown);
+  const unknownProcess = page.locator("#task-list .post-award-process");
+  await expect(unknownProcess).toContainText("공통 안내만 둡니다");
+  await expect(unknownProcess).not.toContainText("7일");
+  await expect(unknownProcess).not.toContainText("5영업일");
+  await expect(page.locator("#glossary-list")).toContainText("용어 안내가 없습니다");
 });
 
 // S11 — 공공데이터 API 연동 블록 세 개가 설계한 자리에 놓이고, 질문 답·기한 어긋남을

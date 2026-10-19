@@ -1064,6 +1064,19 @@ def test_generic_table_is_not_success() -> None:
     real_coach = server.local_ai_coach(real_notice, [str(item["name"]) for item in real["items"]])
     real_titles = [item["title"] for item in real_coach["unresolvedChecks"]]
     check("B1 배선 양성", any("공동/대리입찰" in title for title in real_titles), str(real_titles))
+    # 2026-10-19 커뮤니티 조사 1-5 반영 — 매각 코치에도 현장·실물 확인 항목이 있고, 판단 낱말은 없다.
+    site_items = [item for item in real_coach["unresolvedChecks"] if "현장" in item["title"]]
+    check("B1 매각 코치에 현장·실물 확인 항목", len(site_items) == 1, str(real_titles))
+    check(
+        "B1 음성 현장 항목은 상태 판단을 하지 않는다",
+        site_items and not re.search(r"나쁘|좋|위험|추천", site_items[0]["reason"] + site_items[0]["action"]),
+        str(site_items),
+    )
+    check(
+        "B1 매각 코치 질문에 현장 확인 질문",
+        any("현장" in q for q in real_coach["askAgency"]),
+        str(real_coach["askAgency"]),
+    )
 
     # 배선: 준비 보드 항목이 「못 뽑았다」를 그대로 옮긴다.
     tasks = server.build_tasks({**notice, "sourceUrl": "https://www.onbid.co.kr/"}, [])
