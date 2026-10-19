@@ -431,6 +431,16 @@ let analysisRequestId = 0;
 let analysisError = null;
 let analyzedInputValue = "";
 let boardGenerated = false;
+// AI 코치 질문의 진행 상태다. renderReport 는 체크박스 하나에도 코치 영역 innerHTML 을 통째로 바꾸므로,
+// 받은 답과 잠금 상태를 DOM 이 아니라 여기 두고 다시 그릴 때 이 값에서 되살린다(3팀 진단 I1·I3).
+// DOM 에 두면 답을 기다리는 사이 다시 그려진 새 요소에 「찾는 중」만 남고 답은 떨어진 옛 요소에 써진다.
+let coachAnswerHtml = "";
+let askInFlight = false;
+let askRequestId = 0;
+// 서버는 IP 당 1분 5회로 막는다. 429 를 받은 뒤 바로 다시 누르면 또 막히므로 그동안 버튼을 잠근다.
+// 공고와 무관한 제한이라 새 공고로 넘어가도 풀지 않는다.
+let askCooldownUntil = 0;
+let askCooldownTimer = null;
 // 입력~분석 마법사(1p 유형/목적 → 2p URL → 3p 결과 → 전환화면)의 현재 화면.
 // currentView("input")는 그대로 바뀌지 않고, 그 안에서 보여줄 하위 화면만 이 값으로 고른다.
 let inputStep = "profile";
@@ -1641,16 +1651,77 @@ function renderBoardCoach(coach, stageNum) {
 }
 
 // 보드를 다시 그려도 입력 중인 질문과 받은 답은 남긴다. 체크박스 하나만 눌러도 renderReport 가 돈다.
+// 입력 중인 질문은 아직 상태 변수가 없어 DOM 에서 옮기고, 답·잠금은 상태 변수에서 되살린다.
 function renderBoardCoachKeepingState(coach, stageNum) {
   const host = byId("board-coach");
   if (!host) return;
   const prevInput = byId("coach-question-input")?.value || "";
-  const prevResult = byId("coach-question-result")?.innerHTML || "";
   host.innerHTML = coach ? renderBoardCoach(coach, stageNum) : "";
   const input = byId("coach-question-input");
   if (input) input.value = prevInput;
   const result = byId("coach-question-result");
-  if (result) result.innerHTML = prevResult;
+  if (result) result.innerHTML = coachAnswerHtml;
+  applyCoachAskControls();
+}
+
+// 서버 오류 문구처럼 밖에서 온 글을 innerHTML 에 넣을 때 태그가 아니라 글자로 보이게 한다.
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// 답 HTML 을 보관하고, 쓰는 그 시점에 결과 요소를 다시 찾아 쓴다. 요소 참조를 들고 기다리면
+// 그사이 renderReport 가 새 요소로 바꿔 답이 화면에 나오지 않는다(I1).
+function setCoachAnswer(html) {
+  coachAnswerHtml = html;
+  const result = byId("coach-question-result");
+  if (result) result.innerHTML = html;
+}
+
+function isCoachAskLocked() {
+  return askInFlight || Date.now() < askCooldownUntil;
+}
+
+// 질문하기 · 자주 묻는 질문 칩의 잠금과 버튼 글자를 상태 변수대로 맞춘다. 코치 영역을 새로 그린 뒤에도 부른다.
+function applyCoachAskControls() {
+  const coolingDown = Date.now() < askCooldownUntil;
+  const locked = isCoachAskLocked();
+  const askButton = document.querySelector("#board-coach [data-ask-question]");
+  if (askButton) {
+    askButton.disabled = locked;
+    askButton.textContent = coolingDown ? "1분 뒤 다시" : "질문하기";
+  }
+  document.querySelectorAll("#board-coach [data-coach-suggest]").forEach((chip) => {
+    chip.disabled = locked;
+  });
+  const result = byId("coach-question-result");
+  if (result) {
+    if (askInFlight) result.setAttribute("aria-busy", "true");
+    else result.removeAttribute("aria-busy");
+  }
+}
+
+// 새 공고로 넘어가면 이전 공고에 대한 답을 지우고, 기다리던 답은 번호를 올려 버린다.
+// 번호를 올리지 않으면 늦게 온 옛 공고의 답이 새 공고의 코치 영역에 써진다.
+function clearCoachAnswer() {
+  askRequestId += 1;
+  askInFlight = false;
+  setCoachAnswer("");
+  applyCoachAskControls();
+}
+
+function startAskCooldown() {
+  askCooldownUntil = Date.now() + 60000;
+  clearTimeout(askCooldownTimer);
+  askCooldownTimer = setTimeout(() => {
+    askCooldownUntil = 0;
+    applyCoachAskControls();
+  }, 60000);
+  applyCoachAskControls();
 }
 
 function setCoachCollapsed(collapsed) {
@@ -1809,16 +1880,21 @@ function getBoardSnapshot() {
 }
 
 async function askNoticeQuestion() {
+  // 결과 요소는 여기서 잡아 두지 않는다. 답을 기다리는 사이 코치 영역이 새로 그려질 수 있다(I1).
   const input = byId("coach-question-input");
-  const result = byId("coach-question-result");
-  if (!input || !result) return;
+  if (!input || !byId("coach-question-result")) return;
+  // 버튼 · 칩 · Enter 세 경로가 모두 여기로 온다. 진행 중이거나 429 직후면 보내지 않는다(I3 · 연타 3번에 3건이 나갔다).
+  if (isCoachAskLocked()) return;
   const conditionAnswers = getDocConditionAnswers();
   const question = input.value.trim();
   if (!question) {
-    result.innerHTML = `<p class="small-text">질문을 입력하세요.</p>`;
+    setCoachAnswer(`<p class="small-text">질문을 입력하세요.</p>`);
     return;
   }
-  result.innerHTML = `<p class="small-text">답변을 찾는 중입니다...</p>`;
+  const requestId = ++askRequestId;
+  askInFlight = true;
+  setCoachAnswer(`<p class="small-text">답변을 찾는 중입니다...</p>`);
+  applyCoachAskControls();
   try {
     const response = await window.fetch("/api/ask", {
       method: "POST",
@@ -1846,13 +1922,23 @@ async function askNoticeQuestion() {
       }),
     });
     const payload = await response.json();
+    // 새 공고로 넘어가며 번호가 올라갔으면 이 답은 지금 화면의 공고에 대한 것이 아니다.
+    if (requestId !== askRequestId) return;
+    if (response.status === 429) startAskCooldown();
     if (!payload.ok) {
-      result.innerHTML = `<p class="small-text">${payload.error || "질문을 처리하지 못했습니다. 담당기관에 문의하세요."}</p>`;
+      setCoachAnswer(`<p class="small-text">${escapeHtml(payload.error || "질문을 처리하지 못했습니다. 담당기관에 문의하세요.")}</p>`);
       return;
     }
-    result.innerHTML = renderQuestionAnswer(payload.result);
+    setCoachAnswer(renderQuestionAnswer(payload.result));
   } catch {
-    result.innerHTML = `<p class="small-text">질문을 처리하지 못했습니다. 담당기관에 문의하세요.</p>`;
+    if (requestId !== askRequestId) return;
+    setCoachAnswer(`<p class="small-text">질문을 처리하지 못했습니다. 담당기관에 문의하세요.</p>`);
+  } finally {
+    // 낡은 요청이면 잠금은 이미 clearCoachAnswer 가 풀었다. 여기서 풀면 새 요청의 잠금까지 풀린다.
+    if (requestId === askRequestId) {
+      askInFlight = false;
+      applyCoachAskControls();
+    }
   }
 }
 
@@ -3156,8 +3242,11 @@ async function runAnalysis() {
     return;
   }
   const requestId = ++analysisRequestId;
+  // 응답이 왔을 때의 입력값이 아니라 요청에 실은 값을 「분석한 URL」로 기록한다(I2). 응답 시점 값을 쓰면
+  // 분석 중 URL 을 고친 경우 옛 공고 결과가 새 URL 의 것으로 기록되어 「아직 분석하지 않았습니다」 경고가 꺼진다.
+  const requestedInput = getNoticeInput();
   const analyzeButton = byId("analyze");
-  analyzeButton.disabled = true;
+  setAnalysisInputsBusy(true);
   analyzeButton.textContent = "분석 중";
   analysisError = null;
   boardGenerated = false;
@@ -3171,7 +3260,7 @@ async function runAnalysis() {
     // 같은 origin의 이 fetch도 그 대상이라, 헤더 없이는 JSON 대신 HTML을 받아 파싱이 깨진다
     // (2026-09-12 실측 — curl로 재현). 이 헤더는 ngrok 문서가 정한 공식 우회 방법이고,
     // ngrok을 안 거칠 때는 우리 서버가 그냥 무시하는 헤더라 부작용이 없다.
-    const response = await fetch(`/api/analyze?url=${encodeURIComponent(getNoticeInput())}`, {
+    const response = await fetch(`/api/analyze?url=${encodeURIComponent(requestedInput)}`, {
       headers: { "ngrok-skip-browser-warning": "true" },
     });
     const payload = await response.json();
@@ -3182,7 +3271,8 @@ async function runAnalysis() {
     currentStage = pipelineSteps.length - 1;
     replaceNotice(payload.notice);
     boardStageNum = null;
-    analyzedInputValue = getNoticeInput();
+    analyzedInputValue = requestedInput;
+    clearCoachAnswer();
     saveRecentNotice();
     renderAll();
     setInputStep("result");
@@ -3195,11 +3285,22 @@ async function runAnalysis() {
     setInputStep("url");
     byId("url-step-feedback").scrollIntoView({ block: "center", behavior: "smooth" });
   } finally {
+    // 낡은 응답이면 번호를 올린 쪽(restartWizardToProfile · 샘플 불러오기)이 이미 잠금을 풀었다.
     if (requestId === analysisRequestId) {
-      analyzeButton.disabled = false;
+      setAnalysisInputsBusy(false);
       renderActionState();
     }
   }
+}
+
+// 분석 중에는 URL 입력과 샘플 불러오기를 막는다. 막지 않으면 결과와 입력칸의 URL 이 서로 다른 공고가 된다(I2).
+function setAnalysisInputsBusy(busy) {
+  byId("notice-url").disabled = busy;
+  byId("load-sample").disabled = busy;
+  const analyzeButton = byId("analyze");
+  analyzeButton.disabled = busy;
+  if (busy) analyzeButton.setAttribute("aria-busy", "true");
+  else analyzeButton.removeAttribute("aria-busy");
 }
 
 // ARIA tabs 패턴의 roving tabindex — 선택된 탭만 tabindex=0, 나머지는 -1
@@ -3218,6 +3319,9 @@ function selectSupportTab(tab) {
 // 같은 패턴이되, URL 입력칸은 비워서 다른 공고 URL을 새로 입력하게 한다.
 function restartWizardToProfile() {
   analysisRequestId += 1;
+  // 분석 중에 돌아오면 그 응답은 버려지고 finally 가 잠금을 풀지 않으므로 여기서 푼다.
+  setAnalysisInputsBusy(false);
+  clearCoachAnswer();
   boardStageNum = null;
   clearTimeout(transitionTimer);
   replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
@@ -3284,7 +3388,8 @@ function init() {
 
   byId("load-sample").addEventListener("click", () => {
     analysisRequestId += 1;
-    byId("analyze").disabled = false;
+    setAnalysisInputsBusy(false);
+    clearCoachAnswer();
     byId("analyze").textContent = "분석하기";
     replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
     boardStageNum = null;
