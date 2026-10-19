@@ -52,6 +52,11 @@ PLAYED: tuple[tuple[str, str], ...] = (
         "파싱은 이 파일도 tests/measure_answer_set.py 도 자동으로 검증하지 않는다 — 2026-09-12 표본 59건 "
         "수동 스모크 테스트(성공 52 · 스캔본 등 빈 텍스트 7 · 크래시 0)로만 확인했다. 자동화는 다음 과제.",
     ),
+    (
+        "fetch_attachment_bytes()·attachment_text() (A18)",
+        "A18 축에서만 — 파일 이름별로 정해 둔 바이트·텍스트를 돌려주고 호출 순서를 기록한다. 실제 다운로드 시간과 "
+        "파싱 실패 원인(스캔본 · 손상 파일)은 검증하지 못한다",
+    ),
 )
 
 # 축 → 케이스 → 킬러 변이 → 커버(Y/N/영구불가)
@@ -112,6 +117,20 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "조항 번호 층별 표제",
         "「10.」 표제 아래 「가.」 항목 · 「바.」 표제 아래 「1).」 항목이 상위 표제를 따름 · 같은 층 번호가 오면 끊김 · 「낙찰자의 제출서류」 변형",
         "같은 층 걷어내기 삭제 · 가장 안쪽 표제만 보기(옛 동작) · 「의?」 삭제 · 「1)」 층 규칙 삭제 · 미커버: ※ 문단에 서류명이 있거나 결정 문구 목록 밖 표현이면 물림을 끊지 못함(리뷰 r2 G3)",
+        "Y",
+    ),
+    (
+        "A17",
+        "서류 목록 조건 · 시점 표지 · 준수규칙 (2026-10-19)",
+        "제출 목록 절 항목 · 「제출한 것으로 간주」 · 서류명 뒤 열람/참조 · 낙찰자 표제 변형 2종 · 「계약 체결」 첫 줄 한정·흐름(→) 제외 · ※ 표제 범위와 끊김 · 중복 시 확정 쪽 · 바로 위 조항의 입찰 전 표지(보증금 문맥·입찰 뒤 시점 제외) · 준수규칙 대리·공동·미성년 · 첨부 서식 연결 · 첨부 PDF 줄넘김 문단 · 한 줄 첨부 조항 · 낙찰자로 결정된 자",
+        "각 판정 함수 무력화 또는 호출 줄 삭제(커밋 본문 변이 표) · 미커버: 다른 첨부 파일에 있는 제출 기간(예술의전당 증빙서류 7종) · 「마. 제안서 제출(방문) ① 일 시」 모양(인천공항 사업제안서)",
+        "Y",
+    ),
+    (
+        "A18",
+        "첨부 읽는 순서 · 첨부별 읽기 결과 (2026-10-19 · D2)",
+        "감정평가서·도면은 뒤로 · 공고문·제안요청서·공지사항은 앞으로 · 같은 순위는 목록 순 · 개수 상한 not_tried · 크기 상한 too_large · 빈 텍스트 failed · 체크리스트 attachmentUnread 배선",
+        "순위 함수 무력화 · 개수 상한 분기 삭제 · 크기 분기 삭제 · build_doc_checklist 인자 무시",
         "Y",
     ),
     (
@@ -626,7 +645,8 @@ def test_heading_layers() -> None:
     sibling_stages = {item["name"]: item["stage"] for item in server.extract_doc_items({}, [("첨부:공고문.pdf", sibling)])}
     check("A16 음성 같은 층 새 조항은 앞 표제를 안 물려받음", sibling_stages.get("사업자등록증") == "미분류", str(sibling_stages))
     # 음성 ⑵ — 「낙찰자」만 있고 「제출서류」가 없는 표제는 「의?」 변형이 걸리지 않는다.
-    selection = "바. 낙찰자 선정 기준\n1). 주민등록등본 1부\n"
+    # 2026-10-19 부터 첨부에도 제출 요구 게이트가 걸려, 단계 판정을 보려는 픽스처의 서류 줄에는 「제출」을 넣는다(A10 참고).
+    selection = "바. 낙찰자 선정 기준\n1). 주민등록등본 1부 제출\n"
     selection_stage = next((i["stage"] for i in server.extract_doc_items({}, [("첨부:공고문.pdf", selection)]) if i["name"] == "주민등록등본"), None)
     check("A16 음성 「낙찰자 선정 기준」은 낙찰 후로 안 감", selection_stage == "미분류", str(selection_stage))
 
@@ -653,13 +673,16 @@ def test_heading_layers() -> None:
     t5 = "9. 계약체결 및 대금납부방법 " + "가" * 50 + " 잔대금은 60일 이내 납부\n가. 입찰 시 유의사항 " + "나" * 60 + " 사업자등록증 사본 1부\n"
     check("A16 음성 T5 긴 줄은 바깥 표제를 물려받지 않음", stage_of(t5, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(t5, "사업자등록증")))
     farm = "9. 계약체결 및 대금납부방법\n라. 농지법 등 관계 법령에 의하여 농지취득자격증명이 필요한 경우 등 취득이 제한되는 사\n항은 매수자가 갖추어야 할 요건이므로 사전확인 후 응찰하시기 바랍니다.\n"
-    check("A16 음성 표본 07 형태 「사전확인 후 응찰」은 입찰 전", stage_of(farm, "농지취득자격증명") == "미분류", str(stage_of(farm, "농지취득자격증명")))
+    # 원문 그대로는 제출 요구가 아닌 «요건 안내»라 2026-10-19 게이트에서 목록에 오르지 않는다(음성).
+    check("A16 음성 표본 07 원문 「…필요한 경우 … 사전확인 후 응찰」은 제출 요구가 아님", stage_of(farm, "농지취득자격증명") is None, str(stage_of(farm, "농지취득자격증명")))
+    farm_asked = farm.replace("농지취득자격증명이 필요한", "농지취득자격증명 제출이 필요한")
+    check("A16 음성 표본 07 형태 「사전확인 후 응찰」은 입찰 전", stage_of(farm_asked, "농지취득자격증명") == "미분류", str(stage_of(farm_asked, "농지취득자격증명")))
     # 「응찰」 낱말 줄 — G2 낱말 검사와 충돌 검사가 겹쳐 막는다. 하나만 빼면 이 픽스처는 잡지 못한다(리뷰 r3 m2·m3).
     # 대안별 단독 픽스처는 아래 「리뷰 r3 R1」 묶음이 맡는다.
-    farm_item = "9. 계약체결 및 대금납부방법\n라. 농지취득자격증명은 사전확인 후 응찰하시기 바랍니다.\n"
+    farm_item = "9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 제출은 사전확인 후 응찰하시기 바랍니다.\n"
     check("A16 음성 「사전확인 후 응찰」 항목 줄은 미분류", stage_of(farm_item, "농지취득자격증명") == "미분류", str(stage_of(farm_item, "농지취득자격증명")))
     # 줄 넘김 — 항목 줄에는 입찰 전 낱말이 없고 다음 줄(이어지는 문장)에 「사전확인 후 입찰」이 있다. 충돌 검사만 잡는다.
-    farm_wrap = "9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부\n(취득 요건은 사전확인 후 입찰하시기 바랍니다.)\n"
+    farm_wrap = "9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부 제출\n(취득 요건은 사전확인 후 입찰하시기 바랍니다.)\n"
     check("A16 음성 줄 넘김 「사전확인 후 입찰」도 낙찰 후로 확정하지 않음", stage_of(farm_wrap, "농지취득자격증명") == "미분류", str(stage_of(farm_wrap, "농지취득자격증명")))
     # 리뷰 r2 G2 — 넓은 낙찰 후 표제(「입찰 및 계약체결 일정」)가 그 아래 입찰 전 소제목·항목까지 끌고 가면 안 된다.
     h1 = "10. 최종낙찰자 제출서류\n가. 사업자등록증 1부\n■ 입찰참가 신청 시\n- 인감증명서 1부\n"
@@ -671,10 +694,10 @@ def test_heading_layers() -> None:
     check("A16 음성 H4b 넓은 표제 아래 입찰참가 항목", stage_of(h4b, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(h4b, "사업자등록증")))
     # 리뷰 r3 R1 — 정규식 대안마다 그 대안 하나로만 막히는 픽스처. 대안을 지우면 해당 픽스처가 낙찰 후로 뒤집힌다.
     r3_cases = {
-        "낱말 응찰": ("9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부(응찰 전 확인)\n", "농지취득자격증명"),
-        "충돌 응찰 줄넘김": ("9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부\n(취득 요건은 사전확인 후 응찰하시기 바랍니다.)\n", "농지취득자격증명"),
-        "낱말 입찰 시": ("3. 입찰 및 계약체결 일정\n가. 입찰 시 제출\nㅇ 사업자등록증 사본 1부\n", "사업자등록증"),
-        "낱말 입찰 전": ("3. 입찰 및 계약체결 일정\n가. 입찰 전 준비\nㅇ 사업자등록증 사본 1부\n", "사업자등록증"),
+        "낱말 응찰": ("9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부 제출(응찰 전 확인)\n", "농지취득자격증명"),
+        "충돌 응찰 줄넘김": ("9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부 제출\n(취득 요건은 사전확인 후 응찰하시기 바랍니다.)\n", "농지취득자격증명"),
+        "낱말 입찰 시": ("3. 입찰 및 계약체결 일정\n가. 입찰 시 제출\nㅇ 사업자등록증 사본 1부 제출\n", "사업자등록증"),
+        "낱말 입찰 전": ("3. 입찰 및 계약체결 일정\n가. 입찰 전 준비\nㅇ 사업자등록증 사본 1부 제출\n", "사업자등록증"),
     }
     for label, (text, name) in r3_cases.items():
         check(f"A16 음성 r3 {label}", stage_of(text, name) == "미분류", str(stage_of(text, name)))
@@ -691,18 +714,21 @@ def test_attachment_wiring() -> None:
     except ValueError:
         check("A10 detect_kind 미확인 형식 예외", True, "")
 
-    # 게이트 우회: 제출 동사도 조건도 없는 줄이지만 첨부라서 뽑혀야 한다.
-    # 같은 줄을 본문(공고문 절)에 넣으면 A1·A5 가 이미 세운 「단순 언급 제외」 그대로 안 뽑혀야 한다.
-    # 「사업자등록증」 자체가 license 축(`등록증`)에 걸리지만 A5 규칙상 license 단독은 authorizing이
-    # 아니라서 본문에서는 막힌다 — 그 성질을 그대로 이용한 음성 대조다.
+    # 게이트: 2026-10-19 부터 첨부에도 본문과 같은 「제출 요구」 게이트를 건다(옛 계약 「첨부는 동사 없어도 추출」을
+    # 뒤집었다 · 첨부의 「등기사항증명서 참조」 같은 언급이 목록에 올랐기 때문 · 원문 36건 측정).
+    # 대신 제출 목록 절(「3. 증빙서류 목록」) 안의 나열 항목은 동사가 없어도 요구로 본다 — 첨부 표의 서류 칸은
+    # 그 모양이라, 이것이 옛 우회가 지키던 재현율을 대신 지킨다.
     plain_mention = "사업자등록증"
     body_only = server.extract_doc_items(server.split_sections(section("공고문", f"<p>{plain_mention}</p>")))
     check("A10 음성 본문은 그대로 게이트 유지", body_only == [], str(body_only))
+    bare_attach = server.extract_doc_items({}, [("첨부:붙임1.hwp", plain_mention)])
+    check("A10 음성 첨부도 제출 요구 없는 언급은 제외", bare_attach == [], str(bare_attach))
 
-    attach_items = server.extract_doc_items({}, [("첨부:붙임1.hwp", plain_mention)])
+    listed = "3. 증빙서류 목록\n1\n" + plain_mention
+    attach_items = server.extract_doc_items({}, [("첨부:붙임1.hwp", listed)])
     names = {item["name"] for item in attach_items}
-    check("A10 양성 첨부는 제출 동사 없어도 추출", "사업자등록증" in names, str(sorted(names)))
-    check("A10 sourceSection 첨부 라벨", attach_items[0]["sourceSection"] == "첨부:붙임1.hwp", str(attach_items[0]))
+    check("A10 양성 첨부 제출 목록 절 안 항목은 동사 없어도 추출", "사업자등록증" in names, str(sorted(names)))
+    check("A10 sourceSection 첨부 라벨", bool(attach_items) and attach_items[0]["sourceSection"] == "첨부:붙임1.hwp", str(attach_items))
 
     # 조건 무시: 줄에 명시적 조건(공동입찰)이 있어도 첨부 항목의 condition은 "공통"이어야 한다
     # (조건 물림 구조가 첨부에서 자주 깨져 오귀속을 만들기 때문 — 2026-09-12 실측으로 정한 규칙).
@@ -996,6 +1022,244 @@ def test_attachment_wiring() -> None:
 # ---------------------------------------------------------------------------
 # A9·B1. 온비드 표의 구분명만 있는 상태를 추출 성공으로 세지 않는다
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# A17. 서류 목록 조건 · 시점 표지 · 준수규칙 (2026-10-19 · team-reports/2026-10-19-bid-stage-sot/implementation-plan.md)
+# ---------------------------------------------------------------------------
+def test_doc_stage_rules_20261019() -> None:
+    def att(text: str, label: str = "첨부:공고문.pdf", asset: str = "") -> list[dict]:
+        return server.extract_doc_items({}, [(label, text)], asset_type=asset)
+
+    def stage(items: list[dict], name: str) -> object:
+        return next((i["stage"] for i in items if i["name"] == name), None)
+
+    # ⑴ 제출 목록 절 안의 동사 없는 나열 항목 — 판교 「10. 낙찰(예정)자 제출서류 · 라. 사업계획서 1부」.
+    listed = att("10. 낙찰(예정)자 제출서류\n라. 사업계획서 1부(유효낙찰자에 한함)\n마. 계약이행보증보험증권 1부\n")
+    check("A17 양성 제출 목록 절 항목 추출 · 낙찰(예정)자 표제", stage(listed, "사업계획서") == "낙찰 후·계약 시", str(listed))
+    check("A17 양성 제출 목록 절 둘째 항목", stage(listed, "계약이행보증보험증권") == "낙찰 후·계약 시", str(listed))
+    # 음성: 제출 목록이 아닌 절의 같은 항목은 동사가 없으면 언급이다.
+    unlisted = att("10. 기타사항\n라. 사업계획서 1부(유효낙찰자에 한함)\n")
+    check("A17 음성 제출 목록 아닌 절의 동사 없는 항목 제외", unlisted == [], str(unlisted))
+    # 직접 호출 — 판정 정규식 자체.
+    check("A17 제출 목록 표제 판정 「3. 증빙서류 목록」", bool(server.SUBMISSION_LIST_HEADING_RE.search("3. 증빙서류 목록")), "")
+    check("A17 제출 목록 표제 판정 음성 「10. 기타사항」", not server.SUBMISSION_LIST_HEADING_RE.search("10. 기타사항"), "")
+    # ⑴-b 안내 줄(서류명 없음) 뒤 목록 — 인천공항 「④ 제출서류 : …」 · 「A. 관광사업등록증」.
+    # 본문 절로 넣는다 — 첨부는 문단 창(⑾)이 「제출서류」의 「제출」을 먼저 잡아, 안내 줄 판정 하나를 빼도 통과한다(변이 M2 로 확인).
+    cue = server.extract_doc_items(server.split_sections(section(
+        "공고문", "<p>④ 제출서류 : 아래와 같음</p><p>A. 관광사업등록증</p><p>⑤ 부정당업자 안내</p><p>B. 관광사업등록증 사본</p>"
+    )))
+    check("A17 양성 안내 줄 뒤 목록 항목", stage(cue, "관광사업등록증") is not None, str(cue))
+    check("A17 음성 다음 목록 머리(⑤) 뒤에는 안내가 끊김", len([i for i in cue if i["name"] == "관광사업등록증"]) == 1, str(cue))
+
+    # ⑵ 「제출한 것으로 간주」 — 따로 낼 것이 없다. 뒤에 다시 요구가 오면 남긴다.
+    deemed = att("본 입찰에 참가하고자 입찰서를 제출한 자는 청렴계약서를 제출한 것으로 간주합니다.\n")
+    check("A17 음성 「제출한 것으로 간주」 서류 제외", deemed == [], str(deemed))
+    deemed_then_ask = att("청렴계약이행서약서를 제출한 것으로 간주하며, 낙찰자로 결정된 자는 계약 체결 시 이를 제출하여야 합니다.\n")
+    check("A17 양성 간주 뒤 진짜 요구는 남김 · 낙찰자로 결정된 자", stage(deemed_then_ask, "청렴계약이행서약서") == "낙찰 후·계약 시", str(deemed_then_ask))
+    check("A17 직접 호출 doc_request_in 간주만", not server.doc_request_in("청렴계약서를 제출한 것으로 간주함"), "")
+
+    # ⑶ 서류명 바로 뒤 열람·참조 — 다른 서류에 붙은 「제출」에 끌려가지 않는다.
+    mention = att("현장답사 및 토지이용계획확인원 등의 각종 공부를 열람하여 확인하신 후 사업계획서를 작성, 제출하시기 바랍니다.\n")
+    check("A17 음성 서류명 뒤 「열람」은 언급", stage(mention, "토지이용계획 확인원") is None, str(mention))
+    check("A17 양성 같은 줄의 다른 서류 요구는 남김", stage(mention, "사업계획서") is not None, str(mention))
+    # 서류명 뒤 25자 안에 다른 요구 동사가 없어야 「양식참조」 제외 판정 하나로 결과가 갈린다(김해공항 원문 · 변이 M5 로 확인).
+    form_ref = att("ㅇ (대리인 등록 시) 위임장(참고⑧ 양식참조) 1부 및 대리인 신분증(지참)\n")
+    check("A17 음성 「양식참조」는 언급 아님", stage(form_ref, "위임장") is not None, str(form_ref))
+    on_doc = att("매수인이 이를 제출하지 않는 경우 등기사항증명서상 근저당설정최고액으로 한다.\n")
+    check("A17 음성 「등기사항증명서상」은 내용 언급", stage(on_doc, "등기사항증명서") is None, str(on_doc))
+
+    # ⑷ 낙찰자 표제 변형 — 「12. 낙찰자의 사용허가 신청시 제출서류」.
+    permit = att("12. 낙찰자의 사용허가 신청시 제출서류\n사. 사업자등록증\n")
+    check("A17 양성 「낙찰자의 사용허가 신청시 제출서류」", stage(permit, "사업자등록증") == "낙찰 후·계약 시", str(permit))
+
+    # ⑸ 「계약 체결」 규칙은 표제 첫 줄에서만 · 흐름 설명(→)은 제외.
+    first_line = "7. 계약체결 시 유의 ① 낙찰자는 인감증명서를 제출\n"
+    check("A17 양성 첫 줄 「계약체결」", stage(att(first_line), "인감증명서") == "낙찰 후·계약 시", "")
+    check("A17 직접 호출 heading_rule_search 첫 줄 밖은 안 봄",
+          not server.heading_rule_search(server.CONTRACT_HEAD_RE, "1. 입찰개요\n계약기간\n계약체결일 ~ 5년"), "")
+    check("A17 직접 호출 heading_rule_search 흐름(→) 제외",
+          not server.heading_rule_search(server.CONTRACT_HEAD_RE, "라. 입찰 절차 : 입찰공고 → 제안서 제출 → 계약 체결"), "")
+    check("A17 직접 호출 heading_rule_search 양성",
+          server.heading_rule_search(server.CONTRACT_HEAD_RE, "3) 이행보증보험증권 제출 - 계약체결 시까지"), "")
+
+    # ⑹ ※ 표제 — 번호 목록이 1씩 늘 때까지만 잇는다. 설명 문장 ※ 는 표제가 아니다.
+    note = att(
+        "9. 사용허가 신청\n※ 낙찰자의 계약체결 전 제출서류\n1. 공유재산 사용허가 신청서 1부.\n"
+        "2. 인감증명서 1부.\n10. 청렴계약 이행 준수\n가. 사업자등록증 제출\n"
+    )
+    check("A17 양성 ※ 표제 아래 1. 항목", stage(note, "공유재산 사용허가 신청서") == "낙찰 후·계약 시", str(note))
+    check("A17 양성 ※ 표제 아래 2. 항목", stage(note, "인감증명서") == "낙찰 후·계약 시", str(note))
+    check("A17 음성 번호가 건너뛴 본 조항(10.)에서 ※ 범위 끊김", stage(note, "사업자등록증") != "낙찰 후·계약 시", str(note))
+    check("A17 직접 호출 is_note_heading 양성", server.is_note_heading("※ 낙찰자의 계약체결 전 제출서류"), "")
+    check("A17 직접 호출 is_note_heading 음성 설명 문장",
+          not server.is_note_heading("※ 실거래 신고가 및 부가가치세는 매매계약 체결시까지 근저당 피담보채"), "")
+    scope = {"heading": "※", "kind": "", "num": -1}
+    check("A17 직접 호출 continues_note_scope 1→2",
+          server.continues_note_scope(scope, "1. 가") and server.continues_note_scope(scope, "2. 나"), str(scope))
+    check("A17 직접 호출 continues_note_scope 2→10 끊김", not server.continues_note_scope(scope, "10. 다"), str(scope))
+
+    # ⑺ 중복 — 앞이 미분류면 뒤의 확정 판정으로 바꾼다. 둘 다 확정이고 단계가 다르면 둘 다 남긴다.
+    # 뒤 판정이 낙찰 후면 앞 미분류를 바꾸지 않고 둘 다 남긴다 — 바꾸면 입찰 때 내는 사본이 2단계에서 사라진다(리뷰 d8378b6 r1 P0-1).
+    dup = att("1. 계약 안내\n가. 신분증 제출\n8. 낙찰자 제출서류\n가. 신분증 1부\n")
+    check("A17 음성 미분류 뒤 낙찰 후는 바꾸지 않고 둘 다 남김", sorted(i["stage"] for i in dup if i["name"] == "신분증") == sorted(["미분류", "낙찰 후·계약 시"]), str(dup))
+    dup_pre = att("1. 계약 안내\n가. 신분증 제출\n4. 입찰참가 등록서류\n가. 신분증 1부\n")
+    check("A17 양성 미분류 뒤 입찰 전이면 그쪽으로 바꿈", [i["stage"] for i in dup_pre if i["name"] == "신분증"] == ["입찰 전"], str(dup_pre))
+    p0 = server.extract_doc_items(
+        {"공고문": "3. 입찰참가 안내\n가. 입찰서 제출 시 사업자등록증 사본 1부를 함께 제출하십시오.\n10. 낙찰자 제출서류\n가. 사업자등록증 1부\n"}, []
+    )
+    check("A17 음성 r1 P0-1 입찰 때 내는 사본이 2단계에 남음", "낙찰 후·계약 시" != stage(p0, "사업자등록증") or len([i for i in p0 if i["name"] == "사업자등록증"]) == 2, str(p0))
+    both = att("4. 입찰참가 등록서류\n가. 사업자등록증 1부\n8. 낙찰자 제출서류\n가. 사업자등록증 1부\n")
+    check("A17 양성 두 시점 모두 확정이면 둘 다 남김", sorted(i["stage"] for i in both if i["name"] == "사업자등록증") == ["낙찰 후·계약 시", "입찰 전"], str(both))
+
+    # ⑻ 바로 위 조항의 입찰 전 표지.
+    marker = att("4. 사업계획서 제출\n가. 제출기간: 2026. 8. 3. ~ 8. 14.\n나. 제출서류: 사업계획서 1부, 사업자등록증 1부\n")
+    check("A17 양성 같은 조항 제출 기간 → 입찰 전", stage(marker, "사업자등록증") == "입찰 전", str(marker))
+    deposit = att("4. 기타\n가. 입찰보증금은 입찰 마감 전까지 납부\n나. 사업자등록증 제출\n")
+    check("A17 음성 입찰보증금 문맥의 「입찰 마감 전까지」는 표지 아님", stage(deposit, "사업자등록증") == "미분류", str(deposit))
+    # 바로 위 조항만 본다 — 가장 바깥 조항(「1.」)의 표지를 빌리면 「나.」 아래 항목까지 입찰 전이 된다(변이 M19 로 확인).
+    outer_only = att("1. 입찰방법\n가. 대리인은 입찰마감 시간 전까지 서류를 제출\n나. 유의사항\n- 사업자등록증 사본 제출\n")
+    check("A17 음성 바깥 조항의 표지는 다른 하위 조항에 안 번짐", stage(outer_only, "사업자등록증") == "미분류", str(outer_only))
+    farm = att("16. 주의사항\n가. 대리인은 입찰마감 시간 전까지 서류를 제출\n다. 농지취득자격증명을 매각결정기일 전에 제출\n")
+    check("A17 음성 서류 줄의 입찰 뒤 시점(매각결정기일)이 있으면 표지 안 빌림", stage(farm, "농지취득자격증명") == "미분류", str(farm))
+    check("A17 직접 호출 prebid_marker_in", server.prebid_marker_in("제출기간: 2026. 8. 3.") == "제출 기간", "")
+    check("A17 직접 호출 prebid_marker_in 음성", server.prebid_marker_in("보증금은 입찰 마감 전까지 납부") == "", "")
+
+    # ⑼ 준수규칙 — 압류·국유·수탁의 대리·공동·미성년 서류만. 이용기관(공유) 공고는 확정하지 않는다.
+    proxy = "② 대리인을 선임한 경우 : 대리입찰신청서 및 위임인의 인감증명서 제출\n"
+    sot = att(proxy, asset="압류재산")
+    seal = next((i for i in sot if i["name"] == "인감증명서"), {})
+    check("A17 양성 압류 대리 서류 준수규칙 확정", seal.get("stage") == "입찰 전" and "준수규칙" in str(seal.get("sourceHeading")), str(seal))
+    shared = next((i for i in att(proxy, asset="공유재산") if i["name"] == "인감증명서"), {})
+    check("A17 음성 공유재산은 준수규칙으로 확정 안 함", "준수규칙" not in str(shared.get("sourceHeading")), str(shared))
+    check("A17 직접 호출 sot 국유 미성년 가족관계증명서 없음", server.sot_prebid_source("국유재산", "가족관계증명서", {"minor"}) == "", "")
+    check("A17 직접 호출 sot 압류 미성년 가족관계증명서", server.sot_prebid_source("압류재산", "가족관계증명서", {"minor"}) != "", "")
+
+    # ⑽ 첨부 서식 연결 — 본문 「다. 입주신청서」의 시점을 서식 끝 「첨부」 목록에 잇는다.
+    body = server.split_sections(section("공고문", "<p>10. 낙찰(예정)자 제출서류</p><p>다. 입주신청서 1부</p>"))
+    form_chunk = "첨부 ː 1. 사업계획서 1부\n2. 사업자등록증명원 각 1부\n"
+    linked = server.extract_doc_items(body, [("첨부:붙임 3. 입주신청서_서식.hwp", form_chunk)])
+    check("A17 양성 서식 첨부 서류가 본문 신청서 시점을 따름", stage(linked, "사업자등록증") == "낙찰 후·계약 시", str(linked))
+    # 파일 이름에 본문 확정 서류명(사업계획서)이 있어도 서식·양식·신청서가 아니면 잇지 않는다(변이 M23 로 확인).
+    body_plan = server.split_sections(section("공고문", "<p>10. 낙찰(예정)자 제출서류</p><p>라. 사업계획서 1부</p>"))
+    unlinked = server.extract_doc_items(body_plan, [("첨부:붙임 2. 사업계획서 작성 안내.hwp", "첨부 ː 2. 사업자등록증명원 각 1부\n")])
+    check("A17 음성 서식·양식·신청서 아닌 파일은 잇지 않음", stage(unlinked, "사업자등록증") == "미분류", str(unlinked))
+
+    # ⑾ 첨부 PDF 줄넘김 — 제출 동사가 다음 줄에 있다.
+    wrapped = att("라. 미성년자 명의로 입찰에 참가하는 경우에는 법정대리인의\n인감증명서와 주민등록등본 원본을 입찰기간의 마\n감일 17:00까지 제출하여야 합니다.\n")
+    check("A17 양성 줄넘김 문단의 제출 동사", stage(wrapped, "주민등록등본") is not None, str(wrapped))
+
+    # ⑿ 한 줄 첨부 — 서류명마다 그 조항만 본다.
+    long_ok = ("가" * 1250) + " 8. 낙찰자 제출서류 (낙찰일로부터 30일 이내) 1) 공유재산 사용허가 신청서 1부. 2) 주민등록등본 1부. 9. 기타"
+    check("A17 양성 한 줄 첨부의 제출 목록 표제 아래 항목", stage(att(long_ok), "주민등록등본") is not None, "")
+    long_ng = ("가" * 1250) + " 3. 세부내역은 등기사항증명서 신탁원부 등을 통하여 직접 확인하십시오. 4. 사업자등록증 제출"
+    long_items = att(long_ng)
+    check("A17 음성 한 줄 첨부의 다른 조항 언급은 제외", stage(long_items, "등기사항증명서") is None, str(long_items))
+    check("A17 양성 한 줄 첨부의 다른 조항 요구는 남김", stage(long_items, "사업자등록증") is not None, str(long_items))
+
+    # ⒁ 리뷰 d8378b6 r1 반례 — 각 입력은 d8378b6 에서 입찰 전 서류가 낙찰 후로 가거나 진짜 요구가 사라졌던 것이다.
+    def body_items(text: str, asset: str = "") -> list[dict]:
+        return server.extract_doc_items({"공고문": text}, [], asset_type=asset)
+
+    h1 = body_items("3. 낙찰자 선정을 위한 제출서류\n가. 사업계획서 1부\n나. 사업자등록증 1부\n")
+    check("A17 음성 r1 H1 「낙찰자 선정을 위한 제출서류」는 낙찰 후 아님", stage(h1, "사업계획서") != "낙찰 후·계약 시", str(h1))
+    h2 = body_items("4. 낙찰자 결정방법 및 제출서류\n가. 사업계획서 1부(입찰서와 함께 제출)\n")
+    check("A17 음성 r1 H2 「낙찰자 결정방법 및 제출서류」는 낙찰 후 아님", stage(h2, "사업계획서") != "낙찰 후·계약 시", str(h2))
+    a1 = body_items("가. 입찰자는 입찰서와 함께 사업계획서를 제출하여야 하며, 낙찰자로 결정된 자는 10일 이내에 인감증명서를 제출하여야 합니다.\n")
+    check("A17 음성 r1 A1 awardee 구절 «앞» 서류는 낙찰 후 아님", stage(a1, "사업계획서") != "낙찰 후·계약 시", str(a1))
+    a2 = body_items("가. 낙찰자로 결정된 자는 10일 이내에 인감증명서를 제출하여야 합니다.\n- 입찰서 제출 시 사업자등록증 사본을 함께 제출하십시오.\n")
+    check("A17 음성 r1 A2 awardee 다음 줄 서류는 낙찰 후 아님", stage(a2, "사업자등록증") != "낙찰 후·계약 시", str(a2))
+    check("A17 양성 r1 A2 awardee 같은 문장 뒤 서류는 낙찰 후", stage(a2, "인감증명서") == "낙찰 후·계약 시", str(a2))
+    # 줄바꿈 경계와 「다.」 경계는 A2 에서 겹쳐 서로를 대신한다. 하나만으로 갈리는 입력을 따로 둔다(변이로 확인).
+    a3 = body_items("가. 낙찰자로 결정된 자는 10일 이내에 인감증명서 제출\n- 사업자등록증 사본 함께 제출\n")
+    check("A17 음성 줄바꿈만 있는 경계 뒤 서류는 낙찰 후 아님", stage(a3, "사업자등록증") != "낙찰 후·계약 시", str(a3))
+    a4 = body_items("가. 낙찰자로 결정된 자는 인감증명서를 제출합니다. 입찰자는 사업자등록증 사본을 함께 제출\n")
+    check("A17 음성 「다.」만 있는 경계 뒤 서류는 낙찰 후 아님", stage(a4, "사업자등록증") != "낙찰 후·계약 시", str(a4))
+    n1 = body_items("3. 입찰참가 안내\n※ 낙찰자 제출서류\n1. 인감증명서\n2. 주민등록등본\n입찰참가자는 입찰서와 함께 사업자등록증을 제출하여야 합니다.\n")
+    check("A17 음성 r1 N1 ※ 범위가 끝나면 표제를 되돌림", stage(n1, "사업자등록증") != "낙찰 후·계약 시", str(n1))
+    n2 = body_items("※ 낙찰자 제출서류\n1. 인감증명서\n2. 주민등록등본\n3. 입찰참가 시 사업자등록증 사본을 함께 제출합니다.\n")
+    check("A17 음성 r1 N2 ※ 범위 안 입찰 전 말이 있는 줄은 표제 안 씌움", stage(n2, "사업자등록증") != "낙찰 후·계약 시", str(n2))
+    check("A17 양성 r1 N2 같은 범위의 다른 항목은 낙찰 후", stage(n2, "인감증명서") == "낙찰 후·계약 시", str(n2))
+    n5 = body_items("3. 입찰 안내\n※ 입찰 시 제출서류(낙찰자는 계약체결 시 원본 제출)\n1. 사업자등록증 사본 1부\n2. 법인등기부등본 사본 1부\n")
+    check("A17 음성 r1 probe5 입찰 전 말이 든 ※ 줄은 표제 아님", stage(n5, "법인 등기사항증명서") != "낙찰 후·계약 시", str(n5))
+    bundle = server.extract_doc_items(
+        {"공고문": "8. 낙찰자 제출서류\n가. 공유재산 사용허가 신청서 1부\n"},
+        [("첨부:붙임2. 입찰 서식(위임장 등)_공유재산 사용허가 신청서.hwp", "[서식 2] 위임장\n첨부: 인감증명서 1부를 제출합니다.\n")],
+        asset_type="공유재산",
+    )
+    check("A17 음성 r1 묶음 서식 파일은 잇지 않음", stage(bundle, "인감증명서") != "낙찰 후·계약 시", str(bundle))
+    ref = body_items("5. 입찰참가 시 제출서류\n가. 위임장(별지 제2호 참조) 1부\n나. 인감증명서(붙임 참고) 1부\n")
+    check("A17 양성 r1 P1-6 제출 목록 안 「참조」 서식 안내는 남김", stage(ref, "위임장") is not None and stage(ref, "인감증명서") is not None, str(ref))
+    form_list = server.extract_doc_items({}, [("첨부:2. 입주신청서 양식.hwp", "첨부ː 1. 사업계획서(소정양식) 1부\n2. 사업자등록증 사본 1부\n4. 지방세 및 국세완납증명서 각 1부\n")])
+    check("A17 양성 r1 P1-5 「첨부ː」 목록의 동사 없는 항목", stage(form_list, "국세완납증명서") is not None, str(form_list))
+    pad = "본 공고의 일반 사항을 설명합니다. " * 60
+    l1 = "1. 물건 개요 가. 매각 물건의 면적은 등기사항증명서상 면적을 기준으로 합니다. " + pad + " 5. 입찰참가 시 제출서류 1) 등기사항증명서 1부를 입찰 마감일까지 제출하여야 합니다."
+    check("A17 양성 r1 L1 한 줄 첨부의 뒤쪽 진짜 요구를 판정", stage(att(l1), "등기사항증명서") == "입찰 전", str(att(l1)))
+    l2 = "1. 물건 개요 가. 매각 물건의 면적은 법인등기부 등본 열람으로 확인합니다. " + pad + " 5. 입찰참가 시 제출서류 1) 법인등기부등본 1부를 입찰 마감일까지 제출하여야 합니다."
+    check("A17 양성 r1 L2 한 줄 첨부 첫 위치가 「열람」이어도 뒤 요구를 판정", stage(att(l2), "법인 등기사항증명서") == "입찰 전", str(att(l2)))
+
+    # ⒂ 리뷰 d8378b6 r2 반례.
+    mirror = server.extract_doc_items(
+        {"공고문": "10. 낙찰자 제출서류\n가. 인감증명서 1부\n"},
+        [("첨부:입찰안내.hwp", "3. 입찰 안내\n가. 입찰서 제출 시 인감증명서 1부를 함께 제출하십시오.\n")],
+    )
+    check("A17 음성 r2 P0-A 낙찰 후 뒤 입찰 때 사본도 남김", any(i["name"] == "인감증명서" and i["stage"] != "낙찰 후·계약 시" for i in mirror), str(mirror))
+    mirror_plain = server.extract_doc_items(
+        {"공고문": "10. 낙찰자 제출서류\n가. 인감증명서 1부\n"}, [("첨부:안내.hwp", "3. 기타 안내\n가. 인감증명서 1부를 제출하십시오.\n")]
+    )
+    check("A17 양성 r2 P0-A 입찰 때 말이 없으면 사본을 더하지 않음", len([i for i in mirror_plain if i["name"] == "인감증명서"]) == 1, str(mirror_plain))
+    n3 = body_items("※ 낙찰자 제출서류\n- 인감증명서 1부\n- 입찰서 제출 시 사업자등록증 사본을 함께 제출\n")
+    check("A17 음성 r2 N3 ※ 아래 「-」 입찰서 줄은 표제 걷음", stage(n3, "사업자등록증") != "낙찰 후·계약 시", str(n3))
+    check("A17 양성 r2 N3 같은 범위의 앞 「-」 항목은 낙찰 후", stage(n3, "인감증명서") == "낙찰 후·계약 시", str(n3))
+    n4 = body_items("3. 입찰 및 계약 안내 " + "가" * 120 + "\n※ 낙찰자 제출서류\n- 인감증명서 1부\n- 입찰참가 시 법인등기부등본 사본을 함께 제출\n")
+    check("A17 음성 r2 N4b ※ 아래 「-」 입찰참가 줄은 표제 걷음", stage(n4, "법인 등기사항증명서") != "낙찰 후·계약 시", str(n4))
+
+    # ⒀ 「낙찰자로 결정합니다」(선정 방식 설명)는 낙찰 후 문구가 아니다.
+    method = att("나. 제안서 평가점수와 가격을 합산하여 고득점자를 낙찰자로 결정합니다. 제안서 제출\n")
+    check("A17 음성 「낙찰자로 결정합니다」는 낙찰 후 아님", stage(method, "제안서") != "낙찰 후·계약 시", str(method))
+
+
+# ---------------------------------------------------------------------------
+# A18. 첨부 읽는 순서 · 첨부별 읽기 결과 (2026-10-19 · 구현 계획 D2)
+# ---------------------------------------------------------------------------
+def test_attachment_reads() -> None:
+    docs = [
+        {"name": "감정평가서", "downloadUrl": "u1"},
+        {"name": "1. 임대차 공고문.hwp", "downloadUrl": "u2"},
+        {"name": "4. 임대공간 도면.pdf", "downloadUrl": "u3"},
+        {"name": "3. 제안요청서.hwp", "downloadUrl": "u4"},
+        {"name": "참고 자료.pdf", "downloadUrl": "u5"},
+        {"name": "공지사항(2차).pdf", "downloadUrl": "u6"},
+    ]
+    order = [d["name"] for d in server.attachment_read_order(docs)]
+    check("A18 양성 공고문·제안요청서·공지사항이 앞", order[:3] == ["1. 임대차 공고문.hwp", "3. 제안요청서.hwp", "공지사항(2차).pdf"], str(order))
+    check("A18 양성 감정평가서·도면은 맨 뒤(목록 순 유지)", order[-2:] == ["감정평가서", "4. 임대공간 도면.pdf"], str(order))
+    check("A18 음성 순위 없는 파일은 가운데", order[3] == "참고 자료.pdf", str(order))
+
+    payload = {
+        "u2": b"x", "u4": b"y" * (server.ATTACHMENT_MAX_BYTES + 1), "u6": b"z", "u5": b"w",
+    }
+    texts = {b"x": "1. 제출서류\n- 사업자등록증 제출", b"z": "", b"w": "참고"}
+    calls: list[str] = []
+    original_fetch, original_text = server.fetch_attachment_bytes, server.attachment_text
+    try:
+        server.fetch_attachment_bytes = lambda url: calls.append(url) or payload[url]
+        server.attachment_text = lambda data: texts.get(data, "")
+        chunks, reads = server.attachment_doc_reads(docs)
+    finally:
+        server.fetch_attachment_bytes, server.attachment_text = original_fetch, original_text
+    status = {r["name"]: r["status"] for r in reads}
+    check("A18 양성 앞 4개만 내려받음(읽는 순서대로)", calls == ["u2", "u4", "u6", "u5"], str(calls))
+    check("A18 양성 읽음 read", status.get("1. 임대차 공고문.hwp") == "read" and len(chunks) == 2, str(status))
+    check("A18 양성 크기 상한 too_large", status.get("3. 제안요청서.hwp") == "too_large", str(status))
+    check("A18 양성 빈 텍스트 failed", status.get("공지사항(2차).pdf") == "failed", str(status))
+    check("A18 양성 개수 상한 not_tried", status.get("감정평가서") == "not_tried" and status.get("4. 임대공간 도면.pdf") == "not_tried", str(status))
+
+    checklist = server.build_doc_checklist({}, "공유재산", docs, chunks, "", reads)
+    check("A18 배선 체크리스트 attachmentUnread", checklist["attachmentUnread"] == 4, str(checklist.get("attachmentUnread")))
+    check("A18 배선 체크리스트 attachmentReads", len(checklist["attachmentReads"]) == 6, str(checklist.get("attachmentReads")))
+    plain = server.build_doc_checklist({}, "공유재산", [], [], "")
+    check("A18 음성 읽기 결과 없으면 0", plain["attachmentUnread"] == 0 and plain["attachmentReads"] == [], str(plain.get("attachmentReads")))
+
+
 def test_generic_table_is_not_success() -> None:
     sections = server.split_sections(ONBID_HELP_SECTION + GENERIC_DOCS_TABLE)
     rows = server.extract_docs_table(sections)
@@ -2474,6 +2738,8 @@ def main() -> int:
         test_attachments,
         test_attachment_wiring,
         test_heading_layers,
+        test_doc_stage_rules_20261019,
+        test_attachment_reads,
         test_generic_table_is_not_success,
         test_checklist_states,
         test_minimum_bid,

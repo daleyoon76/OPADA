@@ -1706,11 +1706,86 @@ test("E2E design 시나리오 5 — 사전에 없는 서류는 \"단계를 확�
 
   const unclassified = checklist.locator(".doc-group-unclassified");
   await expect(unclassified).toContainText("단계를 확정하지 못한 서류");
-  await expect(unclassified).toContainText("단계를 확정하지 못했습니다. 공고문 원문을 확인하십시오.");
+  // 2026-10-19 · 실패 사실만 말하던 안내를 이유가 드러나는 안내로 바꿨다(implementation-plan.md 4단계).
+  await expect(unclassified).toContainText("공고문에서 이 서류의 제출 시점을 찾지 못했습니다. 입찰 전에 필요할 수 있어 여기에 함께 두었습니다.");
   await expect(unclassified).toContainText("㉮ 사전에 없는 특수 제출물");
 
   // 음성 대조 — 사전에 있는 표제를 가진 서류(stage: "입찰 전")는 이 구획에 들어가지 않는다.
   // BASE_NOTICE의 기존 두 항목(인감증명서·대리입찰신청서)이 그 반대쪽이다.
   await expect(unclassified).not.toContainText("대리입찰신청서");
   expect(await checklist.locator(".doc-group-unclassified li").count()).toBe(1);
+});
+
+// 2026-10-19 · 미분류 처리 4단계 화면(implementation-plan.md 4단계 · D2 · D7). 서버가 싣는 attachmentReads ·
+// sourceHeading 과 미분류 서류의 근거 문장을 화면이 그대로 드러내는지 본다. 서버 판정 자체는
+// tests/test_docs_extraction.py A17·A18 과 tests/measure_stage_fixtures.py 가 맡는다.
+test("E2E 미분류 4단계 — 읽지 못한 첨부 · 요청 시 서류 · 시점 근거를 보인다", async ({ page }) => {
+  const notice = copyBase();
+  const requested = {
+    name: "영업신고증",
+    conditions: ["공통"],
+    conditionKeys: [],
+    copy: "",
+    validity: "",
+    method: "",
+    due: "",
+    count: "",
+    stage: "미분류",
+    sourceHeading: "",
+    howto: "",
+    howtoUrl: "",
+    sourceSection: "첨부:제안요청서.hwp",
+    evidence: "가. 예술의전당의 요청이 있을 경우 영업신고증 등 관계자료를 제출해야 한다.",
+  };
+  // 음성 대조 — 「보완 요청 시 … 제출」은 입찰 서류 문장에도 쓰여 「요청할 때만」 안내를 붙이지 않는다(리뷰 d8378b6 r2 P2-A).
+  const plain = { ...requested, name: "㉯ 시점 없는 서류", evidence: "서류가 미비하면 보완 요청 시 7일 이내 제출합니다." };
+  notice.docChecklist.items = [...notice.docChecklist.items, requested, plain];
+  // 화면은 groups 안의 항목을 그린다(copyBase 는 items 와 groups 를 따로 복사한다). 둘 다에 넣는다.
+  const sotHeading = "온비드 압류재산 입찰참가자 준수규칙 제7조(입찰 마감시간 전까지 제출)";
+  const firstName = notice.docChecklist.items[0].name;
+  notice.docChecklist.items[0].sourceHeading = sotHeading;
+  for (const group of notice.docChecklist.groups) {
+    for (const item of group.items || []) if (item.name === firstName) item.sourceHeading = sotHeading;
+  }
+  notice.docChecklist.groups.push({ condition: "공통", items: [requested, plain] });
+  notice.docChecklist.attachmentReads = [
+    { name: "1. 공고문.hwp", status: "read" },
+    { name: "감정평가서.pdf", status: "not_tried" },
+    { name: "붙임 1-8. 모집공고문.hwp", status: "too_large" },
+  ];
+  notice.docChecklist.attachmentUnread = 2;
+  await analyzeWith(page, notice);
+  await page.locator("#prepare").click();
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+
+  const unread = checklist.locator(".attachment-unread");
+  await expect(unread).toContainText("첨부 2개를 읽지 못했습니다");
+  await expect(unread).toContainText("감정평가서.pdf(한 번에 읽는 개수를 넘음)");
+  await expect(unread).toContainText("붙임 1-8. 모집공고문.hwp(파일이 너무 큼)");
+  // 음성 대조 — 읽은 첨부는 이름이 나오지 않는다.
+  await expect(unread).not.toContainText("1. 공고문.hwp");
+
+  const unclassified = checklist.locator(".doc-group-unclassified");
+  const requestedRow = unclassified.locator("li", { hasText: "영업신고증" });
+  await expect(requestedRow).toContainText("기관이 요청할 때만 내는 서류일 수 있습니다.");
+  // 음성 대조 — 요청 문구가 없는 미분류 서류에는 그 안내가 붙지 않는다.
+  await expect(unclassified.locator("li", { hasText: "㉯ 시점 없는 서류" })).not.toContainText("기관이 요청할 때만");
+
+  // 확정 항목의 시점 근거는 「원문 근거」를 펼치면 보인다.
+  const firstRow = checklist.locator("li", { hasText: firstName }).first();
+  await firstRow.locator("details > summary").click();
+  await expect(firstRow).toContainText("시점 근거: 온비드 압류재산 입찰참가자 준수규칙 제7조");
+});
+
+test("E2E 미분류 4단계 음성 — 첨부를 다 읽었으면 읽지 못한 첨부 안내가 없다", async ({ page }) => {
+  const notice = copyBase();
+  notice.docChecklist.attachmentReads = [{ name: "1. 공고문.hwp", status: "read" }];
+  notice.docChecklist.attachmentUnread = 0;
+  await analyzeWith(page, notice);
+  await page.locator("#prepare").click();
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
+  await page.locator("#doc-checklist-details > summary").click();
+  await expect(page.locator("#doc-checklist .attachment-unread")).toHaveCount(0);
 });
