@@ -624,6 +624,13 @@ textarea {
   font-size: 12px;
 }
 
+/* 모델 답 아래에 붙는 온비드 용어 설명. 답과 섞여 읽히지 않게 선으로 나눈다. */
+.coach-ask-answer > p:not(.coach-ask-note) + .coach-ask-reference {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 /* 질문-답변 온보딩(질문 A) — visual-audit §⑶. 새 카드를 만들지 않고 기존 .coach-ask-card
    안에 올려 상단 블록으로 쓴다. */
 .coach-experience-question p {
@@ -814,6 +821,34 @@ details.stage-group:first-child > summary .stage-group-heading {
   font-weight: 700;
 }
 
+/* 4단계 머리의 재산유형별 절차 순서·보증금 귀속 안내(2026-10-19 커뮤니티 조사 반영). 주의 띠 아래,
+   서류 묶음 위에 둔다. 본문 두 줄은 일반 글자 크기로 두고 근거 줄만 작게 쓴다. */
+.post-award-process {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--line, #d7dbe2);
+  background: var(--soft, #f6f7f9);
+}
+
+.post-award-process p {
+  margin: 0 0 4px;
+}
+
+/* 용어 탭의 두 묶음 제목(기본 용어 · 공고 표기에 나온 용어). */
+.glossary-group-title {
+  margin: 10px 0 4px;
+  font-size: 0.95rem;
+}
+
+.glossary-source {
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.attachment-inventory-note {
+  margin-top: 8px;
+}
+
 /* 잠긴 단계의 체크 행만 흐리게 — 카드 전체·<details>·원문 링크는 항상 선명하게 둔다
    (ux-audit §⑴ "잠긴 단계의 표시", visual-audit §⑵). */
 .task-row.is-locked-row {
@@ -922,7 +957,7 @@ a:hover {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-top: 18px;
 }
 
 .status-card {
@@ -1562,6 +1597,18 @@ a:hover {
   opacity: 0.6;
 }
 
+/* 확정 항목(기본 .doc-group)과 구분해, "우리도 모른다"는 사실을 색으로도 드러낸다
+   (stage-classification-design.md §3 · stage-classification-fix.md). */
+.doc-group-unclassified,
+.doc-group-needs-inquiry {
+  border-top: 2px solid var(--amber);
+}
+
+.doc-group-unclassified li,
+.doc-group-needs-inquiry li {
+  border-left: 2px solid var(--amber);
+}
+
 /* 잠긴 단계의 서류 체크박스도 메인 task 체크 행과 같은 흐림·커서 처리를 맞춘다
    (.task-row.is-locked-row 와 같은 패턴). 기능은 disabled 로 이미 막혀 있고
    이 규칙은 시각 신호만 보강한다. */
@@ -1902,7 +1949,7 @@ a:hover {
 
   .board-status {
     gap: 8px;
-    margin-bottom: 12px;
+    margin-top: 12px;
   }
 
   .status-card {
@@ -2039,4 +2086,24 @@ a:hover {
   border: 1px dashed var(--line);
   border-radius: 6px;
   font-size: 0.9rem;
+}
+
+/* 3단계 「온비드 입찰 규칙」 — 공고 값(fact-list)과 구분되는 고정 규칙 안내 (2026-10-19 정합성 대조). */
+.bid-rules {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #c9a08f;
+  background: var(--soft-blue);
+}
+
+.bid-rules h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.bid-rules ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
 }

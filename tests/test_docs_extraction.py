@@ -69,9 +69,61 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "A10",
         "첨부 텍스트 배선",
         "게이트 우회·1200자 상한 해제·조건 무시(공통)·단계 물림·headline 출처 구분 — 모두 본문은 그대로임을 함께 확인",
-        "is_attachment 가드 삭제 · 상한 원복 · 조건 우회 삭제 · carried_stage 삭제 · headline 분기 삭제",
+        "is_attachment 가드 삭제 · 상한 원복 · 조건 우회 삭제 · current_heading 삭제 · headline 분기 삭제",
         "Y",
     ),
+    (
+        "A11",
+        "문장 단위 단계 판정",
+        "조항 표제 사전 매칭 → 문장 결정적 문구 → 미분류(추측 금지) · 멀리 떨어진 줄의 낙찰자/계약 신호가 안 번짐",
+        "HEADING_STAGE_RULES 매칭 삭제 · SENTENCE_STAGE_RULES 매칭 삭제 · resolve_doc_stage 기본값을 미분류 대신 입찰 전으로 되돌리기",
+        "Y",
+    ),
+    (
+        "A12",
+        "서식명 사전 우선 판정",
+        "공동입찰참가신청서·대리입찰신청서·미성년자 입찰참가 동의서가 조항 표제·문장 판정과 무관하게 입찰 전으로 고정",
+        "FORM_NAME_STAGE_RULES 매칭 삭제",
+        "Y",
+    ),
+    (
+        "A13",
+        "조항 표제 사전 10종",
+        "사전 크기 최소 10종 · appendix 인용 표제 3종(표본12·13·15~17) 직접 대조",
+        "표제 2종으로 축소(구비서류/낙찰자 제출/낙찰일만 남김) → '계약체결 시 지참 서류' 미분류로 떨어짐",
+        "Y",
+    ),
+    (
+        "A14",
+        "별도 문의 필요 상태",
+        "NO_GENERAL_BASIS_DOC_NAMES 서류는 미분류 대신 별도 문의 필요 · 일반 서류는 그대로 미분류 · 표제 확정 시엔 표제를 따름(최종 폴백일 뿐)",
+        "NO_GENERAL_BASIS_DOC_NAMES 비우기",
+        "Y",
+    ),
+    (
+        "A15",
+        "서식명 사전 완성도·오염 방지",
+        "표준 이름 3종 전부 등재 · 기관명 접두어 변형 12종 전부 입찰 전으로 뽑힘 · 범용 서류(인감증명서 등) 미등재",
+        "표준 이름 하나 삭제 · 범용 서류를 사전에 섞기",
+        "Y",
+    ),
+    (
+        "A16",
+        "조항 번호 층별 표제",
+        "「10.」 표제 아래 「가.」 항목 · 「바.」 표제 아래 「1).」 항목이 상위 표제를 따름 · 같은 층 번호가 오면 끊김 · 「낙찰자의 제출서류」 변형",
+        "같은 층 걷어내기 삭제 · 가장 안쪽 표제만 보기(옛 동작) · 「의?」 삭제 · 「1)」 층 규칙 삭제 · 미커버: ※ 문단에 서류명이 있거나 결정 문구 목록 밖 표현이면 물림을 끊지 못함(리뷰 r2 G3)",
+        "Y",
+    ),
+    (
+        "E1",
+        "API 플래그 거르기",
+        "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
+        "플래그 검사 삭제",
+        "Y",
+    ),
+    ("E2", "쓸 수 없는 값", "bidPtctAplyTermNm=「~」 · Y/N 아닌 값", "EMPTY_API_TERM_VALUES 에서 「~」 제거", "Y"),
+    ("E3", "제한조건 판정", "지역 제한 있음 · 「없음(…)」 · 「없음」이 섞인 실제 제한", "완전일치를 부분일치로 바꾸기", "Y"),
+    ("E4", "식별자 보충 배선", "cltrInfVO.pbctCdtnNo → 공공데이터 호출 · 서비스별 응답 분리", "보충 줄 삭제 · 호출 인자 원복", "Y"),
     ("B1", "추출 정직성", "구분명만 → 못 뽑았다 표시(not_found·C형) · 코치 배선", "옛 판정 복원 · headline 교체", "Y"),
     ("B2", "최저입찰가 비공개", "HideDivCd != 0001", "코드 무시", "Y"),
     ("B3", "마감 D-day", "시작 전/진행/임박/마감", "상태 고정", "Y"),
@@ -112,6 +164,14 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "질문 하네스 보드 상태",
         "개수·길이 상한 · 진행률 재계산 · 프롬프트에 board 탑재 · 보드 없이 board 답변 거부 · 옛 스키마 · 배선",
         "board 가드 삭제 · 재계산 대신 화면 숫자 사용 · 프롬프트 board 키 삭제 · 라우트 전달 삭제",
+        "Y",
+    ),
+    (
+        "D3",
+        "질문 답변의 온비드 용어 근거",
+        "사전 용어·출처 · 띄어쓰기 · 질문 속 순서 · 2글자 사전 용어 제외 · 겹침 · 상한 · 프롬프트 탑재·schema general · "
+        "모델 none·미연결에도 references 배선 · 절차 용어 금지표현",
+        "minLength 무시 · 겹침 검사 삭제 · 프롬프트 키 삭제 · references 줄 삭제",
         "Y",
     ),
     (
@@ -509,6 +569,102 @@ def test_attachments() -> None:
 # A10. 첨부 텍스트 배선 — 첨부는 본문과 게이트가 다르다(제출 동사 없어도·1200자 넘어도
 # 잡되, 조건은 안 붙인다). 본문 축(A1·A5)은 그대로임을 같은 테스트에서 다시 확인한다.
 # ---------------------------------------------------------------------------
+def test_heading_layers() -> None:
+    # A16. 항목 줄도 「가.」·「1).」처럼 조항 번호 모양이라, 표제를 마지막 번호 줄 하나로만 들고 가면
+    # 항목 줄이 상위 표제를 덮어써 사전에 있는 표제 아래 서류가 전부 미분류로 떨어졌다.
+    # 픽스처는 2026-10-19 실공고 두 건의 문장을 줄여 썼다(909445 수원 · 909691 서울 중구).
+    check("A16 층 판별 1).", server.heading_kind("1). 주민등록등본 1부") == "paren", server.heading_kind("1). 주민등록등본 1부"))
+    check("A16 층 판별 10.", server.heading_kind("10. 최종낙찰자 제출서류") == "number", server.heading_kind("10. 최종낙찰자 제출서류"))
+    check("A16 층 판별 가.", server.heading_kind("가. 사업자등록증") == "hangul", server.heading_kind("가. 사업자등록증"))
+
+    # 판정 함수 직접 호출 — 같은 층이 다시 오면 그 층과 안쪽 층을 걷어내고, 처음 보는 층은 안쪽으로 쌓는다.
+    stack: list[tuple[str, str]] = []
+    for line in ("10. 최종낙찰자 제출서류", "가. 사업자등록증 1부", "나. 법인인감증명서 1부"):
+        server.push_heading(stack, line)
+    check("A16 쌓기 — 형제 항목은 서로 바뀌고 상위는 남음", [kind for kind, _ in stack] == ["number", "hangul"] and stack[-1][1].startswith("나."), str(stack))
+    check("A16 안쪽부터 사전 표제 찾기", server.stage_heading_from_stack(stack) == "10. 최종낙찰자 제출서류", server.stage_heading_from_stack(stack))
+    server.push_heading(stack, "11. 기타사항")
+    check("A16 같은 층 번호가 오면 안쪽까지 걷어냄", stack == [("number", "11. 기타사항")], str(stack))
+    # 바깥과 안쪽이 둘 다 사전 표제면 더 구체적인 안쪽이 이긴다. 바깥부터 찾으면 입찰 전으로 뒤집힌다.
+    nested = [("number", "2. 입찰참가자격"), ("hangul", "가. 계약체결 시 구비서류")]
+    check("A16 안쪽 표제가 바깥 표제를 이김", server.stage_heading_from_stack(nested) == "가. 계약체결 시 구비서류", server.stage_heading_from_stack(nested))
+
+    # 양성 ⑴ — 「10.」 표제 아래 「가.」·「나.」 항목.
+    numbered = "10. 최종낙찰자 제출서류\n가. 사업자등록증 및 법인등기부등본 각1부\n나. 법인인감증명서 1부\n"
+    numbered_stages = {item["name"]: item["stage"] for item in server.extract_doc_items({}, [("첨부:공고문.pdf", numbered)])}
+    check(
+        "A16 양성 「10.」 아래 「가.」 항목이 표제를 따름",
+        all(numbered_stages.get(name) == "낙찰 후·계약 시" for name in ("사업자등록증", "법인 등기사항증명서", "법인인감증명서")),
+        str(numbered_stages),
+    )
+    # 양성 ⑵ — 「바.」 표제 아래 「1).」 항목 + 조사 「의」가 붙은 표제.
+    paren = "바. 낙찰자의 제출서류\n1). 주민등록등본(법인의 경우 법인등기부등본) 1부\n4). 국세 및 지방세 완납증명서 각 1부.\n"
+    paren_stages = {item["name"]: item["stage"] for item in server.extract_doc_items({}, [("첨부:공고문.hwp", paren)])}
+    check(
+        "A16 양성 「바.」 아래 「1).」 항목 · 「낙찰자의 제출서류」",
+        paren_stages.get("주민등록등본") == "낙찰 후·계약 시" and paren_stages.get("국세 및 지방세 완납증명서") == "낙찰 후·계약 시",
+        str(paren_stages),
+    )
+    # 음성 ⑴ — 같은 층의 새 조항(「11.」)이 오면 앞 표제를 물려받지 않는다. 「같은 층 걷어내기」를
+    # 지우면 「10.」이 스택에 남아 사업자등록증이 낙찰 후로 끌려간다.
+    sibling = "10. 최종낙찰자 제출서류\n가. 법인인감증명서 1부\n11. 기타사항\n가. 사업자등록증 지참\n"
+    sibling_stages = {item["name"]: item["stage"] for item in server.extract_doc_items({}, [("첨부:공고문.pdf", sibling)])}
+    check("A16 음성 같은 층 새 조항은 앞 표제를 안 물려받음", sibling_stages.get("사업자등록증") == "미분류", str(sibling_stages))
+    # 음성 ⑵ — 「낙찰자」만 있고 「제출서류」가 없는 표제는 「의?」 변형이 걸리지 않는다.
+    selection = "바. 낙찰자 선정 기준\n1). 주민등록등본 1부\n"
+    selection_stage = next((i["stage"] for i in server.extract_doc_items({}, [("첨부:공고문.pdf", selection)]) if i["name"] == "주민등록등본"), None)
+    check("A16 음성 「낙찰자 선정 기준」은 낙찰 후로 안 감", selection_stage == "미분류", str(selection_stage))
+
+    # 리뷰 r1(2026-10-19) 재현 입력 — 바깥 낙찰 후 표제를 물려받아 입찰 전 서류가 4단계로만 가면 안 된다.
+    # 각 입력은 4b292c9(옛 동작)에서 낙찰 후가 아니었고, 60b000a 에서 낙찰 후로 옮겨졌던 것이다.
+    def stage_of(text: str, name: str) -> object:
+        return next((i["stage"] for i in server.extract_doc_items({}, [("첨부:공고문.pdf", text)]) if i["name"] == name), None)
+
+    t1 = "8. 낙찰자 제출서류\n가. 주민등록등본 1부\n■ 공동입찰 시 유의사항\n공동입찰자는 입찰 마감일까지 인감증명서를 제출하여야 합니다.\n"
+    check("A16 음성 T1 기호 형제 아래 입찰 전 문장", stage_of(t1, "인감증명서") == "입찰 전", str(stage_of(t1, "인감증명서")))
+    # 직접 호출 — 목록 항목 판정. 소제목·문단은 항목이 아니다.
+    check("A16 물림 판정 목록 항목 「1). 주민등록등본 1부」", server.can_inherit_outer_heading("1). 주민등록등본 1부"), "")
+    check("A16 물림 판정 소제목 「가. 입찰 참가 신청」", server.can_inherit_outer_heading("가. 입찰 참가 신청"), "")
+    check("A16 물림 판정 음성 문단 「가. 입찰 시 유의사항 … 사업자등록증」", not server.can_inherit_outer_heading("가. 입찰 시 유의사항 안내 사업자등록증 사본 1부"), "")
+    check("A16 물림 판정 음성 긴 줄", not server.can_inherit_outer_heading("가. " + "나" * 120), "")
+    # 표본 21 구조 — 서류명 없는 소제목을 지나 바깥 「입찰참가 등록서류」를 물려받는다.
+    nested = "4. 입찰참가 등록서류\n가. 입찰 참가 신청\nㅇ 사업자등록증 1부\n"
+    check("A16 양성 소제목을 지나 바깥 표제를 물려받음", stage_of(nested, "사업자등록증") == "입찰 전", str(stage_of(nested, "사업자등록증")))
+    t2 = "10. 최종낙찰자 제출서류\n가. 개인\n1) 주민등록등본 1부\n※ 입찰 참가 시에는 아래 서류를 입찰 마감일까지 제출\n1) 사업자등록증 1부\n"
+    check("A16 음성 T2 결정 문구 문단 뒤 목록은 물려받지 않음", stage_of(t2, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(t2, "사업자등록증")))
+    check("A16 양성 T2 같은 입력의 앞 목록은 그대로 낙찰 후", stage_of(t2, "주민등록등본") == "낙찰 후·계약 시", str(stage_of(t2, "주민등록등본")))
+    t3 = "가. 낙찰자는 낙찰일로부터 5일 이내에 계약을 체결하여야 합니다.\n1) 입찰 참가 시 사업자등록증을 입찰 마감일까지 제출\n"
+    check("A16 음성 T3 같은 줄 입찰 전 문구가 있으면 낙찰 후 확정 안 함", stage_of(t3, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(t3, "사업자등록증")))
+    t5 = "9. 계약체결 및 대금납부방법 " + "가" * 50 + " 잔대금은 60일 이내 납부\n가. 입찰 시 유의사항 " + "나" * 60 + " 사업자등록증 사본 1부\n"
+    check("A16 음성 T5 긴 줄은 바깥 표제를 물려받지 않음", stage_of(t5, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(t5, "사업자등록증")))
+    farm = "9. 계약체결 및 대금납부방법\n라. 농지법 등 관계 법령에 의하여 농지취득자격증명이 필요한 경우 등 취득이 제한되는 사\n항은 매수자가 갖추어야 할 요건이므로 사전확인 후 응찰하시기 바랍니다.\n"
+    check("A16 음성 표본 07 형태 「사전확인 후 응찰」은 입찰 전", stage_of(farm, "농지취득자격증명") == "미분류", str(stage_of(farm, "농지취득자격증명")))
+    # 「응찰」 낱말 줄 — G2 낱말 검사와 충돌 검사가 겹쳐 막는다. 하나만 빼면 이 픽스처는 잡지 못한다(리뷰 r3 m2·m3).
+    # 대안별 단독 픽스처는 아래 「리뷰 r3 R1」 묶음이 맡는다.
+    farm_item = "9. 계약체결 및 대금납부방법\n라. 농지취득자격증명은 사전확인 후 응찰하시기 바랍니다.\n"
+    check("A16 음성 「사전확인 후 응찰」 항목 줄은 미분류", stage_of(farm_item, "농지취득자격증명") == "미분류", str(stage_of(farm_item, "농지취득자격증명")))
+    # 줄 넘김 — 항목 줄에는 입찰 전 낱말이 없고 다음 줄(이어지는 문장)에 「사전확인 후 입찰」이 있다. 충돌 검사만 잡는다.
+    farm_wrap = "9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부\n(취득 요건은 사전확인 후 입찰하시기 바랍니다.)\n"
+    check("A16 음성 줄 넘김 「사전확인 후 입찰」도 낙찰 후로 확정하지 않음", stage_of(farm_wrap, "농지취득자격증명") == "미분류", str(stage_of(farm_wrap, "농지취득자격증명")))
+    # 리뷰 r2 G2 — 넓은 낙찰 후 표제(「입찰 및 계약체결 일정」)가 그 아래 입찰 전 소제목·항목까지 끌고 가면 안 된다.
+    h1 = "10. 최종낙찰자 제출서류\n가. 사업자등록증 1부\n■ 입찰참가 신청 시\n- 인감증명서 1부\n"
+    check("A16 음성 H1 입찰참가 소제목은 낙찰 후 표제를 물려받지 않음", stage_of(h1, "인감증명서") != "낙찰 후·계약 시", str(stage_of(h1, "인감증명서")))
+    check("A16 양성 H1 같은 입력의 앞 항목은 그대로 낙찰 후", stage_of(h1, "사업자등록증") == "낙찰 후·계약 시", str(stage_of(h1, "사업자등록증")))
+    h4 = "3. 입찰 및 계약체결 일정\n가. 입찰참가 신청\nㅇ 사업자등록증 사본 1부\n"
+    check("A16 음성 H4 넓은 표제 아래 입찰참가 소제목", stage_of(h4, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(h4, "사업자등록증")))
+    h4b = "3. 입찰 및 계약체결 일정\n가. 사업자등록증 사본 1부(입찰참가 신청 시)\n"
+    check("A16 음성 H4b 넓은 표제 아래 입찰참가 항목", stage_of(h4b, "사업자등록증") != "낙찰 후·계약 시", str(stage_of(h4b, "사업자등록증")))
+    # 리뷰 r3 R1 — 정규식 대안마다 그 대안 하나로만 막히는 픽스처. 대안을 지우면 해당 픽스처가 낙찰 후로 뒤집힌다.
+    r3_cases = {
+        "낱말 응찰": ("9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부(응찰 전 확인)\n", "농지취득자격증명"),
+        "충돌 응찰 줄넘김": ("9. 계약체결 및 대금납부방법\n라. 농지취득자격증명 1부\n(취득 요건은 사전확인 후 응찰하시기 바랍니다.)\n", "농지취득자격증명"),
+        "낱말 입찰 시": ("3. 입찰 및 계약체결 일정\n가. 입찰 시 제출\nㅇ 사업자등록증 사본 1부\n", "사업자등록증"),
+        "낱말 입찰 전": ("3. 입찰 및 계약체결 일정\n가. 입찰 전 준비\nㅇ 사업자등록증 사본 1부\n", "사업자등록증"),
+    }
+    for label, (text, name) in r3_cases.items():
+        check(f"A16 음성 r3 {label}", stage_of(text, name) == "미분류", str(stage_of(text, name)))
+
+
 def test_attachment_wiring() -> None:
     # attachment_parser.detect_kind() — 배선 단정과 별개로 판정 함수 자체를 직접 부른다.
     check("A10 detect_kind pdf", attachment_parser.detect_kind(b"%PDF-1.4 ...") == "pdf", "")
@@ -553,20 +709,246 @@ def test_attachment_wiring() -> None:
     long_body = server.extract_doc_items(server.split_sections(section("공고문", f"<p>{long_line}</p>")))
     check("A10 음성 본문은 1200자 상한 유지", long_body == [], str(long_body))
 
-    # 단계 물림: 단계를 밝히는 줄은 제목뿐이고 서류명은 다음 줄에 있는 표 구조.
+    # 조항 표제 물림: 단계를 밝히는 줄은 표제뿐이고 서류명은 다음 줄에 있는 표 구조.
+    # resolve_doc_stage() 가 HEADING_STAGE_RULES 로 그 표제 문자열을 직접 대조한다
+    # (CONTRACT_STAGE_RE/carried_stage 는 2026-10-18 폐기 — stage-classification-design.md).
     stage_chunk = "라. 계약체결시 필요서류\n개인 주민등록초본, 인감증명서"
     stage_items = server.extract_doc_items({}, [("첨부:계약서류.pdf", stage_chunk)])
     stage_names = {item["name"]: item["stage"] for item in stage_items}
     check(
-        "A10 양성 단계 물림",
+        "A10 양성 조항 표제 물림",
         stage_names.get("주민등록초본") == "낙찰 후·계약 시" and stage_names.get("인감증명서") == "낙찰 후·계약 시",
         str(stage_names),
     )
-    # 음성 대조: 다음 최상위 번호(마.)로 넘어가면 물림이 끊겨야 한다.
+    # 음성 대조: 다음 최상위 번호(마.)로 넘어가면 표제 물림이 끊겨야 한다. 새 표제("마. 다른
+    # 절")는 사전에 없고 그 줄("개인 주민등록초본")에도 결정적 문구가 없으니 "미분류"다 —
+    # 옛 코드는 여기서 기본값 "입찰 전"으로 떨어졌다(추측 금지 · §3).
     reset_chunk = "라. 계약체결시 필요서류\n마. 다른 절\n개인 주민등록초본"
     reset_items = server.extract_doc_items({}, [("첨부:계약서류.pdf", reset_chunk)])
     reset_stage = next((i["stage"] for i in reset_items if i["name"] == "주민등록초본"), None)
-    check("A10 음성 새 번호로 단계 물림 끊김", reset_stage == "입찰 전", str(reset_stage))
+    check("A10 음성 새 표제로 물림 끊김 → 미분류", reset_stage == "미분류", str(reset_stage))
+
+    # A11. 문장 단위 판정 — 같은 블록 안에 「계약체결」 같은 낙찰 후 신호가 있어도, 그 서류가
+    # 「속한 문장」에 없으면 더 이상 오염되지 않아야 한다. 표본 21(§4-3 appendix)이 실제로
+    # 겪은 사고: "4. 입찰참가 등록서류" 표제 아래 서류들이 뒤이은 "5. 낙찰자 결정방법"의
+    # "낙찰자"에 반응해 전부 낙찰 후로 끌려갔다. 표본 20의 인감증명서(13건 전부 같은 경로로
+    # 오염)도 같은 사례다.
+    bleed_chunk = (
+        "4. 입찰참가 등록서류\n"
+        "- 법인 등기사항증명서\n"
+        "- 인감증명서\n"
+        "5. 낙찰자 결정방법\n"
+        "가. 낙찰자는 계약체결 후 사업을 개시하여야 한다.\n"
+    )
+    bleed_items = server.extract_doc_items({}, [("첨부:공고문.pdf", bleed_chunk)])
+    bleed_stages = {item["name"]: item["stage"] for item in bleed_items}
+    check(
+        "A11 양성 — 입찰참가 등록서류 표제가 결정",
+        bleed_stages.get("법인 등기사항증명서") == "입찰 전" and bleed_stages.get("인감증명서") == "입찰 전",
+        str(bleed_stages),
+    )
+    # 돌연변이 대조 — resolve_doc_stage 의 표제 우선순위를 지우면(문장 레벨만 쓰면) 이 서류들은
+    # 자기 줄에 결정적 문구가 없어 "미분류"로 떨어진다. HEADING_STAGE_RULES 매칭을 끈 경우를
+    # 직접 재현해 이 축이 실제로 표제 판정에 의존함을 확인한다.
+    heading_only = server.resolve_doc_stage("4. 입찰참가 등록서류", "- 법인 등기사항증명서")
+    sentence_only = server.resolve_doc_stage("", "- 법인 등기사항증명서")
+    check(
+        "A11 돌연변이 — 표제 없이는 미분류로 떨어진다(표제 의존 증명)",
+        heading_only == "입찰 전" and sentence_only == "미분류",
+        f"heading={heading_only} sentence={sentence_only}",
+    )
+    # 돌연변이 대조 — 표제가 없는 상태에서 서류 줄 자체에 결정적 문구가 있으면(문장 단위
+    # 판정) 그 줄만 보고 정해야 한다. "회송" 문구는 표본 20의 인감증명서 사례(매매계약서를
+    # 우편으로 받아 인감날인 후 회송)가 근거다.
+    sentence_decisive = server.resolve_doc_stage("", "매매계약서를 우편수취 후 인감날인하여 회송하십시오.")
+    check(
+        "A11 음성 — 표제 없이 문장 결정적 문구만으로도 정한다",
+        sentence_decisive == "낙찰 후·계약 시",
+        sentence_decisive,
+    )
+
+    # A12. 서식명 사전 — 공동입찰참가신청서·대리입찰신청서·미성년자 입찰참가 동의서는 "낙찰
+    # 후·계약 시"를 확정하는 조항 표제("14. 계약체결 시 지참 서류") 아래 있어도 입찰 전으로
+    # 고정돼야 한다(표본04~08·20 appendix 정답 — 어느 행도 "낙찰 후"가 아니다).
+    form_name_heading = server.resolve_doc_stage("14. 계약체결 시 지참 서류", "- 공동입찰참가신청서", "공동입찰참가신청서")
+    check(
+        "A12 양성 — 낙찰 후 표제 아래서도 서식명이 입찰 전으로 고정",
+        form_name_heading == "입찰 전",
+        form_name_heading,
+    )
+    # 돌연변이 대조 — name 을 안 넘기면(FORM_NAME_STAGE_RULES 매칭이 꺼진 상태를 재현) 같은
+    # 표제·문장이 "낙찰 후·계약 시"로 떨어져야 한다. 즉 지금의 "입찰 전" 결과는 FORM_NAME_
+    # STAGE_RULES 가 실제로 그 판정을 뒤집고 있다는 뜻이다(표제 의존이 아니라는 증명).
+    without_form_name = server.resolve_doc_stage("14. 계약체결 시 지참 서류", "- 공동입찰참가신청서")
+    check(
+        "A12 돌연변이 — 서식명 사전을 빼면 표제 판정(낙찰 후)으로 떨어진다",
+        without_form_name == "낙찰 후·계약 시",
+        without_form_name,
+    )
+    # extract_doc_items 레벨 통합 — 실제 파이프라인에서도 같은 역전이 일어나는지 확인한다.
+    form_name_pipeline = server.extract_doc_items(
+        {}, [("첨부:공고문.pdf", "14. 계약체결 시 지참 서류\n- 대리입찰신청서\n- 미성년자 입찰참가 동의서")]
+    )
+    form_name_stages = {item["name"]: item["stage"] for item in form_name_pipeline}
+    check(
+        "A12 통합 — 대리입찰신청서·미성년자 입찰참가 동의서 모두 입찰 전",
+        form_name_stages.get("대리입찰신청서") == "입찰 전"
+        and form_name_stages.get("미성년자 입찰참가 동의서") == "입찰 전",
+        str(form_name_stages),
+    )
+
+    # A13. 조항 표제 사전 10종 — appendix 160행에서 인용한 표제를 각각 직접 대조한다.
+    # 사전 크기 자체가 줄어들면(예: 2종으로 되돌리면) 이 축이 실패해야 한다 — 길이
+    # 단정과 별개로, 사전에서 빠지면 바로 영향받는 리터럴 표제 3개를 직접 판정해 둔다.
+    check(
+        "A13 양성 — 조항 표제 사전이 최소 10종(appendix §555행 기준)",
+        len(server.HEADING_STAGE_RULES) >= 10,
+        len(server.HEADING_STAGE_RULES),
+    )
+    heading_cases = (
+        ("계약체결시 필요서류", "- 주민등록초본", "낙찰 후·계약 시"),  # 표본15~17
+        ("다. 계약체결 장소", "- 법인인감증명서", "낙찰 후·계약 시"),  # 표본12
+        ("8. 낙찰자 제출서류 (낙찰일로부터 30일 이내 제출)", "- 법인인감증명서", "낙찰 후·계약 시"),  # 표본13
+    )
+    heading_results = {heading: server.resolve_doc_stage(heading, window) for heading, window, _ in heading_cases}
+    check(
+        "A13 양성 — appendix 인용 표제 3종(표본12·13·15~17) 직접 대조",
+        all(heading_results[heading] == expected for heading, _, expected in heading_cases),
+        str(heading_results),
+    )
+    # 돌연변이 대조 — 이 세 표제를 지우면(HEADING_STAGE_RULES 를 원래 2종으로 되돌린 것과
+    # 같은 효과) 위 세 케이스 중 "계약체결시 필요서류"·"계약체결 장소"는 옛 2종 regex의
+    # "계약.{0,20}(?:체결|지참)" 에 우연히 걸릴 수 있으나, "낙찰자 제출서류"는 옛 regex의
+    # "낙찰\s*자.{0,10}제출" 에도 걸린다 — 그래서 셋 중 실제로 사전 확장에만 의존하는
+    # 표제로 "계약체결 시 지참 서류"(표본22, 옛 2종 regex에는 없던 "지참" 조합)를 쓴다.
+    mutated_heading_rules: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"구비\s*서류|낙찰\s*자.{0,10}제출|낙찰\s*일"), "낙찰 후·계약 시"),
+        (re.compile(r"입찰\s*참가\s*자격|입찰\s*참가\s*(?:신청\s*)?등록\s*서류"), "입찰 전"),
+    )
+    original_heading_rules = server.HEADING_STAGE_RULES
+    server.HEADING_STAGE_RULES = mutated_heading_rules
+    try:
+        mutated_result = server.resolve_doc_stage("14. 계약체결 시 지참 서류", "- 법인인감증명서")
+    finally:
+        server.HEADING_STAGE_RULES = original_heading_rules
+    check(
+        "A13 돌연변이 — '계약체결 시 지참 서류' 표제를 빼면 미분류로 떨어진다(사전 의존 증명)",
+        mutated_result == "미분류",
+        mutated_result,
+    )
+
+    # A14. "별도 문의 필요" — 컨소시엄 협정서처럼 온비드 공통 규정에 일반 근거가 없는
+    # 서류는 조항 표제·문장 모두 못 정했을 때 "미분류"가 아니라 "별도 문의 필요"로 다르게
+    # 나와야 한다. 음성 대조로 "주민등록등본"(NO_GENERAL_BASIS_DOC_NAMES 밖의 서류)는
+    # 같은 조건에서 그대로 "미분류"여야 한다 — 이 축이 전체 미분류를 삼키면 안 된다.
+    consortium_unresolved = server.resolve_doc_stage("", "컨소시엄 협정서 1부 포함", "컨소시엄 협정서")
+    generic_unresolved = server.resolve_doc_stage("", "주민등록등본 1부", "주민등록등본")
+    check(
+        "A14 양성 — 컨소시엄 협정서는 미분류 대신 별도 문의 필요",
+        consortium_unresolved == "별도 문의 필요",
+        consortium_unresolved,
+    )
+    check(
+        "A14 음성 — 일반 서류는 그대로 미분류(별도 문의로 전부 삼키지 않음)",
+        generic_unresolved == "미분류",
+        generic_unresolved,
+    )
+    # 돌연변이 대조 — NO_GENERAL_BASIS_DOC_NAMES 를 비우면(그 판정을 지우면) 컨소시엄
+    # 협정서도 다시 "미분류"로 떨어져야 한다. 이 판정이 실제로 결과를 바꾼다는 증명이다.
+    original_no_basis = server.NO_GENERAL_BASIS_DOC_NAMES
+    server.NO_GENERAL_BASIS_DOC_NAMES = frozenset()
+    try:
+        mutated_consortium = server.resolve_doc_stage("", "컨소시엄 협정서 1부 포함", "컨소시엄 협정서")
+    finally:
+        server.NO_GENERAL_BASIS_DOC_NAMES = original_no_basis
+    check(
+        "A14 돌연변이 — NO_GENERAL_BASIS_DOC_NAMES 를 비우면 미분류로 되돌아간다",
+        mutated_consortium == "미분류",
+        mutated_consortium,
+    )
+    # 조항 표제가 "낙찰 후"를 확정하는 상황에서는 컨소시엄 협정서도 그 표제를 그대로
+    # 따라야 한다 — NO_GENERAL_BASIS 는 "셋 다 못 정했을 때"의 최종 기본값일 뿐, 표제·문장
+    # 판정보다 우선하지 않는다.
+    consortium_with_heading = server.resolve_doc_stage("다. 계약 체결 시 구비서류", "컨소시엄 협정서", "컨소시엄 협정서")
+    check(
+        "A14 양성 — 표제가 확정되면 컨소시엄 협정서도 그 표제를 따른다(기본값이 아니라 최종 폴백)",
+        consortium_with_heading == "낙찰 후·계약 시",
+        consortium_with_heading,
+    )
+
+    # A15. 서식명 사전 완성도 — "오분류 N건"만 세면 사전이 비어 있어도 통과한다(이번 결함의
+    # 뿌리). 사전 크기·등재 범위·오염 방지를 직접 센다.
+    check(
+        "A15 양성 — 서식명 사전이 표준 이름 3종(공동입찰·대리입찰·미성년자) 전부를 입찰 전으로 등재",
+        server.FORM_NAME_STAGE_RULES == {
+            "공동입찰참가신청서": "입찰 전",
+            "대리입찰신청서": "입찰 전",
+            "미성년자 입찰참가 동의서": "입찰 전",
+        },
+        server.FORM_NAME_STAGE_RULES,
+    )
+    # 08_온비드자료실_오픈API28종_조사_20260907.md 191~206행이 실제로 나열한 기관명 접두어
+    # 변형 12개 전부를 raw 텍스트로 넣어, DOC_NAME_PATTERNS 정규화 + FORM_NAME_STAGE_RULES
+    # 경로를 거쳐 전부 "입찰 전"으로 뽑히는지 센다 — 변형 중 하나라도 빠지면 그 변형은 사전
+    # 등재 범위 밖이라는 뜻이다.
+    # (표준명, 변형 원문) 쌍 — "(이용기관 입찰용) 대리입찰신청서(위임장) 양식"처럼 괄호 안
+    # 참고 문구에 "위임장"(별도 범용 서류, DOC_NAME_PATTERNS 에 따로 있음)이 함께 뽑히는
+    # 변형도 있다 — 그 경우 "대리입찰신청서" 쪽 판정만 본다. "위임장"은 이 사전의 대상이
+    # 아니라 §2 설계 규칙대로 미분류로 남는 것이 맞다(추측 금지).
+    FORM_NAME_VARIANTS_12 = (
+        ("공동입찰참가신청서", "공동입찰참가신청서"),
+        ("공동입찰참가신청서", "(이용기관 입찰용)공동입찰참가신청서"),
+        ("공동입찰참가신청서", "(캠코 공유재산)공동입찰참가신청서"),
+        ("공동입찰참가신청서", "유입자산 공동입찰참가신청서"),
+        ("공동입찰참가신청서", "수탁담보주택 공동입찰참가신청서"),
+        ("대리입찰신청서", "대리입찰신청서"),
+        ("대리입찰신청서", "(이용기관 입찰용) 대리입찰신청서(위임장) 양식"),
+        ("대리입찰신청서", "(캠코 공유재산)대리입찰신청서"),
+        ("대리입찰신청서", "유입자산 대리입찰신청서"),
+        ("대리입찰신청서", "수탁담보주택 대리입찰신청서"),
+        ("미성년자 입찰참가 동의서", "(이용기관 입찰용) 미성년자입찰참가동의서 양식"),
+        ("미성년자 입찰참가 동의서", "(캠코 공유재산)미성년자입찰참가동의서"),
+    )
+    variant_stages = {}
+    for canonical, variant in FORM_NAME_VARIANTS_12:
+        extracted = server.extract_doc_items({}, [("첨부:서식.pdf", variant)])
+        matched = next((item for item in extracted if item["name"] == canonical), None)
+        variant_stages[variant] = matched["stage"] if matched else "추출 안 됨"
+    check(
+        "A15 양성 — 변형 12종 전부 표준명으로 뽑혀 입찰 전으로 고정",
+        all(stage == "입찰 전" for stage in variant_stages.values()),
+        str(variant_stages),
+    )
+    # 돌연변이 대조 — 표준 이름 하나(공동입찰참가신청서)를 사전에서 빼면, 그 이름을 쓰는
+    # 변형(기관명 접두어 붙은 것 포함)이 더 이상 입찰 전으로 고정되지 않아야 한다.
+    mutated_form_rules = {k: v for k, v in server.FORM_NAME_STAGE_RULES.items() if k != "공동입찰참가신청서"}
+    original_form_rules = server.FORM_NAME_STAGE_RULES
+    server.FORM_NAME_STAGE_RULES = mutated_form_rules
+    try:
+        mutated_variant = server.extract_doc_items({}, [("첨부:서식.pdf", "(이용기관 입찰용)공동입찰참가신청서")])
+        mutated_stage = {item["stage"] for item in mutated_variant}
+    finally:
+        server.FORM_NAME_STAGE_RULES = original_form_rules
+    check(
+        "A15 돌연변이 — 사전에서 표준 이름 하나를 빼면 그 변형이 더 이상 입찰 전으로 안 뽑힘",
+        mutated_stage != {"입찰 전"},
+        mutated_stage,
+    )
+    # 범용 서류(재산유형마다 단계가 달라지는 서류, §2 설계 규칙 2)가 서식명 사전에 들어가면
+    # 그 자체가 새 오분류를 만든다 — 절대로 키로 들어가 있으면 안 된다.
+    GENERIC_DOC_NAMES = {"인감증명서", "주민등록등본", "사업자등록증", "신분증", "위임장"}
+    check(
+        "A15 양성 — 서식명 사전에 범용 서류가 전혀 없음",
+        not (GENERIC_DOC_NAMES & set(server.FORM_NAME_STAGE_RULES)),
+        sorted(GENERIC_DOC_NAMES & set(server.FORM_NAME_STAGE_RULES)),
+    )
+    # 돌연변이 대조 — 범용 서류 하나를 사전에 몰래 넣으면 위 검사가 바로 잡아내야 한다.
+    polluted_form_rules = {**server.FORM_NAME_STAGE_RULES, "인감증명서": "입찰 전"}
+    check(
+        "A15 돌연변이 — 범용 서류가 섞이면 검사가 실패를 잡아낸다(검사 자체의 유효성 증명)",
+        bool(GENERIC_DOC_NAMES & set(polluted_form_rules)),
+        sorted(GENERIC_DOC_NAMES & set(polluted_form_rules)),
+    )
 
     # headline 출처 구분: 본문만/첨부만/둘 다 섞임을 각각 다른 문구로 말해야 한다.
     body_sections = server.split_sections(section("제출서류", "<p>사업자등록증 사본을 제출하십시오.</p>"))
@@ -584,6 +966,16 @@ def test_attachment_wiring() -> None:
     # 하위호환: attachment_chunks 를 아예 안 넘긴 기존 3-인자 호출도 그대로 동작해야 한다.
     legacy_checklist = server.build_doc_checklist(body_sections, "공유재산", [])
     check("A10 하위호환 3-인자 호출", legacy_checklist["status"] == "extracted", str(legacy_checklist["status"]))
+    check("A10 contact 기본값 빈 문자열", legacy_checklist.get("contact") == "", repr(legacy_checklist.get("contact")))
+
+    # A14 연동 — build_notice 가 뽑은 담당부점/공고기관 연락처가 "별도 문의 필요" 화면
+    # 안내에 쓰이도록 build_doc_checklist 가 그대로 돌려줘야 한다.
+    contact_checklist = server.build_doc_checklist(body_sections, "공유재산", [], None, "한국자산관리공사 국유재산지원처")
+    check(
+        "A14 연동 — build_doc_checklist 가 contact 를 그대로 반환",
+        contact_checklist.get("contact") == "한국자산관리공사 국유재산지원처",
+        contact_checklist.get("contact"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -672,6 +1064,19 @@ def test_generic_table_is_not_success() -> None:
     real_coach = server.local_ai_coach(real_notice, [str(item["name"]) for item in real["items"]])
     real_titles = [item["title"] for item in real_coach["unresolvedChecks"]]
     check("B1 배선 양성", any("공동/대리입찰" in title for title in real_titles), str(real_titles))
+    # 2026-10-19 커뮤니티 조사 1-5 반영 — 매각 코치에도 현장·실물 확인 항목이 있고, 판단 낱말은 없다.
+    site_items = [item for item in real_coach["unresolvedChecks"] if "현장" in item["title"]]
+    check("B1 매각 코치에 현장·실물 확인 항목", len(site_items) == 1, str(real_titles))
+    check(
+        "B1 음성 현장 항목은 상태 판단을 하지 않는다",
+        site_items and not re.search(r"나쁘|좋|위험|추천", site_items[0]["reason"] + site_items[0]["action"]),
+        str(site_items),
+    )
+    check(
+        "B1 매각 코치 질문에 현장 확인 질문",
+        any("현장" in q for q in real_coach["askAgency"]),
+        str(real_coach["askAgency"]),
+    )
 
     # 배선: 준비 보드 항목이 「못 뽑았다」를 그대로 옮긴다.
     tasks = server.build_tasks({**notice, "sourceUrl": "https://www.onbid.co.kr/"}, [])
@@ -820,6 +1225,22 @@ def test_costs() -> None:
     # 음성 대조: 입찰방법 절이 없으면 원문값 항목을 만들지 않는다.
     bare = server.extract_cost_terms({}, "")
     check("B4 음성 절 없음", [term["title"] for term in bare] == ["낙찰 후 세금·부대비용"], str(bare))
+    # 보증금 계산 기준 — 압류재산만 최저입찰가(예정가) 기준이고 국유·수탁·이용기관은 입찰금액
+    # 기준이다(온비드 준수규칙). 원문이 「입찰금액 X 5%」인데 「기준이 되는 최저입찰가격은 …」을
+    # 붙이면 기준을 잘못 안내한다(2026-10-19 정합성 대조 · 시연 공고 3건 중 2건이 입찰금액 기준).
+    by_bid = server.deposit_basis_note("입찰금액 X 5%", "20,128,466")
+    check("B4 입찰금액 기준은 최저입찰가격을 기준으로 말하지 않음", "입찰금액을 기준" in by_bid and "20,128,466" not in by_bid, by_bid)
+    by_floor = server.deposit_basis_note("최저입찰가격 X 10%", "20,128,466")
+    check("B4 음성 최저입찰가 기준은 그 값을 그대로 안내", "20,128,466" in by_floor and "입찰금액을 기준" not in by_floor, by_floor)
+    # 「최저입찰금액」은 입찰금액 기준이 아니다(리뷰 r1 F3 · 「입찰금액」 부분 일치로 반대 안내가 나갔다).
+    floor_amount = server.deposit_basis_note("최저입찰금액 X 10%", "20,128,466")
+    check("B4 음성 「최저입찰금액」을 입찰금액 기준으로 말하지 않음", "입찰금액을 기준" not in floor_amount, floor_amount)
+    unknown_basis = server.deposit_basis_note("공고문 참조", "20,128,466")
+    check("B4 기준을 못 읽으면 단정하지 않음", "원문에서 확인" in unknown_basis and "20,128,466" not in unknown_basis, unknown_basis)
+    # 배선 — extract_cost_terms 가 실제로 이 판정을 부른다(원문값이 입찰금액 기준인 절).
+    bid_amount_sections = server.split_sections(ONBID_HELP_SECTION.replace("최저입찰가격 X 10%", "입찰금액 X 5%"))
+    wired = next(term for term in server.extract_cost_terms(bid_amount_sections, "비공개") if term["title"] == "입찰보증금")
+    check("B4 배선 입찰금액 기준 note", "입찰금액을 기준" in str(wired["note"]), str(wired))
 
 
 # ---------------------------------------------------------------------------
@@ -853,7 +1274,102 @@ def test_glossary() -> None:
     check("용어 압류재산", "압류재산" in terms, str(terms))
     check("용어 매각", "매각" in terms, str(terms))
     check("용어 중복 없음", len(terms) == len(set(terms)), str(terms))
-    check("용어 음성 미상", server.build_glossary("재산유형 확인", "처분방식 확인", "") == [], "")
+    # 2026-10-19: 재산유형·처분방식을 읽지 못한 공고도 공통 절차 용어(group=basic · scope=common)는 보여 준다.
+    # 종전 단정 「미상이면 []」은 「미상이면 표기 매칭(match) 0건 · 기본 용어는 공통 scope 만」으로 바뀌었다.
+    unknown = server.build_glossary("재산유형 확인", "처분방식 확인", "")
+    check("용어 음성 미상 — 표기 매칭 0건", [e for e in unknown if e["group"] == "match"] == [], str(unknown))
+    # 기본 용어의 뜻풀이는 질문창과 같은 사전 ONBID_GUIDE_TERMS 에서 읽고, 용어 탭에 올릴 키만 GLOSSARY_TAB_TERMS 가 고른다.
+    missing_keys = [t for t in server.GLOSSARY_TAB_TERMS if t not in server.ONBID_GUIDE_TERMS]
+    check("B6 용어 탭 키가 전부 사전에 있다", missing_keys == [], str(missing_keys))
+    common_terms = {t for t in server.GLOSSARY_TAB_TERMS if server.ONBID_GUIDE_TERMS[t]["scope"] == "common"}
+    check(
+        "용어 음성 미상 — 기본 용어는 공통 scope 만",
+        unknown and all(e["group"] == "basic" and e["term"] in common_terms for e in unknown),
+        str([e["term"] for e in unknown]),
+    )
+    # 리터럴 음성(리뷰 r1 P-38 ⑴) — 위 단정의 기대값은 사전 scope 에서 계산하므로 누가 「매각결정기일」의
+    # scope 를 common 으로 바꾸면 함께 움직여 영원히 초록이다. 유형별 용어 이름을 여기 손으로 박는다.
+    typed_terms = {"매각결정기일", "차순위 매수신청", "대부료", "소유권이전", "명도책임", "등기촉탁"}
+    check(
+        "용어 음성 미상 — 유형별 용어 없음(리터럴)",
+        not any(e["term"] in typed_terms for e in unknown),
+        str([e["term"] for e in unknown]),
+    )
+    # 감정평가금액 note(price_candidates)는 단정형이 아니라 가정형이어야 한다(리뷰 r1 #3 · 정본에 관계 서술 없음).
+    source_text = Path(server.__file__).read_text(encoding="utf-8")
+    check("B6 감정평가금액 note 가정형 문장 존재(소스 문자열 · 배선은 보지 않음)", "최저입찰가격과 다를 수 있고, 둘의 관계는 공고 원문에서 확인하십시오." in source_text, "")
+    check("B6 음성 감정평가금액 단정형 0건", "최저입찰가격과는 다른 값" not in source_text, "")
+
+    # B6 기본 용어(GLOSSARY_TAB_TERMS ∩ ONBID_GUIDE_TERMS) — 공고 유형에 따라 다른 묶음이 앞에 선다(2026-10-19 커뮤니티 조사 1-1 반영).
+    groups = [entry["group"] for entry in entries]
+    check("B6 기본 용어가 표기 매칭보다 앞", groups == sorted(groups, key=lambda g: 0 if g == "basic" else 1), str(groups))
+    basic_sale = {e["term"] for e in entries if e["group"] == "basic"}
+    check("B6 압류·매각 기본 용어에 매각결정기일", "매각결정기일" in basic_sale, str(basic_sale))
+    check("B6 압류·매각 기본 용어에 대금납부기한·소유권이전", {"대금납부기한", "소유권이전"} <= basic_sale, str(basic_sale))
+    check("B6 압류·매각 기본 용어에 유찰·개찰·입찰보증금", {"유찰", "개찰", "입찰보증금"} <= basic_sale, str(basic_sale))
+    lease_entries = server.build_glossary("국유재산", "임대/대부입찰", "")
+    basic_lease = {e["term"] for e in lease_entries if e["group"] == "basic"}
+    check("B6 국유·임대 기본 용어에 대부료", "대부료" in basic_lease, str(basic_lease))
+    check("B6 음성 국유·임대 기본 용어에 매각결정기일·소유권이전 없음", not ({"매각결정기일", "소유권이전"} & basic_lease), str(basic_lease))
+    check("B6 음성 압류·매각 기본 용어에 대부료 없음", "대부료" not in basic_sale, str(basic_sale))
+    # 도달 증거 — 두 집합이 실제로 다르다(둘 다 공통만 돌려주면 위 단정들이 영구 초록이 된다).
+    check("B6 도달 증거 — 매각·임대 기본 용어 집합이 다름", basic_sale != basic_lease, "")
+    # 음성 — 기본 용어는 판단을 담지 않는다. 금지 낱말은 CLAUDE.md 행동 규칙(입찰 여부·수익성·권리 판단).
+    judging = [t for t in server.GLOSSARY_TAB_TERMS if re.search(r"수익|추천|유리|안전하|권리분석", str(server.ONBID_GUIDE_TERMS[t]["text"]))]
+    check("B6 음성 기본 용어 뜻풀이에 판단 낱말 없음", judging == [], str(judging))
+    check("B6 기본 용어마다 출처가 있다", all(e.get("source") for e in entries if e["group"] == "basic"), "")
+
+    # B6 머리표 자르기 — 사전 text 가 「[압류재산] … [국유재산 매각] …」로 묶인 항목은 공고 분류의 조각만 남긴다.
+    sale_due = next(e["meaning"] for e in entries if e["term"] == "대금납부기한")
+    lease_due = next(e["meaning"] for e in lease_entries if e["term"] == "대금납부기한")
+    unknown_due = next(e["meaning"] for e in unknown if e["term"] == "대금납부기한")
+    check("B6 머리표 압류 조각만", "매각결정통지서" in sale_due and "국유재산" not in sale_due and "[" not in sale_due, sale_due[:80])
+    check("B6 머리표 국유 대부 조각만", "5영업일" in lease_due and "매각결정통지서" not in lease_due and "60일" not in lease_due, lease_due[:80])
+    check("B6 머리표 미상이면 원문 그대로", unknown_due.startswith("[압류재산]") and "[국유재산 매각]" in unknown_due, unknown_due[:80])
+    lease_deposit = next(e["meaning"] for e in lease_entries if e["term"] == "보증금 귀속")
+    check("B6 머리표 「국유재산」 하나로 묶인 글도 국유 대부에 맞춤", "국고에 귀속" in lease_deposit and "매도자" not in lease_deposit, lease_deposit[:80])
+    local_lease = {e["term"]: e["meaning"] for e in server.build_glossary("공유재산", "임대", "") if e["group"] == "basic"}
+    check("B6 머리표 이용기관 조각(공유 임대 대부료)", "공고기관마다" in local_lease["대부료"] and "5영업일" not in local_lease["대부료"], local_lease["대부료"][:80])
+    # 음성 — 머리표가 없는 글은 손대지 않는다.
+    plain = next(e["meaning"] for e in entries if e["term"] == "유찰")
+    check("B6 머리표 없는 글은 원문 그대로", plain == str(server.ONBID_GUIDE_TERMS["유찰"]["text"]), "")
+    # 처분방식 낱말 하나씩 — 「임대」·「대부」·「매각」·「공매」 어느 표기로 읽혀도 같은 조각을 고른다(돌연변이 분모 대조).
+    due_for = lambda a, d: next(e["meaning"] for e in server.build_glossary(a, d, "") if e["term"] == "대금납부기한")  # noqa: E731
+    check("B6 머리표 국유 「임대」 표기", "5영업일" in due_for("국유재산", "임대") and "60일" not in due_for("국유재산", "임대"), "")
+    check("B6 머리표 국유 「대부」 표기", "5영업일" in due_for("국유재산", "대부") and "60일" not in due_for("국유재산", "대부"), "")
+    check("B6 머리표 국유 「매각」 표기", "60일" in due_for("국유재산", "매각") and "5영업일" not in due_for("국유재산", "매각"), "")
+    check("B6 머리표 국유 「공매」 표기", "60일" in due_for("국유재산", "공매") and "5영업일" not in due_for("국유재산", "공매"), "")
+    check("B6 머리표 국유 처분방식 미상이면 매각·대부 둘 다", "60일" in due_for("국유재산", "처분방식 확인") and "5영업일" in due_for("국유재산", "처분방식 확인"), "")
+    trust = {e["term"]: e["meaning"] for e in server.build_glossary("수탁재산", "매각", "") if e["group"] == "basic"}
+    check("B6 머리표 수탁 조각(소유권이전)", "위임기관" in trust["소유권이전"] and "캠코" not in trust["소유권이전"], trust["소유권이전"][:80])
+    etc_sale = {e["term"]: e["meaning"] for e in server.build_glossary("기타일반재산", "매각", "") if e["group"] == "basic"}
+    check("B6 머리표 기타일반 조각(보증금 귀속)", "이용기관이 정합니다" in etc_sale["보증금 귀속"] and "국고" not in etc_sale["보증금 귀속"], etc_sale["보증금 귀속"][:80])
+    # 머리표 정규식 직접 호출 — 대괄호 머리표만 자르고, 소괄호·꺾쇠는 머리표가 아니다.
+    cut = server._guide_text_for("머리. [압류재산] 가. [국유재산] 나.", "압류재산", "매각")
+    check("B6 머리표 함수 직접 호출", cut == "머리. 가.", cut)
+    not_cut = server._guide_text_for("머리. (압류재산) 가. (국유재산) 나.", "압류재산", "매각")
+    check("B6 음성 소괄호는 머리표가 아니다", not_cut == "머리. (압류재산) 가. (국유재산) 나.", not_cut)
+    one_head = server._guide_text_for("[압류재산] 가.", "국유재산", "매각")
+    check("B6 음성 머리표 하나뿐이고 안 맞으면 원문 그대로", one_head == "[압류재산] 가.", one_head)
+    one_head_hit = server._guide_text_for("[압류재산] 가.", "압류재산", "매각")
+    check("B6 머리표 하나뿐이어도 맞으면 자른다", one_head_hit == "가.", one_head_hit)
+    # 산문 대괄호는 머리표가 아니다(리뷰 r3 R3-3) — 사전 「공매재산명세서」 text 의 「[입찰정보] 탭」이 그 예다.
+    prose = server._guide_text_for("[압류재산] 상세페이지 [입찰정보] 탭에서 봅니다. [국유재산] 나.", "압류재산", "매각")
+    check("B6 음성 산문 대괄호는 자르지 않는다", prose == "상세페이지 [입찰정보] 탭에서 봅니다.", prose)
+    sheet = next(e["meaning"] for e in entries if e["term"] == "공매재산명세서")
+    check("B6 음성 공매재산명세서 text 는 압류 분류에서도 원문 그대로", sheet == str(server.ONBID_GUIDE_TERMS["공매재산명세서"]["text"]), sheet[:80])
+    # 임대·매각이 한 라벨에 있으면 미상처럼 둘 다 남긴다(리뷰 r3 R3-4).
+    mixed = due_for("국유재산", "임대/매각")
+    check("B6 머리표 혼합 라벨은 매각·대부 둘 다", "60일" in mixed and "5영업일" in mixed, mixed[:80])
+    # 순서 — 재산유형 전용 용어가 공통 용어보다 앞(리뷰 r3 제안).
+    sale_terms = [e["term"] for e in entries if e["group"] == "basic"]
+    check(
+        "B6 순서 유형별 → 매각/임대 → 공통",
+        sale_terms.index("매각결정기일") < sale_terms.index("소유권이전") < sale_terms.index("입찰보증금"),
+        str(sale_terms),
+    )
+    no_type = server._guide_text_for("[압류재산] 가. [국유재산] 나.", "", "")
+    check("B6 음성 재산유형이 비면 원문 그대로", no_type == "[압류재산] 가. [국유재산] 나.", no_type)
 
     # 음성 대조: 용어 안내는 «뜻»만 적는다. 처분방식 사이의 금액·보증금 비교를 담으면
     # 임대(사용료)와 매각(매매대금)의 금액 규모를 같게 오해시킨다.
@@ -1539,6 +2055,123 @@ def _with_fake_vertex(codes: list[int], action):
     return result, len(calls), sleeps
 
 
+FORBIDDEN_SCREEN_PHRASES = (
+    "자동 입찰", "입찰 대행", "낙찰 가능성 예측", "투자수익률 판단", "법률 자문", "권리분석 대체",
+    "PDF 리포트", "Q&A", "공고 해석 리포트", "Vertex AI", "Gemini AI", "Local MVP", "로컬 분석 API", "완전 자동",
+)
+
+
+def test_onbid_references() -> None:
+    find = server.find_onbid_references
+    terms = lambda question: [ref["term"] for ref in find(question)]  # noqa: E731
+    got = find("감정가격이 뭐야?")
+    check("D3 사전 용어를 찾아 설명과 출처를 붙인다",
+          len(got) == 1 and got[0]["term"] == "감정가격" and got[0]["source"] == "온비드 자료실 용어사전" and got[0]["text"],
+          str(got))
+    check("D3 띄어쓰기를 무시한다", terms("감정 가격 은요") == ["감정가격"], str(terms("감정 가격 은요")))
+    # 짧은 용어를 앞에 둔다. 찾기는 긴 이름부터 하므로, 순서 정렬을 지우면 이 질문에서 뒤집힌다.
+    check("D3 질문 속 순서대로 싣는다", terms("감정가격이랑 개별공시지가 차이") == ["감정가격", "개별공시지가"],
+          str(terms("감정가격이랑 개별공시지가 차이")))
+    # 음성: TERM_GLOSSARY 에 「임대」가 있지만 2글자 사전 용어는 찾지 않는다.
+    check("D3 2글자 사전 용어는 찾지 않는다", "임대" in server.TERM_GLOSSARY and terms("임대료는 언제 내나요?") == [],
+          str(terms("임대료는 언제 내나요?")))
+    check("D3 용어가 없으면 빈 목록", terms("이제 뭘 해야 하나요?") == [] and find("") == [] and find(None) == [])
+    check("D3 긴 이름과 겹치는 짧은 이름은 버린다",
+          "개발이익" in server.ONBID_GLOSSARY_TERMS and terms("개발이익환수제가 뭐야") == ["개발이익환수제"],
+          str(terms("개발이익환수제가 뭐야")))
+    check("D3 한 질문에 3건까지만", len(find("감정가격 개별공시지가 개발부담금 감가상각률")) == 3)
+
+    # 온비드 이용안내·FAQ·준수규칙에서 옮긴 절차 용어(ONBID_GUIDE_TERMS). 2026-10-19 동원님이 「매각결정기일이 뭐지?」에
+    # 「담당기관 문의 필요」가 뜬 화면을 보고 지시한 자리다.
+    got = find("매각결정기일이 뭐지?")
+    check("D3 절차 용어: 매각결정기일을 온비드 FAQ 출처로 찾는다",
+          [ref["term"] for ref in got] == ["매각결정기일"] and "매각결정기일" in got[0]["source"]
+          and "개찰일로부터 7일 이내" in got[0]["text"], str(got))
+    check("D3 절차 용어도 띄어쓰기를 무시한다", terms("매각 결정 기일은 언제야") == ["매각결정기일"])
+    check("D3 절차 용어는 2글자도 찾는다", terms("유찰되면 어떻게 돼?") == ["유찰"], str(terms("유찰되면 어떻게 돼?")))
+    check("D3 별칭으로 찾는다(질문창 예시 문장)", terms("잔금은 언제까지 내야 하나요?") == ["대금납부기한"],
+          str(terms("잔금은 언제까지 내야 하나요?")))
+    # 음성: 사전의 「공유자우선매수」는 법원 경매 기준이라 온비드 공매 절차 설명과 같이 내지 않는다.
+    check("D3 절차 용어 별칭과 같은 사전 용어는 싣지 않는다",
+          "공유자우선매수" in server.ONBID_GLOSSARY_TERMS and terms("공유자우선매수가 뭐야") == ["우선매수 신청"],
+          str(terms("공유자우선매수가 뭐야")))
+    check("D3 긴 절차 용어 안의 짧은 절차 용어는 버린다", terms("적정최고가입찰이 뭐야") == ["적정최고가입찰"],
+          str(terms("적정최고가입찰이 뭐야")))
+    check("D3 공고 질문에는 용어 설명을 붙이지 않는다", terms("이 공고 입찰 마감이 언제야?") == [],
+          str(terms("이 공고 입찰 마감이 언제야?")))
+    # 2글자 이름은 낱말 첫머리에서만 찾는다(리뷰 r1 P1-1). 음성은 낱말 가운데·띄어쓰기를 건넌 자리다.
+    # 「두 명 도장」·「몇 분 납부」는 낱말 첫머리에서 시작하지만 띄어쓰기를 건넌다(리뷰 r2 P2-a).
+    for question in ("보증금 설명도 부탁해요", "공동 점유자가 있으면 어떻게 하나요?", "지명도 높은 기관인가요",
+                     "몇 분 납부하면 돼요?"):
+        check(f"D3 2글자 이름은 낱말 가운데서 찾지 않는다: {question}", terms(question) == [], str(terms(question)))
+    for question, expected in (("명도는 누가 해요?", ["명도책임"]), ("동점이면 어떻게 돼요?", ["무작위 추첨"]),
+                               ("(유찰) 뜻이 뭐예요", ["유찰"]),
+                               # 앞 문장부호가 둘이다. 문장부호를 한 글자만 건너뛰면 여기서 깨진다.
+                               ('"(유찰)" 표시는 뭐예요', ["유찰"]),
+                               # 둘째 낱말 이후다. 낱말 자리 계산(offset)이 틀리면 여기서 깨진다(리뷰 r2 P2-b).
+                               ("이 물건 유찰되면?", ["유찰"]),
+                               # 같은 이름이 낱말 가운데(재유찰)와 첫머리(유찰되면)에 다 있다. 낱말 가운데 자리를
+                               # 만났을 때 찾기를 멈추면(continue → break) 여기서 깨진다.
+                               ("재유찰 말고 그냥 유찰되면?", ["유찰"]),
+                               ("공동입찰자 두 명 도장이 필요한가요?", ["공동입찰"])):
+        check(f"D3 2글자 이름은 낱말 첫머리에서 찾는다: {question}", terms(question) == expected, str(terms(question)))
+    # 경계: 3글자 이상은 낱말 가운데서도 찾는다(붙여 쓴 「남은잔대금」). 「<= 2」를 「<= 3」으로 바꾸면 여기서 깨진다.
+    check("D3 3글자 이상 이름은 낱말 가운데서도 찾는다", terms("남은잔대금은 언제 내요?") == ["대금납부기한"],
+          str(terms("남은잔대금은 언제 내요?")))
+    # 같은 용어가 두 번 나오면 첫 자리를 쓴다. 자리를 고르는 break 를 지우면 마지막 자리가 쓰여 순서가 뒤집힌다.
+    check("D3 같은 용어가 두 번 나오면 첫 자리로 순서를 정한다",
+          terms("유찰 뒤에 감정가격은 그대로인데 또 유찰되면?") == ["유찰", "감정가격"],
+          str(terms("유찰 뒤에 감정가격은 그대로인데 또 유찰되면?")))
+    check("D3 같은 용어는 별칭이 여러 번 맞아도 한 번만 싣는다", terms("잔금이랑 중도금은 언제 내요?") == ["대금납부기한"],
+          str(terms("잔금이랑 중도금은 언제 내요?")))
+    check("D3 겹친 자리 뒤에 또 나오면 그 자리를 쓴다",
+          terms("매각결정기일 전에 매각결정이 취소되면?") == ["매각결정기일", "매각결정"],
+          str(terms("매각결정기일 전에 매각결정이 취소되면?")))
+    check("D3 references 에 scope 가 실린다(사전 용어는 빈 값)",
+          find("매각결정기일이 뭐지?")[0].get("scope") == "압류재산" and find("감정가격이 뭐야?")[0].get("scope") == "",
+          str([find("매각결정기일이 뭐지?")[0].get("scope"), find("감정가격이 뭐야?")[0].get("scope")]))
+    # 화면이 escape 없이 넣는다(renderOnbidReferences). 상수에 「<」·「&」가 들어오면 그대로 HTML 이 된다.
+    markup = [term for term, item in {**server.ONBID_GUIDE_TERMS, **{k: {"text": v} for k, v in server.TERM_GLOSSARY.items()}}.items()
+              if any(ch in f"{term}{item.get('text', '')}{item.get('source', '')}" for ch in "<&")]
+    check("D3 용어 설명 상수에 「<」·「&」가 없다", not markup, str(markup))
+    scopes = {item.get("scope") for item in server.ONBID_GUIDE_TERMS.values()}
+    check("D3 절차 용어의 scope 는 합의한 여섯 값 안에 있다",
+          scopes <= {"common", "sale", "lease", "압류재산", "국유재산", "수탁재산"} and None not in scopes, str(scopes))
+
+    prompt = server.question_prompt({"title": "공고"}, [], "감정가격이 뭐야?", {})
+    check("D3 프롬프트에 onbidReference 가 실린다",
+          [ref["term"] for ref in prompt.get("onbidReference", [])] == ["감정가격"], str(prompt.get("onbidReference")))
+    check("D3 schema 가 general 을 허용한다", "general" in prompt["schema"]["answerType"], prompt["schema"]["answerType"])
+    check("D3 지시가 onbidReference 를 근거로 답하라고 한다",
+          "onbidReference" in prompt["instruction"] and "none 으로 답하지 않고" in prompt["instruction"])
+
+    # 배선 — 모델이 none 으로 답하거나 연결되지 않아도 references 가 결과에 실린다.
+    original = (server.vertex_answer_question, server.gemini_answer_question)
+    none_answer = {"answerable": False, "answerType": "none", "answer": "", "sourceField": ""}
+    try:
+        server.vertex_answer_question = lambda n, d, q, b=None: dict(none_answer)
+        server.gemini_answer_question = lambda n, d, q, b=None: None
+        declined = server.answer_notice_question({}, [], "감정가격이 뭐야?", {})
+        server.vertex_answer_question = lambda n, d, q, b=None: None
+        offline = server.answer_notice_question({}, [], "감정가격이 뭐야?", {})
+        plain = server.answer_notice_question({}, [], "이제 뭘 해야 하나요?", {})
+    finally:
+        server.vertex_answer_question, server.gemini_answer_question = original
+    check("D3 배선: 모델이 none 이어도 references 가 실린다",
+          declined["connected"] is True and declined["answerable"] is False
+          and [ref["term"] for ref in declined.get("references", [])] == ["감정가격"], str(declined))
+    check("D3 배선: 모델 미연결이어도 references 가 실린다",
+          offline["connected"] is False and [ref["term"] for ref in offline.get("references", [])] == ["감정가격"],
+          str(offline))
+    check("D3 배선: 용어가 없으면 references 는 빈 목록", plain.get("references") == [], str(plain.get("references")))
+
+    bad = [(term, phrase) for term, item in server.ONBID_GUIDE_TERMS.items()
+           for phrase in FORBIDDEN_SCREEN_PHRASES if phrase in f"{item.get('text', '')} {item.get('source', '')}"]
+    check("D3 절차 용어 설명·출처에 금지표현이 없다", not bad, str(bad))
+    empty = [term for term, item in server.ONBID_GUIDE_TERMS.items() if not item.get("text") or not item.get("source")]
+    check("D3 절차 용어마다 설명과 출처가 있다", not empty, str(empty))
+
+
 def test_vertex_429_retry() -> None:
     import urllib.error
     req = lambda: server.vertex_read(server.urllib.request.Request("https://example.invalid", data=b"{}"), 5)  # noqa: E731
@@ -1566,6 +2199,138 @@ def test_vertex_429_retry() -> None:
           "vertex_read(request" in coach_code and "urlopen(" not in coach_code)
 
 
+# ---------------------------------------------------------------------------
+# E축 — 공공데이터 getCltrBidInf2 제출서류 필드 연동 (2026-10-18)
+#
+# 픽스처는 2026-10-18 에 실제 API 에서 받은 응답이다
+# (tests/fixtures/cltr_bid_inf_samples.json · 재산유형 6종 · 각 65개 필드).
+# 목 데이터를 만들지 않고 실제 응답을 고정 샘플로 저장해 쓴다 — 이 API 의 값은 명세를 읽어
+# 추측하면 틀린다는 것이 이번 조사의 결론이었다(서류 「내용」 필드가 전부 비어 있었다).
+# 테스트는 외부 네트워크에 의존하지 않고, 실제 호출 검증은 수동 1회로 따로 했다.
+# ---------------------------------------------------------------------------
+
+CLTR_BID_SAMPLES_PATH = Path(__file__).resolve().parent / "fixtures" / "cltr_bid_inf_samples.json"
+
+
+def load_cltr_bid_samples() -> dict[str, dict[str, object]]:
+    return json.loads(CLTR_BID_SAMPLES_PATH.read_text(encoding="utf-8"))
+
+
+def test_api_doc_terms_flag_filter() -> None:
+    samples = load_cltr_bid_samples()
+    # 모수 하한 — 입력이 비면 아래 단정들이 「대상 0건」으로 조용히 통과한다.
+    check("E1 고정 샘플 모수", len(samples) >= 6, f"{len(samples)}건")
+
+    joint_n_with_value = samples["공유재산_매각_분양_202604-11680-00"]
+    # 이 샘플이 이 축의 근거다 — 플래그가 N 인데 기한·방식 값이 남아 있다. 이 전제가 깨지면
+    # 아래 양성 단정이 아무것도 증명하지 못하므로 전제부터 센다.
+    check(
+        "E1 전제 — 플래그 N 인데 기한 값이 남은 샘플이 실재한다",
+        joint_n_with_value.get("collbBidPsblYn") == "N"
+        and bool(joint_n_with_value.get("collbDcmtSbmsnTermNm")),
+        repr(joint_n_with_value.get("collbDcmtSbmsnTermNm")),
+    )
+    terms = server.build_bid_doc_terms(joint_n_with_value)
+    check(
+        "E1 플래그 N 이면 그 입찰 방식의 기한·방식을 내보내지 않는다",
+        not [term for term in terms if term["kind"] == "공동입찰"],
+        repr(terms),
+    )
+
+    # 음성 대조 — 플래그가 Y 인 샘플에서는 반드시 내보낸다. 이것이 없으면 「전부 버리는」
+    # 구현도 위 단정을 통과한다.
+    proxy_y = samples["파산자산_매각_2026-1000-056230"]
+    check("E1 음성 대조 전제 — subtBidPsblYn 이 Y", proxy_y.get("subtBidPsblYn") == "Y")
+    proxy_terms = server.build_bid_doc_terms(proxy_y)
+    proxy_row = next((term for term in proxy_terms if term["kind"] == "대리입찰"), None)
+    check("E1 플래그 Y 이면 기한·방식을 내보낸다", proxy_row is not None, repr(proxy_terms))
+    if proxy_row:
+        check(
+            "E1 내보낸 값이 응답 원문과 같다",
+            proxy_row["due"] == "입찰마감일시 전까지" and proxy_row["method"] == "온라인/직접제출",
+            repr(proxy_row),
+        )
+
+
+def test_api_unusable_term_value() -> None:
+    samples = load_cltr_bid_samples()
+    # bidPtctAplyTermNm 은 6건 전부 "~" 였다. 날짜도 문구도 없는 값이라 화면에 그대로
+    # 내보내면 「기한 ~」이 된다.
+    tilde_count = sum(1 for entry in samples.values() if entry.get("bidPtctAplyTermNm") == "~")
+    check("E2 전제 — 쓸 수 없는 기한 값이 실제로 온다", tilde_count >= 1, f"{tilde_count}건")
+
+    info = server.build_bid_participation_apply(samples["불용품_매각_2026-0600-033346"])
+    check("E2 쓸 수 없는 기한 값은 빈 값으로 눌린다", info.get("due") == "", repr(info.get("due")))
+    check("E2 Y·N 이 아니면 빈 dict — 화면이 블록을 그리지 않는다",
+          server.build_bid_participation_apply({"bidPtctAplyYn": ""}) == {})
+    check("E2 N 이면 required 가 False",
+          server.build_bid_participation_apply({"bidPtctAplyYn": "N"}).get("required") is False)
+    check("E2 Y 이면 required 가 True",
+          server.build_bid_participation_apply({"bidPtctAplyYn": "Y"}).get("required") is True)
+
+    # 판정 함수를 배선과 별개로 직접 부른다 — 본문을 비워도 위 단정이 통과하면 그 함수는
+    # 아무것도 증명하지 못한다.
+    check("E2 판정 직접 호출 — 「~」", server.api_meaningful_term("~") == "")
+    check("E2 판정 직접 호출 — 「||」", server.api_meaningful_term("||") == "")
+    # 음성 대조 — 쓸 수 있는 값은 그대로 통과해야 한다.
+    check(
+        "E2 음성 대조 — 쓸 수 있는 기한은 그대로 둔다",
+        server.api_meaningful_term("입찰마감일시 전까지") == "입찰마감일시 전까지",
+    )
+    check("E2 음성 대조 — 「~」가 섞인 실제 기간은 버리지 않는다",
+          server.api_meaningful_term("2026-10-01 ~ 2026-10-15") == "2026-10-01 ~ 2026-10-15")
+
+
+def test_api_bid_limits() -> None:
+    samples = load_cltr_bid_samples()
+    limits = server.build_bid_limits(samples["공유재산_임대_2026-0800-045505"])
+    by_key = {str(limit["key"]): limit for limit in limits}
+    check("E3 지역 제한 값이 있으면 제한으로 판정한다",
+          by_key.get("region", {}).get("restricted") is True, repr(limits))
+    check("E3 「없음(모든 회원 입찰가능)」은 제한으로 판정하지 않는다",
+          by_key.get("qualification", {}).get("restricted") is False, repr(limits))
+    # 창 — 부분일치로 비교하면 「없음 다만 …」 같은 실제 제한 문구를 제한 없음으로 읽는다.
+    etc = server.build_bid_limits({"etcLmtCdtnCont": "없음 다만 농지취득자격증명이 필요합니다"})
+    check("E3 「없음」이 섞인 실제 제한 문구는 제한으로 판정한다",
+          bool(etc) and etc[0]["restricted"] is True, repr(etc))
+    check("E3 빈 응답이면 빈 목록", server.build_bid_limits({}) == [])
+
+
+def test_api_pbct_cdtn_no_wiring() -> None:
+    # 배선 검사 — build_notice() 가 cltrInfVO 의 pbctCdtnNo 를 보충해 공공데이터 호출에
+    # 넘기는지 본다. 이 한 줄이 없으면 getCltrBidInf2 가 호출 목록에 들어가지 못한다.
+    # 주석을 먼저 벗긴다 — 주석에 같은 문구가 있어 벗기지 않으면 주석만 보고 통과한다.
+    source = (Path(__file__).resolve().parent.parent / "src" / "server.py").read_text(encoding="utf-8")
+    stripped = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    check(
+        "E4 cltrInfVO 의 pbctCdtnNo 를 보충한다",
+        'api_pbct_cdtn_no = pbct_cdtn_no or clean_text(str(cltr_detail.get("pbctCdtnNo")' in stripped,
+    )
+    # 창 — fetch_public_data_bundle 호출 블록 안에서 그 보충값을 쓰는지 본다. 보충만 하고
+    # 넘기지 않으면 동작은 그대로다.
+    bundle_call = stripped.split("public_data = fetch_public_data_bundle(", 1)
+    check("E4 호출 블록이 하나 있다", len(bundle_call) == 2)
+    if len(bundle_call) == 2:
+        block = bundle_call[1].split(")", 1)[0]
+        check("E4 보충값을 pbctCdtnNo 로 넘긴다", '"pbctCdtnNo": api_pbct_cdtn_no' in block, block[:200])
+    # 서비스별 응답 분리 — items 를 합쳐 쓰면 같은 이름의 필드가 여러 API 에 있어 엉뚱한
+    # 쪽 값을 집는다(tdpsSbtnDcmtYn 은 getCltrBidInf2 와 getPbancBidInf2 양쪽에 있다).
+    check("E4 서비스별 응답을 따로 보관한다", '"itemsByService"' in stripped)
+    check(
+        "E4 item_bid_detail 응답만 골라 쓴다",
+        'items_by_service.get("item_bid_detail", [])' in stripped,
+    )
+    # 화면이 쓰는 세 값이 응답에 실제로 실리는지 — 함수만 있고 배선이 없으면 화면은 빈다.
+    for field, builder in (
+        ('"bidParticipationApply"', "build_bid_participation_apply(item_bid_entry)"),
+        ('"apiDocTerms"', "build_bid_doc_terms(item_bid_entry)"),
+        ('"bidLimits"', "build_bid_limits(item_bid_entry)"),
+    ):
+        check(f"E4 응답에 {field} 를 싣는다", f"{field}: {builder}" in stripped)
+
+
 def main() -> int:
     print_header()
     tests = (
@@ -1577,6 +2342,7 @@ def main() -> int:
         test_profile,
         test_attachments,
         test_attachment_wiring,
+        test_heading_layers,
         test_generic_table_is_not_success,
         test_checklist_states,
         test_minimum_bid,
@@ -1598,7 +2364,12 @@ def main() -> int:
         test_item_detail_uncertain_flag,
         test_asset_type_notice_detail,
         test_question_board_state,
+        test_onbid_references,
         test_vertex_429_retry,
+        test_api_doc_terms_flag_filter,
+        test_api_unusable_term_value,
+        test_api_bid_limits,
+        test_api_pbct_cdtn_no_wiring,
     )
     for test in tests:
         test()

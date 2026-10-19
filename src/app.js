@@ -407,6 +407,10 @@ const pipelineSteps = [
 ];
 
 const initialSampleNotice = JSON.parse(JSON.stringify(sampleNotice));
+// 「샘플 불러오기」가 입력칸에 넣는 주소다(2026-10-19 동원님 지정 · 공유재산 임대 · 경기도 성남시
+// 분당구 삼평동 696-1). 위 sampleNotice 와는 다른 공고다. 버튼은 주소만 채우고, 화면 내용은
+// 「다음」으로 분석해야 이 공고로 바뀐다. 단축 주소는 서버가 302 를 따라가 물건상세로 읽는다.
+const SAMPLE_INPUT_URL = "https://www.onbid.co.kr/shortcut.do?code=C8Femdw4sdo4";
 
 const userTypeLabels = {
   person: "개인",
@@ -436,6 +440,10 @@ const wizardSteps = ["profile", "url", "result", "transition"];
 // 기본값(닫힘)으로 돌아간다. 사용자가 연속으로 여러 서류를 체크할 수 있도록 이 상태를
 // 따로 기억해뒀다가 다시 그릴 때 반영한다.
 let docChecklistOpen = false;
+// 할 일 카드의 「자세히」를 모두 펼쳐 둘지다. 기본은 접힘이다 — 펼쳐 두면 카드마다 문의 문장·
+// 상세 설명·근거가 쏟아져 화면이 정신없다(2026-10-19 동원님 지시). 「안내 수준」 버튼이 이 값만
+// 뒤집는다. 저장하지 않으므로 새로 열면 다시 접힌 상태다.
+let guideDetailed = false;
 const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
@@ -456,8 +464,8 @@ const PREP_STAGES = [
   { num: 4, title: "낙찰 후 준비", taskIds: [], sequential: false },
 ];
 
-// 4단계가 담는 서류의 stage 값. server.py 가 CONTRACT_STAGE_RE 로 판정해 넣는 값과 같아야
-// 한다(src/server.py:533). 한쪽만 고치면 4단계가 조용히 빈다.
+// 4단계가 담는 서류의 stage 값. server.py 의 resolve_doc_stage() 가 판정해 넣는 값과 같아야
+// 한다(src/server.py). 한쪽만 고치면 4단계가 조용히 빈다.
 const POST_AWARD_DOC_STAGE = "낙찰 후·계약 시";
 
 function getTaskStageNum(taskId) {
@@ -731,7 +739,11 @@ const DOC_CONDITION_SUPPLEMENT = {
       // 경우에는 공동입찰신청을 온비드 등록으로 대신할 수 있습니다」. 같은 공고문 「1. 입찰방법
       // 가」항이 압류재산 공매를 인터넷 공매로 명시하므로, 이 단서를 빼면 하지 않아도 되는 직접
       // 제출을 하라고 안내하게 된다(2026-10-18 researcher-fact-check 사실 1).
+      // 🔴 이 단서는 압류재산 전용이다 — 국유재산 대부입찰 공고문(researcher-fact-check 사실 3)
+      // 은 이 단서가 없고 "전자서명 방식 또는 서류제출 방식 중 선택"을 제시한다. 재산유형을
+      // 가르지 않으면 압류재산 전용 문구가 국유재산 화면에도 새어 나간다(2026-10-19 E2E S3).
       note: "압류재산 공매는 인터넷 공매이므로, 공동입찰신청을 온비드 등록으로 대신할 수 있습니다(압류재산 공매공고문 「16. 주의사항」 자항 ③호 단서). 서류를 직접 제출하기 전에 공고 원문의 해당 조항을 먼저 확인하십시오.",
+      noteAssetTypes: ["압류재산"],
     },
     {
       name: "공동매수신청인 전원의 인감증명서 또는 본인서명사실확인서",
@@ -761,7 +773,12 @@ const DOC_CONDITION_SUPPLEMENT = {
 const DOC_SUPPLEMENT_EVIDENCE =
   "이 공고 원문에서 추출한 문장이 아니라, 공동입찰·대리입찰 시 온비드 공매에서 통상 요구하는 서류에 대한 일반 안내입니다. 실제 필요 여부와 서식은 공고 원문과 담당기관 기준으로 다시 확인하십시오.";
 
-function buildDocConditionSupplementItem(base, conditionLabel) {
+function buildDocConditionSupplementItem(base, conditionLabel, assetType) {
+  // noteAssetTypes 가 있으면 그 재산유형에서만 note 를 붙인다 — 특정 재산유형의 공고문
+  // 조항을 근거로 한 note 는 다른 재산유형에 그대로 옮기면 틀린 안내가 된다(위 joint[0] 참조).
+  const noteApplies =
+    !base.noteAssetTypes || base.noteAssetTypes.some((type) => String(assetType || "").includes(type));
+  const note = noteApplies ? base.note : "";
   return {
     name: base.name,
     conditions: [conditionLabel],
@@ -775,7 +792,7 @@ function buildDocConditionSupplementItem(base, conditionLabel) {
     howto: base.howto,
     howtoUrl: base.howtoUrl,
     sourceSection: "",
-    evidence: base.note ? `${base.note} ${DOC_SUPPLEMENT_EVIDENCE}` : DOC_SUPPLEMENT_EVIDENCE,
+    evidence: note ? `${note} ${DOC_SUPPLEMENT_EVIDENCE}` : DOC_SUPPLEMENT_EVIDENCE,
   };
 }
 
@@ -813,10 +830,13 @@ const POST_AWARD_DOC_GROUPS = [
   },
   {
     condition: "소유권이전 단계",
-    // 🔴 압류재산 공고문에는 「공사는 체납자를 대신하여 매각재산의 권리이전 절차를 수행한다」는
-    // 조항이 있다. 매수인이 이 서류를 직접 등기소에 내는지, 캠코에 넘기는지는 확인되지 않았다
-    // (2026-10-18 researcher-fact-check 사실 10 · [미확인]). 그래서 항목마다 제출처를 단정하지
-    // 않고 「공고기관에 확인하십시오」를 붙인다.
+    // 소유권을 넘겨받는 매각 절차의 서류다. 임대·대부 공고에는 소유권이전이 없으므로 접는다
+    // (2026-10-19 정합성 대조 · 임대 공고에도 펼쳐져 나가던 문제).
+    dispositions: ["매각"],
+    // 제출처는 재산유형마다 다르다. 압류재산은 매수인이 서류를 준비해 캠코에 내고 캠코가 등기를
+    // 촉탁한다. 국유재산 매각은 매수자가 직접 이전등기를 한다. 이용기관 물건은 공고문이 정한다
+    // (온비드 이용안내 「낙찰절차 안내」 압류재산 STEP04·국유재산 STEP03 · FAQ 「압류재산
+    // 소유권이전절차 및 유의사항」 · team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md C6·C8·C10).
     items: [
       { name: "등기사항전부증명서", howto: "인터넷등기소", howtoUrl: "https://www.iros.go.kr/" },
       { name: "토지·건축물대장", howto: "정부24", howtoUrl: "https://www.gov.kr/" },
@@ -825,7 +845,7 @@ const POST_AWARD_DOC_GROUPS = [
       { name: "국민주택채권 매입필영수증", howto: "", howtoUrl: "" },
       { name: "등기신청수수료 납부영수증", howto: "인터넷등기소 또는 등기소", howtoUrl: "https://www.iros.go.kr/" },
     ],
-    note: "압류재산은 공사가 체납자를 대신해 권리이전 절차를 수행한다는 공고문 조항이 있습니다. 이 서류를 매수인이 직접 등기소에 제출하는지, 공고기관에 넘기는지는 확인되지 않았습니다. 절차와 제출처는 공고기관에 확인하십시오.",
+    note: "제출처는 재산유형마다 다릅니다. 압류재산은 매수인이 서류를 준비해 캠코 관할 부점에 우편이나 방문으로 내고, 등기촉탁은 캠코가 합니다. 매수인이 등기소에 직접 낼 수는 없습니다. 국유재산 매각은 매수자가 직접 이전등기를 합니다. 그 밖의 재산은 공고문이 정한 절차를 따르십시오. 근거는 온비드 이용안내 「낙찰절차 안내」입니다.",
   },
 ];
 
@@ -851,16 +871,38 @@ function buildPostAwardDocItem(base, group) {
   };
 }
 
-// 서류의 단계 판정은 server.py 의 CONTRACT_STAGE_RE 정규식 하나다(src/server.py:361·533).
+// 서류의 단계 판정은 server.py 의 resolve_doc_stage() 다(조항 표제 사전 → 문장 결정적
+// 문구 → 미분류, team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md).
 // 그 판정이 틀렸을 때 두 방향의 비용이 «같지 않다».
 //   - 「낙찰 후」로 잘못 보내면: 사용자가 4단계를 지금 할 일로 보지 않아 그 서류를 아예 놓치고,
 //     입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
 //   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
 // 그래서 값이 정확히 POST_AWARD_DOC_STAGE 일 때만 4단계로 보내고, 그 밖의 모든 값(빈 값·미지의
-// 값·판정 실패)은 2단계로 보낸다. 🔴 이 비대칭을 뒤집지 않는다 — 「낙찰 후가 아닌 것만 2단계」로
-// 바꾸면 미지의 값이 4단계로 흘러 위 첫째 비용을 물게 된다(ux-design-review P0-2).
+// 값·"미분류"·"별도 문의 필요"·판정 실패)은 2단계로 보낸다. 🔴 이 비대칭을 뒤집지 않는다 —
+// 「낙찰 후가 아닌 것만 2단계」로 바꾸면 미지의 값이 4단계로 흘러 위 첫째 비용을 물게 된다
+// (ux-design-review P0-2). "미분류"·"별도 문의 필요"는 2단계 «안에서» 확정 항목과 구분되는
+// 별도 구획으로 보인다(isUnclassifiedDoc·isNeedsInquiryDoc, renderDocChecklist).
 function isPostAwardDoc(item) {
   return item?.stage === POST_AWARD_DOC_STAGE;
+}
+
+// 조항 표제·문장 어디서도 단계를 확정하지 못한 서류. "우리가 확정했다"(아래 isConfirmedPreBidDoc)
+// 와 구분해 사용자에게 「확인이 더 필요하다」를 숨기지 않는다(stage-classification-design.md §3).
+const UNCLASSIFIED_DOC_STAGE = "미분류";
+function isUnclassifiedDoc(item) {
+  return item?.stage === UNCLASSIFIED_DOC_STAGE;
+}
+
+// 컨소시엄 협정서처럼 온비드 공통 규정에 일반 근거가 없는 서류. "미분류"와 달리 사전을
+// 넓혀도 못 찾는다는 뜻이라 화면 문구와 처리(공고기관 문의 안내)가 다르다.
+const NEEDS_INQUIRY_DOC_STAGE = "별도 문의 필요";
+function isNeedsInquiryDoc(item) {
+  return item?.stage === NEEDS_INQUIRY_DOC_STAGE;
+}
+
+// 입찰 전(2단계) 안에서 "우리가 확정한" 항목만 — 미분류·별도 문의는 각자 구획으로 뺀다.
+function isConfirmedPreBidDoc(item) {
+  return !isPostAwardDoc(item) && !isUnclassifiedDoc(item) && !isNeedsInquiryDoc(item);
 }
 
 // 낙찰 후 안내 묶음이 이 공고의 재산유형에 해당하는지 본다. assetTypes 선언이 없는 묶음은
@@ -872,11 +914,27 @@ function isPostAwardDoc(item) {
 const POST_AWARD_ASSET_TYPE_UNKNOWN = "재산유형 확인";
 
 function isPostAwardGroupApplicable(group) {
+  return !postAwardNotApplicableReason(group);
+}
+
+// 처분방식도 같은 비대칭 기본값을 쓴다 — 매각인지 임대인지 읽지 못했으면 해당하는 것으로 본다.
+// 「임대·대부」로 «읽혔고» 「매각·공매」 낱말이 없을 때만 매각 묶음을 접는다.
+function isLeaseOnlyDisposition() {
+  const disposition = String(sampleNotice.dispositionLabel || "");
+  return /임대|대부/.test(disposition) && !/매각|공매/.test(disposition);
+}
+
+// 해당하지 않으면 그 이유(화면 문구 종류)를, 해당하면 빈 문자열을 돌려준다.
+function postAwardNotApplicableReason(group) {
   const assetTypes = Array.isArray(group?.assetTypes) ? group.assetTypes : [];
-  if (!assetTypes.length) return true;
-  const assetType = String(sampleNotice.assetType || "").trim();
-  if (!assetType || assetType === POST_AWARD_ASSET_TYPE_UNKNOWN) return true;
-  return assetTypes.some((candidate) => assetType.includes(candidate));
+  if (assetTypes.length) {
+    const assetType = String(sampleNotice.assetType || "").trim();
+    const known = assetType && assetType !== POST_AWARD_ASSET_TYPE_UNKNOWN;
+    if (known && !assetTypes.some((candidate) => assetType.includes(candidate))) return "assetType";
+  }
+  const dispositions = Array.isArray(group?.dispositions) ? group.dispositions : [];
+  if (dispositions.includes("매각") && isLeaseOnlyDisposition()) return "disposition";
+  return "";
 }
 
 function splitDocGroupsByStage(groups) {
@@ -910,13 +968,13 @@ function getVisibleDocGroups() {
   if (answers.joint === "yes") {
     const items = DOC_CONDITION_SUPPLEMENT.joint
       .filter((base) => !existingNames.has(base.name))
-      .map((base) => buildDocConditionSupplementItem(base, "공동입찰"));
+      .map((base) => buildDocConditionSupplementItem(base, "공동입찰", sampleNotice.assetType));
     if (items.length) supplementGroups.push({ condition: "공동입찰 추가 안내", items });
   }
   if (answers.proxy === "yes") {
     const items = DOC_CONDITION_SUPPLEMENT.proxy
       .filter((base) => !existingNames.has(base.name))
-      .map((base) => buildDocConditionSupplementItem(base, "대리입찰"));
+      .map((base) => buildDocConditionSupplementItem(base, "대리입찰", sampleNotice.assetType));
     if (items.length) supplementGroups.push({ condition: "대리입찰 추가 안내", items });
   }
   // 낙찰 후 일반 안내는 조건(공동·대리) 답과 무관하게 항상 붙인다 — 재산유형·입찰 방식과
@@ -924,6 +982,7 @@ function getVisibleDocGroups() {
   const postAwardGroups = POST_AWARD_DOC_GROUPS.map((group) => ({
     condition: group.condition,
     notApplicable: !isPostAwardGroupApplicable(group),
+    notApplicableReason: postAwardNotApplicableReason(group),
     items: group.items
       .filter((base) => !existingNames.has(base.name))
       .map((base) => buildPostAwardDocItem(base, group)),
@@ -939,6 +998,38 @@ function getPreBidDocGroups() {
 // 4단계(낙찰 후 준비) 블록이 그리는 서류 그룹.
 function getPostAwardDocGroups() {
   return splitDocGroupsByStage(getVisibleDocGroups()).postAward;
+}
+
+// 2단계 안에서 "우리가 확정한" 항목만 남긴 그룹 — 미분류·별도 문의 필요 항목은
+// 각자 구획(getUnclassifiedPreBidDocItems·getNeedsInquiryPreBidDocItems)으로 뺀다.
+// 체크 상태·진행률(getUniqueDocNames 등)은 getPreBidDocGroups(미분류·별도 문의 포함)를
+// 그대로 쓴다 — 사용자가 그 서류들도 끝내 준비해야 하므로 진행률 분모에서 빼지 않는다.
+function getConfirmedPreBidDocGroups() {
+  return getPreBidDocGroups()
+    .map((group) => ({ ...group, items: (group.items || []).filter(isConfirmedPreBidDoc) }))
+    .filter((group) => group.items.length);
+}
+
+// 조건별 그룹에 같은 서류명이 여러 번 걸릴 수 있어(§4-2), 평면 구획은 이름으로 중복을 지운다.
+function flattenUniqueDocItems(groups, predicate) {
+  const seen = new Set();
+  const items = [];
+  groups.forEach((group) => {
+    (group.items || []).forEach((item) => {
+      if (!predicate(item) || seen.has(item.name)) return;
+      seen.add(item.name);
+      items.push(item);
+    });
+  });
+  return items;
+}
+
+function getUnclassifiedPreBidDocItems() {
+  return flattenUniqueDocItems(getPreBidDocGroups(), isUnclassifiedDoc);
+}
+
+function getNeedsInquiryPreBidDocItems() {
+  return flattenUniqueDocItems(getPreBidDocGroups(), isNeedsInquiryDoc);
 }
 
 // 조건별 그룹(공동입찰·대리입찰·공통 등)에 같은 서류명이 중복으로 나열되므로,
@@ -1512,14 +1603,60 @@ function renderBoardCoach(coach) {
   </section>`;
 }
 
+// 서버(find_onbid_references)가 질문에서 찾은 온비드 용어 설명이다. 모델 답과 따로 온다 — 모델이
+// 답하지 못했거나 연결되지 않았어도 이 설명은 보여 준다(2026-10-19 동원님 지시: 온비드 사이트·가이드에
+// 있는 용어 설명은 반드시 한다). 문장은 서버 상수에서 오고 모델이 만든 것이 아니다.
+// 모델이 답했으면 그 답이 이 설명을 풀어 쓴 것이라 같은 글이 두 번 보인다. 그때는 접어 둔다(collapsed).
+// 재산유형 전용 설명은 용어 옆에 그 사실을 붙인다. 압류재산 전용 15건 가운데 6건은 문장에 「압류」가 없다
+// (2026-10-19 리뷰 r1 P2-1). common·sale·lease 와 사전 용어(scope 빈 값)에는 붙이지 않는다.
+const ONBID_REFERENCE_SCOPE_TAGS = { 압류재산: "압류재산 기준", 국유재산: "국유재산 기준", 수탁재산: "수탁재산 기준" };
+// 모델이 답하지 않았는데 용어 설명만 보이면 질문에 답한 것처럼 읽힌다(리뷰 r1 P1-2).
+const ONBID_REFERENCE_DECLINED_NOTE = "이 질문에는 답하지 않았습니다. 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
+// 연결이 안 된 것은 답을 거절한 것과 다르다. 용어 질문이면 아래 설명이 곧 답이다(리뷰 r2 P2-c).
+const ONBID_REFERENCE_OFFLINE_NOTE = "AI 코치에 연결되지 않아 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
+// 설명이 질문의 일부만 덮을 수 있다(「유찰되면 보증금은?」에는 유찰 뜻만 붙는다 · 리뷰 r1 P1-1).
+const ONBID_REFERENCE_PARTIAL_NOTE = "질문하신 내용 가운데 위 설명에 없는 것은 공고 원문이나 담당기관에서 확인하세요.";
+
+function renderOnbidReferences(references, collapsed = false) {
+  if (!Array.isArray(references) || !references.length) return "";
+  const items = references
+    .map((ref) => {
+      const tag = ONBID_REFERENCE_SCOPE_TAGS[ref.scope];
+      return `<p><strong>${ref.term}</strong>${tag ? ` <span class="small-text">(${tag})</span>` : ""} ${ref.text}</p>
+      <p class="small-text">출처: ${ref.source}</p>`;
+    })
+    .join("");
+  if (collapsed) {
+    return `<details class="coach-ask-reference">
+      <summary>온비드 안내 기준 용어 설명 (${references.length})</summary>
+      ${items}
+    </details>`;
+  }
+  return `<div class="coach-ask-reference">
+      ${badge("온비드 안내 기준 용어 설명", "safe")}
+      ${items}
+    </div>`;
+}
+
 function renderQuestionAnswer(answer) {
+  const referencesHtml = renderOnbidReferences(answer?.references);
+  const referencesWithNote = (note) =>
+    referencesHtml ? `<div class="coach-ask-answer"><p class="small-text coach-ask-note">${note}</p>${referencesHtml}</div>` : "";
+  const declinedHtml = referencesWithNote(ONBID_REFERENCE_DECLINED_NOTE);
   if (!answer?.connected) {
+    const offlineHtml = referencesWithNote(ONBID_REFERENCE_OFFLINE_NOTE);
+    if (offlineHtml) return offlineHtml;
     return `<div class="coach-ask-answer">
       ${badge("AI 연결 안 됨", "warn")}
       <p>이 질문에는 지금 자동으로 답할 수 없습니다. 담당기관에 문의하세요.</p>
     </div>`;
   }
   if (answer.answerable && answer.answer) {
+    // 제도·용어 질문(general)에 온비드 설명이 있으면 모델이 풀어 쓴 답 대신 온비드 문장을 그대로 보인다.
+    // 모델은 「text 에 없는 사실은 덧붙이지 않는다」는 지시를 받고도 덧붙였다(2026-10-19 「유찰」 실측).
+    if (answer.answerType === "general" && referencesHtml) {
+      return `<div class="coach-ask-answer">${referencesHtml}<p class="small-text">${ONBID_REFERENCE_PARTIAL_NOTE}</p></div>`;
+    }
     const badgeLabel =
       answer.answerType === "board"
         ? "준비 보드 기반 안내"
@@ -1529,8 +1666,10 @@ function renderQuestionAnswer(answer) {
     return `<div class="coach-ask-answer">
       ${badge(badgeLabel, "safe")}
       <p>${answer.answer}</p>
+      ${renderOnbidReferences(answer.references, true)}
     </div>`;
   }
+  if (declinedHtml) return declinedHtml;
   return `<div class="coach-ask-answer">
     ${badge("담당기관 문의 필요", "warn")}
     <p>이 질문은 공고 원문만으로 답하기 어렵습니다. 담당기관에 문의하세요.</p>
@@ -1603,6 +1742,21 @@ async function askNoticeQuestion() {
   }
 }
 
+// 온비드가 입찰자에게 공통으로 거는 규칙이다. 공고마다 달라지는 값이 아니라 고정 문구로 둔다.
+// 근거: 온비드 이용안내 「입찰참가 안내」 STEP04-4·STEP04-5, 입찰참가자 준수규칙(압류 제8조②·
+// 제9조③④, 국유 제9조④⑤ 등) · team-reports/2026-10-19-onbid-journey-conformance/
+// researcher-onbid-journey.md A8~A10. 이용기관이 따로 정하면 예외가 있어 「원칙」으로 쓴다.
+const ONBID_BID_RULES = [
+  "입찰서는 제출한 뒤에 수정하거나 취소할 수 없는 것이 원칙입니다.",
+  "입찰보증금 납부 계좌는 입찰서를 제출한 뒤에 발급됩니다. 입찰 마감 시각까지 보증금을 내지 않으면 입찰이 무효가 됩니다.",
+  "입찰서 제출과 보증금 납부가 끝났는지는 온비드에서 직접 확인하십시오. 확인하지 않아 생긴 불이익은 입찰자 책임입니다.",
+  // 아래 두 줄의 근거: 온비드 FAQ #67972(2회 이상 제출 가능 물건이면 같은 회차에 재입찰 가능) ·
+  // 국유재산 입찰참가자 준수규칙 제12조③(낙찰자 신원 비공개). 2026-10-19 커뮤니티 조사 1-1·1-3 에서
+  // 초보자가 「입찰을 취소할 수 없나」「입찰자 수를 볼 수 있나」를 물었다.
+  "온비드에서 2회 이상 입찰서 제출이 가능하다고 안내된 물건이면 같은 회차에 다시 입찰할 수 있습니다. 그 안내가 없으면 첫 줄의 원칙대로 제출한 입찰서를 수정하거나 취소할 수 없습니다.",
+  "개찰 뒤 낙찰자가 누구인지는 공개되지 않습니다. 내 입찰 결과는 온비드 「나의온비드 > 입찰결과」에서 직접 확인합니다.",
+];
+
 // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리에 두는 정보 리스트다.
 // 새 추출 로직을 만들지 않고 1·3단계 task의 action(이미 서버가 계산한 값)을 그대로 보여준다.
 // 개찰일시는 notice에 그 값을 담는 필드가 없어 추출 로직이 생기기 전까지는 행 자체를 만들지 않는다.
@@ -1626,6 +1780,11 @@ function renderBidParticipationInfo(taskSummary) {
           </div>`,
         )
         .join("")}
+    </div>
+    <div class="bid-rules">
+      <h4>온비드 입찰 규칙</h4>
+      <ul>${ONBID_BID_RULES.map((rule) => `<li>${rule}</li>`).join("")}</ul>
+      <p class="small-text">근거는 온비드 이용안내 「입찰참가 안내」와 입찰참가자 준수규칙입니다. 공고마다 예외가 있을 수 있으니 공고 원문도 확인하십시오.</p>
     </div>
   </div>`;
 }
@@ -1773,6 +1932,26 @@ function renderDocSourceNotice() {
   </li>`;
 }
 
+// 서류 체크박스 한 행. renderDocGroup(조건별 묶음)과 renderDocFlatSection(미분류·별도 문의
+// 구획)이 같은 마크업을 쓰도록 빼냈다 — 복사해 두면 한쪽만 고쳐질 때 체크박스 배선이 갈린다.
+function renderDocCheckRow(item, docState, locked, lockMsgId) {
+  return `<li class="${docState[item.name] ? "is-checked" : ""}${locked ? " is-locked" : ""}">
+    <label class="doc-check">
+      <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}${
+        locked ? ` disabled aria-disabled="true" aria-describedby="${lockMsgId}"` : ""
+      }>
+      <strong>${item.name}</strong>
+    </label>
+    <span class="doc-chips">${docExtraChips(item)}</span>
+    ${
+      item.howto
+        ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
+        : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
+    }
+    <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
+  </li>`;
+}
+
 // 조건별 서류 그룹 1개. 2단계(renderDocChecklist)와 4단계(renderPostAwardPanel)가 같은 마크업을
 // 쓰도록 빼냈다 — 두 곳에 같은 <li> 를 복사해 두면 한쪽만 고쳐질 때 체크박스 배선이 갈린다.
 function renderDocGroup(group, docState, locked, open, lockMsgId) {
@@ -1780,27 +1959,53 @@ function renderDocGroup(group, docState, locked, open, lockMsgId) {
   return `<details class="doc-group"${open ? " open" : ""}>
     <summary><h4>${group.condition}</h4>${badge(`${items.length}개 서류`, "neutral")}</summary>
     <ul>
-      ${items
-        .map(
-          (item) => `<li class="${docState[item.name] ? "is-checked" : ""}${locked ? " is-locked" : ""}">
-            <label class="doc-check">
-              <input type="checkbox" data-doc-name="${item.name}" ${docState[item.name] ? "checked" : ""}${
-                locked ? ` disabled aria-disabled="true" aria-describedby="${lockMsgId}"` : ""
-              }>
-              <strong>${item.name}</strong>
-            </label>
-            <span class="doc-chips">${docExtraChips(item)}</span>
-            ${
-              item.howto
-                ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
-                : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
-            }
-            <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
-          </li>`,
-        )
-        .join("")}
+      ${items.map((item) => renderDocCheckRow(item, docState, locked, lockMsgId)).join("")}
     </ul>
   </details>`;
+}
+
+// 2단계 안에서 미분류·별도 문의 필요 서류를 확정 항목과 분리해 보여주는 구획
+// (stage-classification-design.md §3 "미분류를 1급 상태로 두는 설계"). 확정 항목이
+// 우선이므로 open 은 호출부가 결정하지 않고 항상 펼쳐 둔다 — 접혀 있으면 "우리도 모른다"는
+// 사실을 사용자가 못 보고 지나칠 수 있다.
+function renderDocFlatSection(cls, title, noticeHtml, items, docState, locked, lockMsgId) {
+  if (!items.length) return "";
+  return `<details class="doc-group ${cls}" open>
+    <summary><h4>${title}</h4>${badge(`${items.length}개 서류`, "warn")}</summary>
+    ${noticeHtml}
+    <ul>
+      ${items.map((item) => renderDocCheckRow(item, docState, locked, lockMsgId)).join("")}
+    </ul>
+  </details>`;
+}
+
+function renderUnclassifiedDocSection(docState, locked, lockMsgId) {
+  const items = getUnclassifiedPreBidDocItems();
+  return renderDocFlatSection(
+    "doc-group-unclassified",
+    "단계를 확정하지 못한 서류",
+    `<p class="small-text">단계를 확정하지 못했습니다. 공고문 원문을 확인하십시오.</p>`,
+    items,
+    docState,
+    locked,
+    lockMsgId,
+  );
+}
+
+function renderNeedsInquiryDocSection(docState, locked, lockMsgId) {
+  const items = getNeedsInquiryPreBidDocItems();
+  const contact = String(sampleNotice.docChecklist?.contact || "").trim();
+  return renderDocFlatSection(
+    "doc-group-needs-inquiry",
+    "공고기관에 직접 문의해야 하는 서류",
+    `<p class="small-text">이 서류는 공고기관에 직접 문의해야 합니다.${
+      contact ? ` 담당부점/공고기관: ${contact}` : " 담당부점/공고기관 연락처가 확인되지 않았으니 공고 원문에서 확인하십시오."
+    }</p>`,
+    items,
+    docState,
+    locked,
+    lockMsgId,
+  );
 }
 
 function renderDocConditionQuestions(answers) {
@@ -1962,7 +2167,7 @@ function renderBidLimitsPanel() {
     ${
       hasRestriction
         ? `<p>제한 조건이 있습니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문에서 먼저 확인하십시오.</p>`
-        : `<p class="small-text">제한 조건이 확인되지 않았습니다. 그래도 공고문 원문의 참가자격 조항을 한 번 확인하십시오.</p>`
+        : `<p class="small-text">제한 조건이 확인되지 않았습니다. 그래도 공고문 원문의 참가자격 조항을 한 번 확인하십시오. 조항에 괄호 안 표기(사업자 등)가 있으면 그 뜻은 원문과 담당기관에서 확인하십시오.</p>`
     }
     <ul>${rowsHtml}</ul>
   </div>`;
@@ -1981,7 +2186,10 @@ function renderDocChecklist(locked) {
   const rawGroups = Array.isArray(checklist.groups) ? checklist.groups : [];
   const answers = getDocConditionAnswers();
   // 2단계는 「입찰 전」 서류만 그린다. 「낙찰 후·계약 시」 서류는 4단계 블록이 맡는다.
-  const groups = getPreBidDocGroups();
+  // 확정 항목(groups)을 위에, 미분류·별도 문의 필요는 각자 구획으로 아래에 둔다 — 셋을
+  // 똑같이 섞어 보여주면 "우리가 확정했다"와 "우리도 모른다"를 사용자가 구별할 수 없다
+  // (stage-classification-design.md §3).
+  const groups = getConfirmedPreBidDocGroups();
   const userType = getSelectedUserType();
   const docState = getDocState();
 
@@ -1992,6 +2200,9 @@ function renderDocChecklist(locked) {
       return renderDocGroup(group, docState, locked, isRelevant, "stage-lock-msg-2");
     })
     .join("");
+  const unclassifiedHtml = renderUnclassifiedDocSection(docState, locked, "stage-lock-msg-2");
+  const needsInquiryHtml = renderNeedsInquiryDocSection(docState, locked, "stage-lock-msg-2");
+  const hasAnyPreBidItems = getPreBidDocGroups().some((group) => (group.items || []).length);
 
   const docSummary = getDocSummary();
 
@@ -2018,10 +2229,11 @@ function renderDocChecklist(locked) {
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
     ${
-      groupsHtml ||
-      (rawGroups.length
-        ? `<p class="small-text">공동입찰·대리입찰에 해당하지 않아 추가로 준비할 서류가 없습니다. 질문에 "예"로 답하면 관련 서류가 다시 나타납니다.</p>`
-        : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`)
+      hasAnyPreBidItems
+        ? groupsHtml + unclassifiedHtml + needsInquiryHtml
+        : rawGroups.length
+          ? `<p class="small-text">공동입찰·대리입찰에 해당하지 않아 추가로 준비할 서류가 없습니다. 질문에 "예"로 답하면 관련 서류가 다시 나타납니다.</p>`
+          : `<p class="small-text">조건별 서류 목록을 만들지 못했습니다. 아래 첨부파일과 온비드 원문을 확인하십시오.</p>`
     }
     ${
       checklist.tableRows?.length
@@ -2058,6 +2270,19 @@ function renderAttachments() {
       )
       .join("")
     : `<p class="small-text">이 공고에는 첨부파일이 없습니다.</p>`;
+  host.innerHTML += attachmentInventoryNote(docs);
+}
+
+// 압류재산 공고의 첨부 목록에 「명세서」가 든 파일이 없으면 그 사실만 적는다. 「없으니 위험하다」는
+// 판단은 쓰지 않는다(2026-10-19 커뮤니티 조사 1-2 · 지식iN 「공매재산 명세서가 없어요」). 파일명 검사라
+// 본문 안에 명세서가 들어 있는 첨부는 못 알아본다 — 그래서 「찾지 못했습니다」까지만 말한다.
+function attachmentInventoryNote(docs) {
+  if (!String(sampleNotice.assetType || "").includes("압류재산")) return "";
+  // 첨부가 0건이면 바로 위 「첨부파일이 없습니다」가 이미 그 사실을 말한다(리뷰 r1 #6).
+  if (!docs.length) return "";
+  const names = docs.map((doc) => (typeof doc === "string" ? doc : String(doc?.name || "")));
+  if (names.some((name) => name.includes("명세서"))) return "";
+  return `<p class="small-text attachment-inventory-note">첨부 파일명에서 「명세서」를 찾지 못했습니다. 압류재산 공매의 공매재산명세서가 따로 있는지는 온비드 물건 상세와 담당 부점에서 확인하십시오.</p>`;
 }
 
 function renderNoticeOutline() {
@@ -2139,10 +2364,34 @@ function renderGlossary() {
   const beginnerNote = isExperienceBeginner()
     ? `<p class="small-text">처음이시면 모르는 용어가 나올 때 이 탭에서 먼저 찾아보세요.</p>`
     : "";
+  // 서버는 두 묶음을 준다 — basic(이 공고 유형이면 보여 주는 절차 용어 · server.py GLOSSARY_TAB_TERMS ∩ ONBID_GUIDE_TERMS)과
+  // match(공고 표기에 든 낱말을 사전에서 찾은 것). group 이 없는 옛 응답과 E2E 픽스처는 match 로 본다.
+  // 2026-10-19 커뮤니티 조사: 초보자 질문의 첫째 갈래가 「용어 뜻을 모른다」였는데 이 탭은 공고명에 든
+  // 낱말만 보여 줘서 거의 비어 있었다.
+  const basic = entries.filter((entry) => entry.group === "basic");
+  const matched = entries.filter((entry) => entry.group !== "basic");
+  const rowsHtml = (list) =>
+    list.map((entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p></div>`).join("");
+  // 「재산유형 확인」·「처분방식 확인」은 값이 아니라 지시어라 괄호 안에 넣지 않는다(리뷰 r1 #5 · r2 R2-2).
+  // 읽힌 쪽만 괄호에 넣고, 둘 다 못 읽었으면 공통 용어라는 사실만 적는다.
+  const knownParts = [sampleNotice.assetType, sampleNotice.dispositionLabel]
+    .map((value) => String(value || ""))
+    .filter((value) => value && !value.endsWith(" 확인"));
+  const basicTitle = knownParts.length ? `이 공고 유형(${knownParts.join(" · ")})의 기본 용어` : "모든 공고에 공통인 기본 용어";
+  // 기본 용어는 출처를 함께 보여 준다. 질문창과 같은 사전(server.py ONBID_GUIDE_TERMS)에서 왔다.
+  const basicRowsHtml = basic
+    .map(
+      (entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p>${
+        entry.source ? `<p class="small-text glossary-source">근거: ${entry.source}</p>` : ""
+      }</div>`,
+    )
+    .join("");
+  const basicHtml = basic.length ? `<h4 class="glossary-group-title">${basicTitle}</h4>${basicRowsHtml}` : "";
+  const matchedHtml = matched.length
+    ? `<h4 class="glossary-group-title">공고 표기에 나온 용어</h4>${rowsHtml(matched)}`
+    : "";
   host.innerHTML = entries.length
-    ? `${beginnerNote}${entries
-      .map((entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p></div>`)
-      .join("")}<p class="small-text">화면의 재산유형·처분방식은 온비드 표기를 그대로 쓰고, 뜻만 여기에서 안내합니다.</p>`
+    ? `${beginnerNote}${basicHtml}${matchedHtml}<p class="small-text">화면의 재산유형·처분방식은 온비드 표기를 그대로 쓰고, 뜻만 여기에서 안내합니다. 뜻풀이의 근거는 온비드 이용안내·입찰참가자 준수규칙·FAQ 이고, 공고마다 예외가 있을 수 있으니 공고 원문이 우선입니다.</p>`
     : `<p class="small-text">이 공고의 표기에 해당하는 용어 안내가 없습니다. 온비드 원문 표기를 그대로 확인하십시오.</p>`;
 }
 
@@ -2265,12 +2514,75 @@ function renderStageHeading(stage) {
 }
 
 // 4단계(낙찰 후 준비) 블록. 머리 안내는 과설명이 아니라 단계 판정 오분류의 안전망이다 —
-// 서류의 단계 판정은 정규식 하나(CONTRACT_STAGE_RE)이고, 입찰 전 서류가 이 블록으로 잘못
-// 분류되면 사용자가 그 서류를 아예 보지 못해 입찰이 무효가 된다. 그래서 2단계 목록도 함께
-// 확인하라고 적는다(ux-design-review P0-2 대책 ⑵).
+// 서류의 단계 판정은 server.py 의 resolve_doc_stage() 다(조항 표제 사전 → 문장 결정적
+// 문구 → 미분류). 입찰 전 서류가 이 블록으로 잘못 분류되면 사용자가 그 서류를 아예 보지
+// 못해 입찰이 무효가 된다. 그래서 2단계 목록도 함께 확인하라고 적는다(ux-design-review P0-2 대책 ⑵).
 //
 // 체크박스는 잠그지 않는다 — 미리 준비하는 사용자를 막을 이유가 없다. 다만 이 서류는
 // getDocSummary() 분모에 들어가지 않으므로 2단계 진행률과 단계 잠금에는 영향이 없다.
+// 낙찰 뒤 절차 순서와 보증금 귀속을 재산유형·처분방식별로 한 줄씩 적는다. 온비드 공통 규칙이 정하는
+// 것은 압류·국유·수탁 셋뿐이고, 공유·기타일반 같은 이용기관 물건은 공고문이 정한다(온비드 이용안내
+// 「낙찰절차 안내」 기타 탭 · 이용기관 입찰참가자 준수규칙 제13조). 일괄 문구는 틀리므로 유형마다 갈랐고,
+// 읽지 못한 유형은 공통 안내만 둔다. 근거 정리본: team-reports/2026-10-19-onbid-journey-conformance/
+// researcher-onbid-journey.md 2-C·2-D 절. 커뮤니티 조사 1-4(「그 이후의 절차가 어떻게 되는지」 · 「낙찰을
+// 포기하려 합니다. 보증금을 돌려받을 수 있는지요」)가 이 자리의 이유다.
+function postAwardProcessNote() {
+  const assetType = String(sampleNotice.assetType || "");
+  const disposition = String(sampleNotice.dispositionLabel || "");
+  const label = `${assetType || "재산유형 확인"} · ${disposition || "처분방식 확인"}`;
+  const isLease = isLeaseOnlyDisposition();
+  const isSale = /매각|공매/.test(disposition);
+  if (assetType.includes("압류재산")) {
+    return {
+      label,
+      order:
+        "개찰 → 매각결정(개찰일로부터 7일 이내) → 잔대금 납부(매각결정기일로부터 낙찰가 3,000만 원 이상 30일 · 미만 7일) → 소유권이전 서류를 캠코 관할 부점에 제출(등기촉탁은 캠코가 합니다). 별도 매매계약 단계는 없습니다.",
+      deposit: "잔대금을 기한 안에 내지 않으면 매각결정이 취소되고 입찰보증금은 돌려받지 못합니다.",
+      source: "압류재산 공매공고문 · 압류재산 입찰참가자 준수규칙 · 온비드 FAQ(매각결정기일 · 소유권이전절차)",
+    };
+  }
+  if (assetType.includes("국유재산") && isLease) {
+    return {
+      label,
+      order: "낙찰 → 대부료 잔금 납부(낙찰일로부터 5영업일 이내) → 대부계약 체결(점유자가 있으면 명도집행 완료 뒤).",
+      deposit: "기간 안에 계약을 맺지 않으면 낙찰이 무효가 되고 입찰보증금은 국고에 귀속됩니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 국유재산 대부 · 국유재산 입찰참가자 준수규칙 제15조",
+    };
+  }
+  if (assetType.includes("국유재산") && isSale) {
+    return {
+      label,
+      order: "낙찰 → 매매계약 체결(낙찰일로부터 5영업일) → 잔대금 납부(계약일로부터 60일) → 매수자가 직접 소유권이전등기.",
+      deposit: "계약을 맺지 않거나 잔대금을 내지 않으면 매매계약이 해제되고 입찰보증금은 국고에 귀속됩니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 국유재산 매각 · 국유재산 입찰참가자 준수규칙 제15조·제16조",
+    };
+  }
+  if (assetType.includes("수탁재산") && !isLease) {
+    return {
+      label,
+      order: "낙찰 → 매매계약 체결 → 중도금·잔대금 납부 → 위임기관에서 이전서류를 받아 매수자가 등기 신청. 계약 기한은 안내문·규칙·공고문의 표기가 서로 달라(5일 · 5영업일) 어느 쪽이 적용되는지는 공고 원문과 담당기관에서 확인합니다.",
+      deposit: "계약을 맺지 않으면 입찰보증금은 매도자에게 귀속됩니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 수탁재산 · 수탁재산 입찰참가자 준수규칙 제11조",
+    };
+  }
+  if (assetType.includes("공유재산") || assetType.includes("기타일반재산")) {
+    return {
+      label,
+      order: "낙찰 → 계약 체결 → 대금(또는 사용료) 납부 → 소유권이전(매각) 또는 사용 개시(임대). 계약 기한·대금 기한·서류는 모두 공고문이 정합니다.",
+      deposit: "계약을 맺지 않을 때 입찰보증금을 어떻게 처리하는지도 공고문이 정합니다. 공고기관 귀속으로 적은 공고가 있습니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 기타 탭 · 이용기관 입찰참가자 준수규칙 제13조",
+    };
+  }
+  return {
+    label,
+    // 재산유형을 못 읽은 공고뿐 아니라 파산자산·수탁 임대처럼 온비드 공통 규칙이 절차를 정하지 않는
+    // 조합도 이 분기로 온다. 그래서 「읽지 못해」라고 쓰지 않는다(리뷰 r1 #2).
+    order: "이 재산유형·처분방식 조합의 낙찰 뒤 절차는 공고 원문이 정하므로 공통 안내만 둡니다. 계약·대금·이전 절차와 기한은 재산유형마다 다릅니다.",
+    deposit: "기한을 지키지 못하면 입찰보증금을 돌려받지 못할 수 있습니다. 귀속처는 재산유형과 공고마다 다릅니다.",
+    source: "온비드 이용안내 「낙찰절차 안내」",
+  };
+}
+
 function renderPostAwardPanel() {
   const groups = getPostAwardDocGroups();
   const docState = getDocState();
@@ -2281,15 +2593,27 @@ function renderPostAwardPanel() {
   const groupsHtml = groups
     .map((group) => {
       const applicable = !group.notApplicable;
+      const reasonText =
+        group.notApplicableReason === "disposition"
+          ? `이 묶음은 소유권을 넘겨받는 매각 절차의 서류여서, 지금 공고의 처분방식(${sampleNotice.dispositionLabel})에는 해당하지 않을 수 있습니다.`
+          : `이 묶음은 압류재산 공매공고문에 근거한 것이어서, 지금 공고의 재산유형(${sampleNotice.assetType})에는 해당하지 않을 수 있습니다.`;
       const noteHtml = applicable
         ? ""
-        : `<p class="post-award-not-applicable">이 묶음은 압류재산 공매공고문에 근거한 것이어서, 지금 공고의 재산유형(${sampleNotice.assetType})에는 해당하지 않을 수 있습니다. 접어 두었지만 지웠다는 뜻은 아닙니다. 해당 여부는 공고 원문과 담당기관에서 확인하십시오.</p>`;
-      return noteHtml + renderDocGroup(group, docState, false, applicable, "");
+        : `<p class="post-award-not-applicable">${reasonText} 접어 두었지만 지웠다는 뜻은 아닙니다. 해당 여부는 공고 원문과 담당기관에서 확인하십시오.</p>`;
+      // 안내는 자기 묶음 «뒤»에 둔다. 앞에 두면 바로 위 묶음의 설명처럼 읽힌다(2026-10-19 여정 점검).
+      return renderDocGroup(group, docState, false, applicable, "") + noteHtml;
     })
     .join("");
+  const process = postAwardProcessNote();
   return `<section class="doc-panel post-award-panel">
     <p class="post-award-caution">입찰 전에 내야 하는 서류가 여기 섞여 있을 수 있습니다. 2단계 목록도 함께 확인하십시오.</p>
     <p class="small-text">낙찰된 뒤에 할 일입니다. 지금 당장 준비할 필요는 없지만, 기한을 놓치면 낙찰이 취소될 수 있는 항목이 있어 미리 열어 둡니다.</p>
+    <div class="post-award-process">
+      <p><strong>낙찰 뒤 절차 순서</strong> · ${process.label}</p>
+      <p>${process.order}</p>
+      <p>${process.deposit}</p>
+      <p class="small-text">근거: ${process.source}. 기한과 서류는 공고 원문과 담당기관 확인이 우선입니다.</p>
+    </div>
     <p class="small-text">${DOC_DUE_CAUTION}</p>
     ${
       summary.totalCount
@@ -2312,9 +2636,9 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
   const isFoundValue = task.action && task.action !== NOTICE_VALUE_FALLBACK;
   const done = taskSummary.state[task.id];
   const dueTone = done ? "safe" : task.due === NOTICE_VALUE_FALLBACK ? "neutral" : "warn";
-  // 완료된 단계는 자세히 블록만 기본 닫힘(visual-audit §⑵). 그 외에는 경험 수준 질문 A의
-  // 응답에 따라 "처음이에요"면 기본 열림, "몇 번 해봤어요"면 기본 닫힘 — 표시 전환만이다.
-  const detailsOpen = !done && isExperienceBeginner();
+  // 자세히 블록은 기본 닫힘이다. 「안내 수준」 버튼으로 펼쳐도 완료된 카드는 닫아 둔다(visual-audit §⑵).
+  // 경험 수준 질문 A의 응답과는 묶지 않는다 — 「처음이에요」여도 기본은 접힘이다(2026-10-19).
+  const detailsOpen = !done && guideDetailed;
   const stageNum = getTaskStageNum(task.id);
   const lockMsgId = stageNum !== null ? `stage-lock-msg-${stageNum}` : "";
   return `<article class="task-item ${done ? "is-done" : ""} ${aiMatch ? "has-ai-nudge" : ""}">
@@ -2356,7 +2680,7 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
         </details>`
             : ""
         }
-        <details ${detailsOpen ? "open" : ""}>
+        <details class="task-detail" ${detailsOpen ? "open" : ""}>
           <summary>자세히</summary>
           <dl class="detail-grid">
             ${aiMatch?.check?.reason ? `<dt>${aiMatch.check.title}</dt><dd>${aiMatch.check.reason}</dd>` : ""}
@@ -2884,7 +3208,7 @@ function init() {
     byId("analyze").disabled = false;
     byId("analyze").textContent = "다음";
     replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
-    byId("notice-url").value = sampleNotice.sourceUrl;
+    byId("notice-url").value = SAMPLE_INPUT_URL;
     analyzedInputValue = "";
     boardGenerated = false;
     analysisError = null;
@@ -3023,7 +3347,7 @@ function init() {
       return;
     }
     if (event.target.closest("[data-experience-toggle]")) {
-      setExperienceLevel(isExperienceBeginner() ? "experienced" : "beginner");
+      guideDetailed = !guideDetailed;
       renderReport();
       return;
     }
