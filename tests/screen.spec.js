@@ -1183,3 +1183,77 @@ test("S11 API 연동 블록 — 자리·질문 답 거르기·기한 어긋남 �
   expect(await page.locator(".bid-limits-panel").count()).toBe(0);
   expect(await page.locator(".api-doc-terms").count()).toBe(0);
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * team-reports/2026-10-18-bid-doc-timeline/e2e-design.md §3 시나리오 1·3·5(신규)와
+ * 시나리오 2(보강). 시나리오 4·6은 그 설계서가 이미 §3에서 S10·P0-1 테스트로 커버된
+ * 것으로 판정했으므로 여기서 다시 쓰지 않는다 — 두 테스트는 그대로 회귀 가드다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+// 공동입찰 조건 그룹(실제 서류 1건 포함)을 더한 압류재산 공고. 시나리오 1·3 공용 — 두
+// 시나리오 모두 "조건에 답하지 않으면 숨는다"를 공동입찰쪽에서 함께 확인해야 한다.
+function jointAndProxyNotice() {
+  const notice = copyBase();
+  notice.docChecklist.groups.push({
+    condition: "공동입찰",
+    items: [
+      {
+        name: "공동입찰서류 원문 항목",
+        conditions: ["공동입찰"],
+        conditionKeys: [],
+        copy: "",
+        validity: "",
+        method: "직접제출",
+        due: "입찰마감일시 전까지",
+        count: "",
+        stage: "입찰 전",
+        howto: "",
+        howtoUrl: "",
+        sourceSection: "제출서류",
+        evidence: "온비드 제출서류 표 · 공동입찰서류 행",
+      },
+    ],
+  });
+  return notice;
+}
+
+// 시나리오 1 — 본인 단독 현금 입찰(신규). 근거: 압류재산 인터넷공매 입찰참가자준수규칙
+// 제7조②③ — 대리·공동입찰 서류 요구는 "대리인이 매수신청하려는 경우"·"여러 사람이
+// 공동으로 입찰에 참가하려는 경우"로 조건이 걸려 있어, 단독 입찰자에게는 요구되지 않는다.
+test("E2E design S1 — 조건 질문에 답하지 않은 기본 상태에서 대리입찰·공동입찰 서류가 0건이다 (준수규칙 제7조②③)", async ({ page }) => {
+  await analyzeWith(page, jointAndProxyNotice());
+  await page.locator("#prepare").click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+
+  // 단정 — 기본 상태(미답변)에는 대리입찰·공동입찰 서류가 보이지 않는다.
+  await expect(checklist).not.toContainText("대리입찰신청서");
+  await expect(checklist).not.toContainText("공동입찰서류 원문 항목");
+  await expect(checklist).not.toContainText("공동입찰 추가 안내");
+
+  // 음성 대조 — 같은 화면에서 대리입찰 질문에 「예」를 누르면 대리입찰신청서가 떠야 한다
+  // (S2가 이미 검증한 반대쪽과 짝이다 — 숨기는 로직이 과잉 동작해 "예"를 눌러도 계속
+  // 숨기면 이 단정이 잡는다).
+  await checklist.locator('button[data-doc-condition="proxy"][data-doc-condition-value="yes"]').click();
+  await expect(checklist).toContainText("대리입찰신청서");
+  // 공동입찰은 여전히 답하지 않았으므로 이 상태에서도 보이면 안 된다.
+  await expect(checklist).not.toContainText("공동입찰서류 원문 항목");
+});
+
+// 시나리오 2 — 대리입찰(보강). S2(위 "S1·S2·S5·S6·S7..." 테스트)가 대리입찰신청서 노출과
+// 기한 문구를 이미 단정한다. 이 테스트는 그 테스트가 확인하지 않은 "또는 본인서명사실확인서"
+// 대체 표기만 보강한다. 근거: 준수규칙 제7조② "대리 매수신청인(위임인)의 인감증명서 또는
+// 본인서명사실확인서". 인감증명서로만 좁혀 적으면 본인서명사실확인서로 대신할 수 있다는
+// 사실을 사용자가 모르고 지나간다(researcher-fact-check 사실 3).
+test("E2E design S2 보강 — 대리입찰 서류에 \"인감증명서 또는 본인서명사실확인서\" 대체 표기가 그대로 남는다 (준수규칙 제7조②)", async ({ page }) => {
+  await analyzeWith(page, jointAndProxyNotice());
+  await page.locator("#prepare").click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+
+  await checklist.locator('button[data-doc-condition="proxy"][data-doc-condition-value="yes"]').click();
+  // "또는" 대체 관계가 서류명 자체에 살아 있어야 한다 — "인감증명서"로만 줄이면 대체
+  // 수단(본인서명사실확인서)이 있다는 사실이 화면에서 사라진다.
+  await expect(checklist).toContainText("입찰자의 인감증명서 또는 본인서명사실확인서");
+  await expect(checklist).toContainText("인감증명서가 없으면 본인서명사실확인서로 대신할 수 있습니다");
+});
