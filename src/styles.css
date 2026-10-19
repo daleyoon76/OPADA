@@ -65,6 +65,18 @@ select {
   letter-spacing: -0.01em;
 }
 
+/* 지금 떠 있는 코드 판(동원님 요청 · 이전 판을 띄웠는지 화면만 보고 알 수 있게). */
+.code-revision {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.code-revision-warn {
+  color: var(--red);
+  font-weight: 700;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--green);

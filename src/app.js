@@ -3193,7 +3193,35 @@ function startNewAnalysis() {
   restartWizardToProfile();
 }
 
+// 화면 머리의 코드 판. 서버가 기동한 판(server)과 지금 디스크의 판(current)을 견준다.
+// 다르면 서버가 옛 코드로 돌고 있다는 뜻이라 재시작을 알린다(2026-10-19 동원님 요청).
+function formatCodeRevision(payload) {
+  const server = payload?.server || {};
+  if (!server.commit) return "코드 판: git 정보를 읽지 못했습니다";
+  const parts = [`코드 판 r${server.number} · ${server.commit} · ${server.branch} · 서버 기동 ${payload.startedAt}`];
+  const current = payload.current || {};
+  if (current.commit && current.commit !== server.commit) {
+    parts.push(`<strong class="code-revision-warn">서버 기동 뒤 코드가 ${current.commit} 로 바뀌었습니다. 서버를 다시 시작해야 합니다</strong>`);
+  }
+  if (server.dirty || current.dirty) {
+    parts.push(`<strong class="code-revision-warn">커밋하지 않은 변경이 있습니다</strong>`);
+  }
+  return parts.join(" · ");
+}
+
+async function renderCodeRevision() {
+  const host = byId("code-revision");
+  if (!host) return;
+  try {
+    const response = await window.fetch("/api/version");
+    host.innerHTML = formatCodeRevision(await response.json());
+  } catch {
+    host.textContent = "코드 판: 서버에서 확인하지 못했습니다";
+  }
+}
+
 function init() {
+  renderCodeRevision();
   byId("notice-url").value = sampleNotice.sourceUrl;
   analyzedInputValue = "";
   renderAll();

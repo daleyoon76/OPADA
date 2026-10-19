@@ -903,6 +903,43 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   expect(await detailOpen("notice-type")).toBe(false);
 });
 
+// 화면 머리의 코드 판. 처음 한 번은 테스트 서버의 실제 /api/version 을 읽고, 나머지는 응답을 바꿔 갈래를 본다.
+test("코드 판 — 화면 머리에 서버 기동 판이 보이고, 기동 뒤 코드가 바뀌면 재시작을 알린다", async ({ page }) => {
+  const revision = page.locator("#code-revision");
+  await page.goto("/");
+  await expect(revision).toHaveText(/코드 판 r\d+ · [0-9a-f]{7,} · \S+ · 서버 기동 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+
+  const serveVersion = async (payload) => {
+    await page.unroute("**/api/version");
+    await page.route("**/api/version", (route) => route.fulfill({ json: payload }));
+    await page.reload();
+  };
+  const server = { commit: "aaaaaaa", number: "352", branch: "시험-브랜치", committedAt: "", dirty: false };
+
+  // 기동 판과 지금 판이 같고 변경도 없으면 경고가 없다(음성).
+  await serveVersion({ ok: true, server, startedAt: "2026-10-19 17:00:00", current: { ...server } });
+  await expect(revision).toHaveText("코드 판 r352 · aaaaaaa · 시험-브랜치 · 서버 기동 2026-10-19 17:00:00");
+  await expect(revision.locator(".code-revision-warn")).toHaveCount(0);
+
+  // 기동 뒤 HEAD 가 바뀌었으면 재시작을 알린다.
+  await serveVersion({ ok: true, server, startedAt: "2026-10-19 17:00:00", current: { ...server, commit: "bbbbbbb" } });
+  await expect(revision.getByText("서버 기동 뒤 코드가 bbbbbbb 로 바뀌었습니다. 서버를 다시 시작해야 합니다")).toBeVisible();
+  await expect(revision.getByText("커밋하지 않은 변경이 있습니다")).toHaveCount(0);
+
+  // 커밋하지 않은 변경이 있으면 알린다.
+  await serveVersion({ ok: true, server, startedAt: "2026-10-19 17:00:00", current: { ...server, dirty: true } });
+  await expect(revision.getByText("커밋하지 않은 변경이 있습니다")).toBeVisible();
+  await expect(revision).not.toContainText("다시 시작해야");
+
+  // 기동할 때 이미 커밋하지 않은 변경이 있었으면, 지금 깨끗해도 알린다(메모리의 server.py 가 커밋에 없는 코드다).
+  await serveVersion({ ok: true, server: { ...server, dirty: true }, startedAt: "2026-10-19 17:00:00", current: { ...server } });
+  await expect(revision.getByText("커밋하지 않은 변경이 있습니다")).toBeVisible();
+
+  // git 정보가 없으면 그 사실을 적는다.
+  await serveVersion({ ok: true, server: { commit: "" }, startedAt: "", current: {} });
+  await expect(revision).toHaveText("코드 판: git 정보를 읽지 못했습니다");
+});
+
 // AI 코치 질문창이 서버의 온비드 용어 설명(references)을 그리는가. /api/ask 응답은 픽스처다 —
 // 서버가 실제로 references 를 싣는지는 tests/test_docs_extraction.py 의 D3 축이 본다.
 test("AI 코치 질문 — 온비드 용어 설명이 오면 「담당기관 문의 필요」 대신 그 설명과 출처를 보여 준다", async ({ page }) => {

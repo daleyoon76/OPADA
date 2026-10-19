@@ -31,7 +31,8 @@ const SCREEN_SPEC = "screen.spec.js";
 // 10-19 정합성 대조의 S12·S12 음성·S13 3건이다. 개수는 `grep -c '^test(' tests/screen.spec.js` 로 셌다.
 // 2026-10-19 오후: 32 → 33. AI 코치 질문창의 온비드 용어 설명 표시 1건을 더했다.
 // 2026-10-19 커뮤니티 조사 반영: 33 → 35 (S14 · S14 음성). 두 작업을 합친 값이다(`grep -c '^test('` 로 셈).
-const EXPECTED_TEST_COUNT = 35;
+// 2026-10-19 저녁: 화면 머리 코드 판 표시 1건을 더했다(board-layout 2e2ad9a). develop 머지에서 35 → 36.
+const EXPECTED_TEST_COUNT = 36;
 
 class GateReporter {
   onBegin(config, suite) {
