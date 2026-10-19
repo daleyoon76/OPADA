@@ -1285,10 +1285,17 @@ function getBidQualificationTask() {
   const limits = Array.isArray(sampleNotice.bidLimits) ? sampleNotice.bidLimits : [];
   const restricted = limits.filter((limit) => limit.restricted);
   if (!restricted.length) return null;
+  // 값 칸은 항목 이름이 아니라 실제 제한 내용이다. 이름만 두면 바로 위 「입찰 자격 조건」 블록을 되풀이할 뿐 카드에 정보가 없다(r1 P2-1).
+  const first = restricted[0];
+  const firstValue = String(first.value || "").length > 40 ? `${String(first.value).slice(0, 40)}…` : first.value;
   return {
     id: "bid-qualification",
     title: "입찰 자격 확인",
-    action: restricted.map((limit) => limit.label).join(" · "),
+    action: `${first.label}: ${firstValue}${restricted.length > 1 ? ` 외 ${restricted.length - 1}건` : ""}`,
+    // 출처가 공고 원문이 아니라 공공데이터다. 다른 카드와 같은 라벨을 쓰면 출처를 잘못 말한다(r1 P2-1).
+    valueLabel: "공공데이터에서 확인된 값",
+    // AI 매칭과 무관하게, 끝내기 전까지 늘 「확인 필요」다. 놓치면 입찰이 무효가 될 수 있는 조건이다.
+    needsCheck: true,
     due: "분석 직후",
     detail: `공공데이터에 입찰 자격 제한이 있습니다(${restricted.map((limit) => `${limit.label}: ${limit.value}`).join(" / ")}). 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문의 참가자격 조항을 먼저 확인합니다.`,
     question: "이 물건의 입찰 참가자격 제한에 내가 해당하는지 담당기관이나 공고 원문에서 확인합니다.",
@@ -1405,9 +1412,12 @@ function getFitMessage() {
   const inputWarning = getInputWarning();
   if (inputWarning) {
     // 목적 불일치와 같은 「불일치」 머리표를 쓰지 않는다. 입력이 비었거나 형식이 틀린 것이다(I5).
+    // 1-2 에 처음 들어와 칸이 빈 것은 잘못이 아니다. 「분석하기」를 빈 칸으로 누른 뒤에만(aria-invalid) 경고 톤이다(r1 P2-3).
+    const notTriedYet = !getNoticeInput() && byId("notice-url")?.getAttribute("aria-invalid") !== "true";
     return {
       type: "mismatch",
-      badgeLabel: "입력 필요",
+      neutral: notTriedYet,
+      badgeLabel: notTriedYet ? "안내" : "입력 필요",
       title: inputWarning.title,
       body: inputWarning.body,
       action: getNoticeInput() ? "온비드 URL을 붙여 넣은 뒤 「분석하기」를 누르십시오." : "URL을 붙여 넣거나 「샘플 불러오기」를 누르십시오.",
@@ -1569,8 +1579,8 @@ function renderUrlStepFeedback(fit) {
     feedback.innerHTML = "";
     return;
   }
-  const typeBadge = fit.type === "match" ? "safe" : "warn";
-  feedback.className = `url-step-feedback fit-panel ${fit.type}`;
+  const typeBadge = fit.neutral ? "neutral" : fit.type === "match" ? "safe" : "warn";
+  feedback.className = `url-step-feedback fit-panel ${fit.neutral ? "is-neutral" : fit.type}`;
   feedback.innerHTML = `
     <div class="fit-top">
       ${badge(fit.badgeLabel || (fit.type === "mismatch" ? "불일치" : "확인 필요"), typeBadge)}
@@ -1679,7 +1689,7 @@ function renderBoardCoach(coach, stageNum) {
   return `<section class="coach-ask-card coach-dock${coachCollapsed ? " is-collapsed" : ""}${coachAnswerHtml ? " has-answer" : ""}">
     <div class="coach-dock-head">
       <span class="coach-dock-label">${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "neutral" : "warn")}<strong>AI 코치에게 물어보기</strong></span>
-      <span class="coach-context" title="${sampleNotice.title ? `${sampleNotice.title} · ` : ""}${COACH_CONTEXT_DETAIL}">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span>
+      <span class="coach-context" title="${sampleNotice.title ? `${sampleNotice.title} · ` : ""}${COACH_CONTEXT_DETAIL}"><span class="coach-context-long">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span><span class="coach-context-short">이 물건 정보를 알고 답합니다</span></span>
       <button type="button" class="coach-toggle" data-coach-toggle aria-expanded="${!coachCollapsed}" aria-controls="coach-dock-body">${coachCollapsed ? "펴기 ▴" : "접기 ▾"}</button>
     </div>
     <div id="coach-dock-body" class="coach-dock-body"${coachCollapsed ? " hidden" : ""}>
@@ -2925,14 +2935,14 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
             </span>
           </label>
           <span class="task-badges">
-            ${aiMatch && !done ? badge("확인 필요", "warn") : ""}
+            ${(aiMatch || task.needsCheck) && !done ? badge("확인 필요", "warn") : ""}
             ${badge(done ? "완료" : task.due, dueTone)}
           </span>
         </div>
         ${
           task.action
             ? `<div class="task-action-value ${isFoundValue ? "is-extracted" : "is-fallback"}">
-          <span class="task-action-value-label">공고 원문에서 확인된 값</span>
+          <span class="task-action-value-label">${task.valueLabel || "공고 원문에서 확인된 값"}</span>
           <strong>${task.action}</strong>
         </div>`
             : ""
@@ -3379,9 +3389,10 @@ async function runAnalysis() {
   if (inputWarning) {
     analysisError = null;
     currentStage = 0;
+    // aria-invalid 를 먼저 붙여야 다시 그린 안내가 경고 톤(입력 필요)이 된다.
+    focusNoticeUrlAsInvalid();
     renderAll();
     byId("url-step-feedback").scrollIntoView({ block: "center", behavior: "smooth" });
-    focusNoticeUrlAsInvalid();
     return;
   }
   const requestId = ++analysisRequestId;
