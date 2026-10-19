@@ -2119,3 +2119,449 @@ a:hover {
   display: grid;
   gap: 4px;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 2026-10-19 페이지 구조 개편(improve-uiux). 화면 템플릿은 네 가지로 한정한다:
+ * ⑴ 블록(.block) ⑵ 정보 행(.info-row) ⑶ 값 칸(.fact-grid · .fact-row) ⑷ 할 일 카드(.task-item).
+ * 단계 표시는 공고 가져오기와 준비 보드가 같은 .mini-stepper 를 쓴다.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 단계 표시 — 공고 가져오기(위)와 준비 보드(아래 고정)가 같은 모양을 쓴다. */
+.mini-stepper,
+.prep-stage-stepper.mini-stepper {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.wizard-progress.mini-stepper {
+  margin: 0 0 16px;
+}
+
+.prep-stage-stepper.mini-stepper li,
+.prep-stage-stepper.mini-stepper li:first-child,
+.prep-stage-stepper.mini-stepper li:last-child {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  display: block;
+}
+
+.mini-step,
+.wizard-progress .mini-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+button.mini-step {
+  cursor: pointer;
+}
+
+.mini-step-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.wizard-progress .mini-step.is-done,
+.prep-stage-stepper li.is-done .mini-step {
+  border-color: #c8d1a0;
+  background: var(--soft-green);
+  color: var(--ink);
+}
+
+.wizard-progress .mini-step.is-active,
+.prep-stage-stepper li.is-viewing .mini-step {
+  border-color: var(--green);
+  background: var(--green);
+  color: #ffffff;
+}
+
+.wizard-progress .mini-step.is-active .mini-step-num,
+.prep-stage-stepper li.is-viewing .mini-step-num {
+  color: #ffffff;
+}
+
+.prep-stage-stepper li.is-locked .mini-step {
+  color: var(--muted);
+  background: var(--soft-neutral);
+}
+
+.prep-stage-stepper li.is-not-yet .mini-step {
+  border-style: dashed;
+}
+
+/* 준비 보드 아래 고정 영역 — AI 코치 질문 줄과 단계 표시가 준비 보드 안에서 늘 따라다닌다. */
+.board-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  margin-top: 16px;
+  padding: 10px 16px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--panel);
+  box-shadow: 0 -8px 24px rgba(139, 53, 32, 0.12);
+}
+
+.coach-ask-card.coach-dock {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.coach-dock .coach-ask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.coach-dock-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-size: 14px;
+}
+
+.coach-dock .coach-ask-result:not(:empty) {
+  max-height: 32vh;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.board-dock .board-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 10px 0 0;
+}
+
+.board-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.board-progress strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.board-progress .progress {
+  width: 96px;
+  margin: 0;
+}
+
+/* 준비 보드 한 페이지 */
+.board-page-toolbar {
+  margin-top: 4px;
+}
+
+.board-page-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-level-hint {
+  margin: -6px 0 12px;
+}
+
+.seg-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.seg-option {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.seg-option.is-on {
+  background: var(--green);
+  color: #ffffff;
+}
+
+.stage-group {
+  margin: 0;
+}
+
+.board-page-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.board-page-nav:empty {
+  display: none;
+}
+
+/* ⑴ 블록 */
+.block {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+}
+
+.block:first-child {
+  margin-top: 0;
+}
+
+.block-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.block-meta {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.block-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ⑵ 정보 행 */
+.info-list {
+  display: grid;
+  gap: 8px;
+}
+
+.info-row {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.info-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-row-title {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.info-row-action {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.info-row-text {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.info-row-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.info-group-title {
+  margin: 12px 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.info-list > .info-group-title:first-child,
+.info-list > .block-note:first-child + .info-group-title {
+  margin-top: 0;
+}
+
+/* ⑶ 값 칸 */
+.fact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px 18px;
+}
+
+.fact-grid .fact-row .field-label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fact-grid .fact-row .field-value {
+  font-size: 14px;
+}
+
+.link-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.link-chips .link-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+/* 공고 자료 탭 — 탭과 링크(온비드 원문 열기·관심 공고 보기)가 같은 모양이다. */
+.support-tabs.block {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.support-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.support-tabbar .support-tablist,
+.support-tab-links {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 0;
+}
+
+.support-tab,
+.support-tablist button.support-tab {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 36px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.support-tab[aria-selected="true"] {
+  border-bottom-color: var(--green-dark);
+  color: var(--ink);
+}
+
+.support-tab-links .support-tab:hover,
+.support-tablist .support-tab:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .coach-dock .coach-ask-row {
+    flex-wrap: wrap;
+  }
+
+  .coach-dock-label {
+    width: 100%;
+  }
+
+  .coach-dock .coach-ask-row input {
+    flex: 1 1 auto;
+  }
+
+  .board-dock .board-status {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .board-page-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+/* 단계 페이지를 바꿀 때 제목으로 포커스를 옮긴다(화면 읽기용). 마우스 사용자에게는 테두리를 보이지 않는다. */
+#report-title:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* 지금 보는 단계는 잠김·낙찰 후 상태보다 앞선다. 어느 페이지를 보고 있는지가 먼저 보여야 한다. */
+.prep-stage-stepper li.is-viewing .mini-step {
+  border-style: solid;
+  border-color: var(--green);
+  background: var(--green);
+  color: #ffffff;
+}
+
+/* 단계 표시가 고정 영역 폭을 넘지 않게 한다. 좁은 화면에서는 지금 보는 단계만 제목을 보인다. */
+.board-dock .prep-stage-stepper {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 600px) {
+  .prep-stage-stepper li:not(.is-viewing) .mini-step-label {
+    display: none;
+  }
+
+  .board-dock {
+    padding: 8px 10px 10px;
+  }
+}

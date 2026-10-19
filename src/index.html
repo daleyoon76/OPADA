@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" as="style" crossorigin="anonymous" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-    <link rel="stylesheet" href="./styles.css?v=20261019-revision-r1">
+    <link rel="stylesheet" href="./styles.css?v=20261019-uiux-r1">
   </head>
   <body>
     <header class="app-header">
@@ -36,17 +36,19 @@
       </section>
 
       <section id="view-input" class="view is-visible" aria-label="공고 가져오기">
-        <ol class="wizard-progress" aria-hidden="true">
-          <li class="wizard-progress-step" data-wizard-dot="profile">1</li>
-          <li class="wizard-progress-step" data-wizard-dot="url">2</li>
-          <li class="wizard-progress-step" data-wizard-dot="result">3</li>
+        <ol class="mini-stepper wizard-progress" aria-label="공고 가져오기 단계">
+          <li class="mini-step" data-wizard-dot="profile"><span class="mini-step-num">1-1</span><span class="mini-step-label">유형·목적</span></li>
+          <li class="mini-step" data-wizard-dot="url"><span class="mini-step-num">1-2</span><span class="mini-step-label">물건 URL</span></li>
+          <li class="mini-step" data-wizard-dot="result"><span class="mini-step-num">1-3</span><span class="mini-step-label">분석 결과</span></li>
         </ol>
 
         <div class="wizard-step" id="wizard-step-profile" data-wizard-step="profile">
           <section class="panel">
             <div class="section-title">
-              <p class="eyebrow">Step 1-1</p>
-              <h2 id="input-title">내 유형과 목적을 입력해주세요</h2>
+              <div>
+                <p class="eyebrow">Step 1-1</p>
+                <h2 id="input-title">내 유형과 목적을 입력해주세요</h2>
+              </div>
             </div>
             <div class="field-row">
               <div>
@@ -77,8 +79,10 @@
           <div class="two-col">
             <section class="panel">
               <div class="section-title">
-                <p class="eyebrow">Step 1-2</p>
-                <h2>온비드 공고 물건 URL을 입력해주세요</h2>
+                <div>
+                  <p class="eyebrow">Step 1-2</p>
+                  <h2>온비드 공고 물건 URL을 입력해주세요</h2>
+                </div>
               </div>
               <label for="notice-url">온비드 공고/물건 URL</label>
               <textarea id="notice-url" rows="4"></textarea>
@@ -89,14 +93,16 @@
               <div class="actions">
                 <button id="wizard-back-url" class="secondary" type="button">이전</button>
                 <button id="load-sample" class="secondary" type="button">샘플 불러오기</button>
-                <button id="analyze" class="primary" type="button">다음</button>
+                <button id="analyze" class="primary" type="button">분석하기</button>
               </div>
             </section>
 
             <section class="panel">
               <div class="section-title">
-                <p class="eyebrow">Analysis Pipeline</p>
-                <h2>처리 단계</h2>
+                <div>
+                  <p class="eyebrow">Analysis Pipeline</p>
+                  <h2>처리 단계</h2>
+                </div>
               </div>
               <ol id="pipeline" class="pipeline"></ol>
             </section>
@@ -106,8 +112,10 @@
         <div class="wizard-step" id="wizard-step-result" data-wizard-step="result">
           <section class="panel">
             <div class="section-title">
-              <p class="eyebrow">Step 1-3</p>
-              <h2>분석 결과를 확인해주세요</h2>
+              <div>
+                <p class="eyebrow">Step 1-3</p>
+                <h2>분석 결과를 확인해주세요</h2>
+              </div>
             </div>
             <section id="analysis-result" class="result-page" aria-live="polite"></section>
             <div class="actions">
@@ -126,76 +134,78 @@
       </section>
 
       <section id="view-report" class="view" aria-labelledby="report-title">
-        <section class="panel">
+        <section class="panel board-panel">
           <div class="section-title">
             <div>
-              <p class="eyebrow">Step 2</p>
-              <h2 id="report-title">내 준비 보드</h2>
+              <p class="eyebrow" id="board-step-label">Step 2-1</p>
+              <h2 id="report-title">공고 확인</h2>
             </div>
             <button type="button" class="secondary small-button" data-new-analysis>새 물건 분석으로</button>
           </div>
           <div id="report-hero" class="report-hero"></div>
-          <div class="board-layout">
-            <section class="task-panel" aria-labelledby="task-title">
-              <div class="panel-heading">
-                <h3 id="task-title">할 일</h3>
+          <section class="board-page" aria-labelledby="task-title">
+            <div class="panel-heading board-page-toolbar">
+              <h3 id="task-title">할 일</h3>
+              <div class="board-page-tools">
+                <div id="guide-level" class="seg-toggle" role="group" aria-label="할 일 설명 보기"></div>
                 <button id="reset-tasks" class="secondary small-button" type="button">초기화</button>
               </div>
-              <div id="task-list" class="task-list"></div>
-              <div class="board-status" id="board-status" aria-live="polite"></div>
-            </section>
-            <aside class="context-panel" aria-labelledby="context-title">
-              <h3 id="context-title">공고 요약</h3>
-              <div id="quick-facts" class="fact-list"></div>
-              <div class="quick-actions">
-                <a id="source-url-link" class="secondary action-link" href="https://www.onbid.co.kr/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController/mvmnPbancDtl.do?cltrPrptDivCd=10&cltrScrnGrpCd=0&onbidCltrno=1413572&onbidPbancNo=887390&pbctCdtnNo=5988631&pbctNo=10032196" target="_blank" rel="noreferrer">온비드 원문 열기</a>
-                <button class="secondary" type="button" data-jump="watchlist">관심 공고 보기</button>
-                <button class="secondary" type="button" data-copy-summary>검토 메모 복사</button>
+            </div>
+            <p id="guide-level-hint" class="small-text guide-level-hint"></p>
+            <div id="task-list" class="task-list"></div>
+            <div id="board-stage1-extra" class="board-stage1-extra">
+              <section class="block" aria-labelledby="context-title">
+                <h3 id="context-title" class="block-title">공고 요약</h3>
+                <div id="quick-facts" class="fact-grid"></div>
+              </section>
+              <section class="block support-tabs" aria-labelledby="support-title">
+                <h3 id="support-title" class="block-title">공고 자료</h3>
+                <div class="support-tabbar">
+                  <div class="support-tablist" role="tablist" aria-labelledby="support-title">
+                  <button type="button" role="tab" class="support-tab" id="tab-deadline-cost-list" aria-controls="panel-deadline-cost-list" aria-selected="true" tabindex="0" data-support-tab="deadline-cost-list">마감·비용</button>
+                  <button type="button" role="tab" class="support-tab" id="tab-attachment-list" aria-controls="panel-attachment-list" aria-selected="false" tabindex="-1" data-support-tab="attachment-list">첨부파일</button>
+                  <button type="button" role="tab" class="support-tab" id="tab-glossary-list" aria-controls="panel-glossary-list" aria-selected="false" tabindex="-1" data-support-tab="glossary-list">용어</button>
+                  <button type="button" role="tab" class="support-tab" id="tab-reference-list" aria-controls="panel-reference-list" aria-selected="false" tabindex="-1" data-support-tab="reference-list">참고자료</button>
+                  <button type="button" role="tab" class="support-tab" id="tab-source-notes" aria-controls="panel-source-notes" aria-selected="false" tabindex="-1" data-support-tab="source-notes">근거·안전 경계</button>
+                  </div>
+                  <div class="support-tab-links">
+                    <a id="source-url-link" class="support-tab" href="https://www.onbid.co.kr/" target="_blank" rel="noreferrer">온비드 원문 열기 ↗</a>
+                    <button type="button" class="support-tab" data-jump="watchlist">관심 공고 보기</button>
+                  </div>
+                </div>
+              <div role="tabpanel" id="panel-deadline-cost-list" aria-labelledby="tab-deadline-cost-list" class="support-tabpanel">
+                <div id="deadline-cost-list" class="info-list"></div>
               </div>
-              <p id="copy-feedback" class="copy-feedback" aria-live="polite"></p>
-            </aside>
-          </div>
-          <section class="support-tabs" aria-label="자세히 보기">
-            <div class="support-tablist" role="tablist">
-              <button type="button" role="tab" id="tab-deadline-cost-list" aria-controls="panel-deadline-cost-list" aria-selected="true" tabindex="0" data-support-tab="deadline-cost-list">마감·비용</button>
-              <button type="button" role="tab" id="tab-question-list" aria-controls="panel-question-list" aria-selected="false" tabindex="-1" data-support-tab="question-list">물어볼 문장</button>
-              <button type="button" role="tab" id="tab-attachment-list" aria-controls="panel-attachment-list" aria-selected="false" tabindex="-1" data-support-tab="attachment-list">첨부파일</button>
-              <button type="button" role="tab" id="tab-notice-outline" aria-controls="panel-notice-outline" aria-selected="false" tabindex="-1" data-support-tab="notice-outline">공고문 항목</button>
-              <button type="button" role="tab" id="tab-glossary-list" aria-controls="panel-glossary-list" aria-selected="false" tabindex="-1" data-support-tab="glossary-list">용어</button>
-              <button type="button" role="tab" id="tab-reference-list" aria-controls="panel-reference-list" aria-selected="false" tabindex="-1" data-support-tab="reference-list">참고자료</button>
-              <button type="button" role="tab" id="tab-source-notes" aria-controls="panel-source-notes" aria-selected="false" tabindex="-1" data-support-tab="source-notes">근거·안전 경계</button>
+              <div role="tabpanel" id="panel-attachment-list" aria-labelledby="tab-attachment-list" class="support-tabpanel" hidden>
+                <div id="attachment-list" class="info-list"></div>
+              </div>
+              <div role="tabpanel" id="panel-glossary-list" aria-labelledby="tab-glossary-list" class="support-tabpanel" hidden>
+                <div id="glossary-list" class="info-list"></div>
+              </div>
+              <div role="tabpanel" id="panel-reference-list" aria-labelledby="tab-reference-list" class="support-tabpanel" hidden>
+                <div id="reference-list" class="info-list"></div>
+              </div>
+              <div role="tabpanel" id="panel-source-notes" aria-labelledby="tab-source-notes" class="support-tabpanel" hidden>
+                <div id="source-notes" class="info-list"></div>
+              </div>
+              </section>
             </div>
-            <div role="tabpanel" id="panel-deadline-cost-list" aria-labelledby="tab-deadline-cost-list" class="support-tabpanel">
-              <div id="deadline-cost-list" class="compact-list"></div>
-            </div>
-            <div role="tabpanel" id="panel-question-list" aria-labelledby="tab-question-list" class="support-tabpanel" hidden>
-              <div id="question-list" class="compact-list"></div>
-            </div>
-            <div role="tabpanel" id="panel-attachment-list" aria-labelledby="tab-attachment-list" class="support-tabpanel" hidden>
-              <div id="attachment-list" class="compact-list"></div>
-            </div>
-            <div role="tabpanel" id="panel-notice-outline" aria-labelledby="tab-notice-outline" class="support-tabpanel" hidden>
-              <div id="notice-outline" class="compact-list"></div>
-            </div>
-            <div role="tabpanel" id="panel-glossary-list" aria-labelledby="tab-glossary-list" class="support-tabpanel" hidden>
-              <div id="glossary-list" class="compact-list"></div>
-            </div>
-            <div role="tabpanel" id="panel-reference-list" aria-labelledby="tab-reference-list" class="support-tabpanel" hidden>
-              <div id="reference-list" class="compact-list"></div>
-            </div>
-            <div role="tabpanel" id="panel-source-notes" aria-labelledby="tab-source-notes" class="support-tabpanel" hidden>
-              <div id="source-notes" class="source-notes"></div>
-            </div>
+            <nav id="board-page-nav" class="board-page-nav" aria-label="준비 단계 이동"></nav>
           </section>
-          <div id="board-coach" class="board-coach"></div>
         </section>
+        <div class="board-dock" aria-label="AI 코치와 준비 단계">
+          <div id="board-coach" class="board-coach"></div>
+          <div id="board-status" class="board-status" aria-live="polite"></div>
+        </div>
       </section>
 
       <section id="view-watchlist" class="view" aria-labelledby="watchlist-title">
         <section class="panel">
           <div class="section-title">
-            <p class="eyebrow">Step 3</p>
-            <h2 id="watchlist-title">관심 공고</h2>
+            <div>
+              <p class="eyebrow">Step 3</p>
+              <h2 id="watchlist-title">관심 공고</h2>
+            </div>
           </div>
           <div class="watch-summary" id="watch-summary"></div>
           <div class="watch-board" id="watchlist-table"></div>
@@ -207,6 +217,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20261019-revision-r1"></script>
+    <script src="./app.js?v=20261019-uiux-r1"></script>
   </body>
 </html>
