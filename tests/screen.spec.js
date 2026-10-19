@@ -1281,6 +1281,8 @@ test("S13 준비 단계 — 3단계에 온비드 입찰 규칙 다섯 줄이 보
 // 국유재산 임대 공고와 재산유형을 못 읽은 공고다 — 명세서 안내가 없고, 절차 안내가 유형에 맞게 바뀐다.
 test("S14 공고 유형별 안내 — 용어 탭 기본 용어 · 4단계 절차 순서 · 압류재산 명세서 안내", async ({ page }) => {
   const seized = stagedNotice();
+  // 첨부가 1건 이상인데 파일명에 「명세서」가 없는 상태. 0건이면 안내가 뜨지 않는다(아래 음성 ⓓ).
+  seized.relatedDocs = ["압류재산 공매공고문.hwp"];
   seized.glossary = [
     { term: "매각결정기일", meaning: "개찰 뒤 캠코가 매각을 확정하는 날입니다.", group: "basic" },
     { term: "유찰", meaning: "두 가지 뜻으로 쓰입니다.", group: "basic" },
@@ -1336,6 +1338,45 @@ test("S14 음성 — 국유 임대 공고와 재산유형을 못 읽은 공고�
   await expect(unknownProcess).not.toContainText("7일");
   await expect(unknownProcess).not.toContainText("5영업일");
   await expect(page.locator("#glossary-list")).toContainText("용어 안내가 없습니다");
+
+  // ⓒ 나머지 분기 — app.js 전역 함수를 직접 불러 sampleNotice 만 바꿔 가며 센다(N0 와 같은 꼴 · 리뷰 r1 검증 누락 2).
+  const branches = await page.evaluate(() => {
+    const run = (assetType, dispositionLabel) => {
+      sampleNotice.assetType = assetType;
+      sampleNotice.dispositionLabel = dispositionLabel;
+      return postAwardProcessNote();
+    };
+    return {
+      stateSale: run("국유재산", "매각"),
+      trust: run("수탁재산", "매각"),
+      trustLease: run("수탁재산", "임대"),
+      local: run("공유재산", "임대"),
+      bankrupt: run("파산자산", "매각"),
+    };
+  });
+  expect(branches.stateSale.order).toContain("매수자가 직접 소유권이전등기");
+  expect(branches.stateSale.deposit).toContain("국고에 귀속");
+  expect(branches.trust.deposit).toContain("매도자에게 귀속");
+  expect(branches.local.order).toContain("공고문이 정합니다");
+  // 수탁 임대·파산자산은 온비드 공통 규칙이 절차를 정하지 않아 공통 안내다. 「읽지 못해」라고 말하면 거짓이다.
+  for (const note of [branches.trustLease, branches.bankrupt]) {
+    expect(note.order).toContain("공통 안내만 둡니다");
+    expect(note.order).not.toContain("읽지 못해");
+    expect(note.order).not.toContain("7일");
+  }
+
+  // ⓓ 첨부 안내 음성 — 압류재산이라도 파일명에 「명세서」가 있거나 첨부가 0건이면 안내가 없다(리뷰 r1 #6 · 검증 누락 1).
+  const inventory = await page.evaluate(() => {
+    sampleNotice.assetType = "압류재산";
+    return {
+      withSheet: attachmentInventoryNote(["공매재산명세서.pdf", { name: "공고문.hwp" }]),
+      empty: attachmentInventoryNote([]),
+      without: attachmentInventoryNote(["공고문.hwp"]),
+    };
+  });
+  expect(inventory.withSheet).toBe("");
+  expect(inventory.empty).toBe("");
+  expect(inventory.without).toContain("「명세서」를 찾지 못했습니다");
 });
 
 // S11 — 공공데이터 API 연동 블록 세 개가 설계한 자리에 놓이고, 질문 답·기한 어긋남을

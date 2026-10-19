@@ -3132,7 +3132,7 @@ PROCESS_TERMS: tuple[dict[str, str], ...] = (
     {
         "term": "감정평가금액",
         "scope": "common",
-        "meaning": "감정평가업자가 평가한 재산의 가격입니다. 최저입찰가격과는 다른 값이고, 둘이 어떤 관계인지는 공고마다 다르므로 공고 원문에서 확인합니다.",
+        "meaning": "감정평가업자가 평가한 재산의 가격입니다. 최저입찰가격과 다를 수 있고, 둘이 어떤 관계인지는 공고마다 다르므로 공고 원문에서 확인합니다.",
     },
     {
         "term": "입찰보증금",
@@ -3188,7 +3188,11 @@ PROCESS_TERMS: tuple[dict[str, str], ...] = (
 
 
 def _notice_scopes(asset_type: str, disposition_label: str) -> set[str]:
-    """이 공고에 보여 줄 절차 용어의 scope 집합. 판정 규칙은 app.js(isSaleNotice·isLeaseNotice)와 같다."""
+    """이 공고에 보여 줄 절차 용어의 scope 집합.
+
+    매각·임대 판정은 처분방식 표기(와 압류재산 여부)만 본다. app.js 의 보드 판정은 공고명(title)도 보므로
+    둘은 비슷하되 같지 않다(리뷰 r1 #4).
+    """
     asset_type = asset_type or ""
     disposition_label = disposition_label or ""
     scopes = {"common"}
@@ -3433,7 +3437,7 @@ def build_notice(raw_url: str) -> dict[str, object]:
                 "value": appraisal,
                 # 공매는 최저입찰가격이 감정평가금액보다 높게도 낮게도 정해진다(2026-10-19 커뮤니티 조사 3-4).
                 # 두 값의 관계는 계산하지 않고 다르다는 사실만 적는다.
-                "note": "온비드 상세 페이지 표시값입니다. 최저입찰가격과는 다른 값이고, 둘의 관계는 공고 원문에서 확인하십시오.",
+                "note": "온비드 상세 페이지 표시값입니다. 최저입찰가격과 다를 수 있고, 둘의 관계는 공고 원문에서 확인하십시오.",
             }
         )
     price_candidates.extend(extract_cost_terms(sections, minimum_bid))

@@ -1753,7 +1753,7 @@ const ONBID_BID_RULES = [
   // 아래 두 줄의 근거: 온비드 FAQ #67972(2회 이상 제출 가능 물건이면 같은 회차에 재입찰 가능) ·
   // 국유재산 입찰참가자 준수규칙 제12조③(낙찰자 신원 비공개). 2026-10-19 커뮤니티 조사 1-1·1-3 에서
   // 초보자가 「입찰을 취소할 수 없나」「입찰자 수를 볼 수 있나」를 물었다.
-  "「2회 이상 입찰서 제출 가능」으로 표시된 물건이면 같은 회차에 다시 입찰할 수 있습니다. 그 표시가 없으면 한 번 제출한 입찰서가 그대로 유효합니다.",
+  "온비드 물건 상세에 2회 이상 입찰서 제출이 가능하다고 표시된 물건이면 같은 회차에 다시 입찰할 수 있습니다. 그 표시가 없으면 첫 줄의 원칙대로 제출한 입찰서를 수정하거나 취소할 수 없습니다.",
   "개찰 뒤 낙찰자가 누구인지는 공개되지 않습니다. 내 입찰 결과는 온비드 「나의온비드 > 입찰결과」에서 직접 확인합니다.",
 ];
 
@@ -2278,6 +2278,8 @@ function renderAttachments() {
 // 본문 안에 명세서가 들어 있는 첨부는 못 알아본다 — 그래서 「찾지 못했습니다」까지만 말한다.
 function attachmentInventoryNote(docs) {
   if (!String(sampleNotice.assetType || "").includes("압류재산")) return "";
+  // 첨부가 0건이면 바로 위 「첨부파일이 없습니다」가 이미 그 사실을 말한다(리뷰 r1 #6).
+  if (!docs.length) return "";
   const names = docs.map((doc) => (typeof doc === "string" ? doc : String(doc?.name || "")));
   if (names.some((name) => name.includes("명세서"))) return "";
   return `<p class="small-text attachment-inventory-note">첨부 파일명에서 「명세서」를 찾지 못했습니다. 압류재산 공매의 공매재산명세서가 따로 있는지는 온비드 물건 상세와 담당 부점에서 확인하십시오.</p>`;
@@ -2370,10 +2372,15 @@ function renderGlossary() {
   const matched = entries.filter((entry) => entry.group !== "basic");
   const rowsHtml = (list) =>
     list.map((entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p></div>`).join("");
-  const typeLabel = `${sampleNotice.assetType || "재산유형 확인"} · ${sampleNotice.dispositionLabel || "처분방식 확인"}`;
-  const basicHtml = basic.length
-    ? `<h4 class="glossary-group-title">이 공고 유형(${typeLabel})의 기본 용어</h4>${rowsHtml(basic)}`
-    : "";
+  const assetType = String(sampleNotice.assetType || "");
+  const disposition = String(sampleNotice.dispositionLabel || "");
+  // 재산유형·처분방식을 둘 다 못 읽었으면 괄호 안이 「재산유형 확인 · 처분방식 확인」이 되어 지시어가
+  // 값처럼 보인다(리뷰 r1 #5). 그때는 공통 용어라는 사실만 적는다.
+  const typeKnown = assetType && assetType !== "재산유형 확인" || disposition && disposition !== "처분방식 확인";
+  const basicTitle = typeKnown
+    ? `이 공고 유형(${assetType || "재산유형 확인"} · ${disposition || "처분방식 확인"})의 기본 용어`
+    : "모든 공고에 공통인 기본 용어";
+  const basicHtml = basic.length ? `<h4 class="glossary-group-title">${basicTitle}</h4>${rowsHtml(basic)}` : "";
   const matchedHtml = matched.length
     ? `<h4 class="glossary-group-title">공고 표기에 나온 용어</h4>${rowsHtml(matched)}`
     : "";
@@ -2547,7 +2554,7 @@ function postAwardProcessNote() {
   if (assetType.includes("수탁재산") && !isLease) {
     return {
       label,
-      order: "낙찰 → 매매계약 체결 → 중도금·잔대금 납부 → 위임기관에서 이전서류를 받아 매수자가 등기 신청. 계약 기한은 공고마다 다릅니다.",
+      order: "낙찰 → 매매계약 체결 → 중도금·잔대금 납부 → 위임기관에서 이전서류를 받아 매수자가 등기 신청. 계약 기한은 안내문·규칙·공고문의 표기가 서로 달라(5일 · 5영업일) 공고 원문을 따릅니다.",
       deposit: "계약을 맺지 않으면 입찰보증금은 매도자에게 귀속됩니다.",
       source: "온비드 이용안내 「낙찰절차 안내」 수탁재산 · 수탁재산 입찰참가자 준수규칙 제11조",
     };
@@ -2562,7 +2569,9 @@ function postAwardProcessNote() {
   }
   return {
     label,
-    order: "재산유형이나 처분방식을 읽지 못해 공통 안내만 둡니다. 낙찰 뒤 계약·대금·이전 절차와 기한은 재산유형마다 다르고, 공고 원문이 정합니다.",
+    // 재산유형을 못 읽은 공고뿐 아니라 파산자산·수탁 임대처럼 온비드 공통 규칙이 절차를 정하지 않는
+    // 조합도 이 분기로 온다. 그래서 「읽지 못해」라고 쓰지 않는다(리뷰 r1 #2).
+    order: "이 재산유형·처분방식 조합의 낙찰 뒤 절차는 공고 원문이 정하므로 공통 안내만 둡니다. 계약·대금·이전 절차와 기한은 재산유형마다 다릅니다.",
     deposit: "기한을 지키지 못하면 입찰보증금을 돌려받지 못할 수 있습니다. 귀속처는 재산유형과 공고마다 다릅니다.",
     source: "온비드 이용안내 「낙찰절차 안내」",
   };

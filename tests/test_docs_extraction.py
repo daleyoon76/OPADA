@@ -1284,6 +1284,18 @@ def test_glossary() -> None:
         unknown and all(e["group"] == "basic" and e["term"] in common_terms for e in unknown),
         str([e["term"] for e in unknown]),
     )
+    # 리터럴 음성(리뷰 r1 P-38 ⑴) — 위 단정의 기대값은 PROCESS_TERMS 에서 계산하므로 누가 「매각결정기일」의
+    # scope 를 common 으로 바꾸면 함께 움직여 영원히 초록이다. 유형별 용어 이름을 여기 손으로 박는다.
+    typed_terms = {"매각결정기일", "차순위 매수신고", "대부료", "잔대금 (잔금)", "소유권이전", "명도"}
+    check(
+        "용어 음성 미상 — 유형별 용어 없음(리터럴)",
+        not any(e["term"] in typed_terms for e in unknown),
+        str([e["term"] for e in unknown]),
+    )
+    # 감정평가금액 note(price_candidates)는 단정형이 아니라 가정형이어야 한다(리뷰 r1 #3 · 정본에 관계 서술 없음).
+    source_text = Path(server.__file__).read_text(encoding="utf-8")
+    check("B6 감정평가금액 note 가정형 배선", "최저입찰가격과 다를 수 있고, 둘의 관계는 공고 원문에서 확인하십시오." in source_text, "")
+    check("B6 음성 감정평가금액 단정형 0건", "최저입찰가격과는 다른 값" not in source_text, "")
 
     # B6 기본 용어(PROCESS_TERMS) — 공고 유형에 따라 다른 묶음이 앞에 선다(2026-10-19 커뮤니티 조사 1-1 반영).
     groups = [entry["group"] for entry in entries]
