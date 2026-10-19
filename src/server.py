@@ -3039,9 +3039,8 @@ def _word_starts(question: str) -> set[int]:
     starts: set[int] = set()
     offset = 0
     for token in (question or "").split():
-        lead = re.match(r"[^\w]*", token).end()
-        if lead < len(token):
-            starts.add(offset + lead)
+        # 문장부호만 있는 낱말이면 다음 낱말의 시작 자리가 들어갈 뿐이라 따로 거르지 않는다.
+        starts.add(offset + re.match(r"[^\w]*", token).end())
         offset += len(token)
     return starts
 

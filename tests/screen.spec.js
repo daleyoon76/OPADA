@@ -936,7 +936,7 @@ test("AI 코치 질문 — 온비드 용어 설명이 오면 「담당기관 문
   await expect(answerBox.getByText("설명 둘입니다.")).toBeVisible();
   await expect(answerBox.getByText(declinedNote)).toBeVisible();
   await expect(answerBox).not.toContainText("AI 연결 안 됨");
-  await expect(answerBox).not.toContainText("기준)");
+  await expect(answerBox.locator("p > strong + span.small-text")).toHaveCount(0);
 
   // 제도·용어 질문(general)에 설명이 있으면 모델이 풀어 쓴 답 대신 온비드 설명을 그대로 보인다.
   await askWith({ connected: true, answerable: true, answerType: "general", answer: "모델이 풀어 쓴 답입니다.", sourceField: "시험용 출처", references: [ref("설명 넷입니다.")] });
