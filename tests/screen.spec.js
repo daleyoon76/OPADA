@@ -783,7 +783,7 @@ test("N0 커버리지 측정 함수를 직접 호출해 단정한다", () => {
   // 축 코드를 손으로 박는다. AXES 에서 축을 지우면 아래 full 묶음의 입력과 기대가 «함께»
   // 줄어 아무도 붉지 않는다 — 이 한 줄이 그 자리를 막는다(2026-09-09 r2 P2-2).
   expect(AXES.map((axis) => axis[0])).toEqual([
-    "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11",
+    "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10", "S11", "S12", "S13",
     "N0", "N1", "N2", "N3", "N4", "N5", "N6",
   ]);
 
@@ -983,8 +983,10 @@ test("준비 단계 — 4단계 블록에 머리 안내가 보이고, 낙찰 후
   await expect(postAward).toContainText("농지 매수자격 증명 서류");
   await expect(postAward).toContainText("소유권이전 단계");
   await expect(postAward).toContainText("등기사항전부증명서");
-  // 🔴 캠코 대행 조항 때문에 제출처를 단정하지 않는다(researcher-fact-check 사실 10 · 미확인).
-  await expect(postAward).toContainText("절차와 제출처는 공고기관에 확인하십시오");
+  // 제출처는 재산유형마다 다르다 — 압류재산은 캠코가 등기를 촉탁하고 매수인이 직접 등기소에 낼 수
+  // 없다(온비드 이용안내 「낙찰절차 안내」 · 2026-10-19 정합성 대조로 사실 10 의 미확인이 닫혔다).
+  await expect(postAward).toContainText("등기촉탁은 캠코가 합니다");
+  await expect(postAward).toContainText("매수인이 등기소에 직접 낼 수는 없습니다");
 
   // 2단계 체크리스트에는 낙찰 후 서류가 «없다» — 두 블록이 물리적으로 갈린다.
   await page
@@ -1084,6 +1086,92 @@ test("S10 준비 단계 — 4단계 압류재산 묶음이 재산유형에 따�
   }));
   expect(direct.noDeclaration).toBe(true);
   expect(direct.unknownType).toBe(true);
+});
+
+// S12 — 소유권이전 묶음은 매각 절차의 서류다. 임대·대부 공고에는 소유권이전이 없으므로 접고
+// 처분방식 안내를 붙인다(2026-10-19 정합성 대조 · 임대 공고에도 펼쳐져 나가던 문제).
+// 접기만 하고 지우지는 않는다 — 처분방식을 잘못 읽었을 때도 사용자가 묶음을 열어 볼 수 있게.
+test("S12 준비 단계 — 임대 공고에서는 소유권이전 묶음이 접히고 처분방식 안내가 붙는다", async ({ page }) => {
+  const TRANSFER_GROUP = 'details.doc-group:has(h4:text-is("소유권이전 단계"))';
+  const DISPOSITION_NOTE = '.post-award-not-applicable:has-text("처분방식")';
+  const readTransfer = async () => {
+    const group = page.locator(TRANSFER_GROUP);
+    const count = await group.count();
+    return {
+      exists: count > 0,
+      open: count > 0 ? await group.first().evaluate((el) => el.open) : null,
+      itemCount: count > 0 ? await group.first().locator("li").count() : 0,
+      noteCount: await page.locator(DISPOSITION_NOTE).count(),
+    };
+  };
+
+  // ⑴ 임대 — 접히고 처분방식 안내가 붙는다. 서류는 마크업에 남는다.
+  const lease = stagedNotice();
+  lease.assetType = "공유재산";
+  lease.dispositionLabel = "임대";
+  await analyzeWith(page, lease);
+  const onLease = await readTransfer();
+  expect(onLease.exists).toBe(true);
+  expect(onLease.open).toBe(false);
+  expect(onLease.noteCount).toBe(1);
+  expect(onLease.itemCount).toBeGreaterThan(0);
+
+  // 판정 함수 직접 호출 — 화면 단정과 별개로 이유 값을 본다.
+  const direct = await page.evaluate(() => {
+    const transfer = { condition: "소유권이전 단계", dispositions: ["매각"] };
+    sampleNotice.dispositionLabel = "임대/대부입찰";
+    const lease = window.postAwardNotApplicableReason(transfer);
+    sampleNotice.dispositionLabel = "매각/공매";
+    const sale = window.postAwardNotApplicableReason(transfer);
+    // 「임대」와 「매각」이 함께 적힌 라벨은 매각 절차가 섞였을 수 있어 접지 않는다.
+    sampleNotice.dispositionLabel = "임대 및 매각";
+    const mixed = window.postAwardNotApplicableReason(transfer);
+    return { lease, sale, mixed };
+  });
+  expect(direct.lease).toBe("disposition");
+  expect(direct.sale).toBe("");
+  expect(direct.mixed).toBe("");
+});
+
+test("S12 음성 — 매각 공고와 처분방식을 읽지 못한 공고에서는 소유권이전 묶음이 펼쳐진다", async ({ page }) => {
+  const TRANSFER_GROUP = 'details.doc-group:has(h4:text-is("소유권이전 단계"))';
+  const DISPOSITION_NOTE = '.post-award-not-applicable:has-text("처분방식")';
+  const readTransfer = async () => ({
+    open: await page.locator(TRANSFER_GROUP).first().evaluate((el) => el.open),
+    noteCount: await page.locator(DISPOSITION_NOTE).count(),
+  });
+
+  // ⑴ 매각 공고에서는 펼쳐지고 안내가 없다.
+  const sale = stagedNotice();
+  sale.assetType = "공유재산";
+  sale.dispositionLabel = "매각";
+  await analyzeWith(page, sale);
+  const onSale = await readTransfer();
+  expect(onSale.open).toBe(true);
+  expect(onSale.noteCount).toBe(0);
+
+  // ⑵ 처분방식을 읽지 못했으면 해당하는 것으로 보고 펼친다(재산유형과 같은 비대칭 기본값).
+  const unknown = stagedNotice();
+  unknown.dispositionLabel = "처분방식 확인";
+  await analyzeWith(page, unknown);
+  const onUnknown = await readTransfer();
+  expect(onUnknown.open).toBe(true);
+  expect(onUnknown.noteCount).toBe(0);
+
+});
+
+// S13 — 3단계 「입찰 참여」에 온비드 공통 입찰 규칙(제출 뒤 수정·취소 불가, 제출 뒤 발급되는 계좌로
+// 마감 전 보증금 납부·미납 시 무효, 나의온비드 직접 확인)을 고정 문구로 보여 준다. 근거는 온비드
+// 이용안내 「입찰참가 안내」와 입찰참가자 준수규칙이다(2026-10-19 정합성 대조).
+test("S13 준비 단계 — 3단계에 온비드 입찰 규칙 세 줄이 보인다", async ({ page }) => {
+  await analyzeWith(page, stagedNotice());
+  const rules = page.locator(".bid-participation-info .bid-rules li");
+  await expect(rules).toHaveCount(3);
+  const text = (await rules.allInnerTexts()).join(" ");
+  expect(text).toContain("수정하거나 취소할 수 없는");
+  expect(text).toContain("입찰서를 제출한 뒤에 발급");
+  expect(text).toContain("무효");
+  expect(text).toContain("나의온비드");
 });
 
 // S11 — 공공데이터 API 연동 블록 세 개가 설계한 자리에 놓이고, 질문 답·기한 어긋남을
@@ -1220,7 +1308,7 @@ function jointAndProxyNotice() {
 // 시나리오 1 — 본인 단독 현금 입찰(신규). 근거: 압류재산 인터넷공매 입찰참가자준수규칙
 // 제7조②③ — 대리·공동입찰 서류 요구는 "대리인이 매수신청하려는 경우"·"여러 사람이
 // 공동으로 입찰에 참가하려는 경우"로 조건이 걸려 있어, 단독 입찰자에게는 요구되지 않는다.
-test("E2E design S1 — 조건 질문에 답하지 않은 기본 상태에서 대리입찰·공동입찰 서류가 0건이다 (준수규칙 제7조②③)", async ({ page }) => {
+test("E2E design 시나리오 1 — 조건 질문에 답하지 않은 기본 상태에서 대리입찰·공동입찰 서류가 0건이다 (준수규칙 제7조②③)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
   await page.locator("#doc-checklist-details > summary").click();
@@ -1245,7 +1333,7 @@ test("E2E design S1 — 조건 질문에 답하지 않은 기본 상태에서 �
 // 대체 표기만 보강한다. 근거: 준수규칙 제7조② "대리 매수신청인(위임인)의 인감증명서 또는
 // 본인서명사실확인서". 인감증명서로만 좁혀 적으면 본인서명사실확인서로 대신할 수 있다는
 // 사실을 사용자가 모르고 지나간다(researcher-fact-check 사실 3).
-test("E2E design S2 보강 — 대리입찰 서류에 \"인감증명서 또는 본인서명사실확인서\" 대체 표기가 그대로 남는다 (준수규칙 제7조②)", async ({ page }) => {
+test("E2E design 시나리오 2 보강 — 대리입찰 서류에 \"인감증명서 또는 본인서명사실확인서\" 대체 표기가 그대로 남는다 (준수규칙 제7조②)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
   await page.locator("#doc-checklist-details > summary").click();
@@ -1262,7 +1350,7 @@ test("E2E design S2 보강 — 대리입찰 서류에 \"인감증명서 또는 �
 // 「16. 주의사항」 자항 ③호 단서 — "다만, 인터넷 공매의 경우에는 공동입찰신청을 온비드
 // 등록으로 대신할 수 있습니다". 이 예외를 빼면 사용자가 하지 않아도 되는 우편·방문 제출을
 // 하게 된다(researcher-fact-check 사실 1).
-test("E2E design S3 — 압류재산 공동입찰에 온비드 등록 대체 예외 문구가 뜬다 (공매공고문 16. 주의사항 자항 ③호 단서)", async ({ page }) => {
+test("E2E design 시나리오 3 — 압류재산 공동입찰에 온비드 등록 대체 예외 문구가 뜬다 (공매공고문 16. 주의사항 자항 ③호 단서)", async ({ page }) => {
   await analyzeWith(page, jointAndProxyNotice());
   await page.locator("#prepare").click();
   await page.locator("#doc-checklist-details > summary").click();
@@ -1279,7 +1367,7 @@ test("E2E design S3 — 압류재산 공동입찰에 온비드 등록 대체 예
 // 중 선택"을 제시한다(researcher-fact-check 사실 3). 재산유형을 조건으로 가르지 않으면
 // 압류재산 전용 예외가 국유재산 화면에도 새어 나갈 수 있다 — 이 테스트는 그 새어 나감을
 // 잡는 음성 대조다.
-test("E2E design S3 음성 대조 — 국유재산 공동입찰에는 압류재산 전용 온비드 등록 예외 문구가 뜨지 않는다", async ({ page }) => {
+test("E2E design 시나리오 3 음성 대조 — 국유재산 공동입찰에는 압류재산 전용 온비드 등록 예외 문구가 뜨지 않는다", async ({ page }) => {
   const notice = jointAndProxyNotice();
   notice.assetType = "국유재산";
   await analyzeWith(page, notice);
@@ -1300,7 +1388,7 @@ test("E2E design S3 음성 대조 — 국유재산 공동입찰에는 압류재�
 // 사전 판정 자체가 아니라 그 결과("미분류" stage)를 화면이 올바르게 분리해 보여주는지만
 // 검증한다(사전이 실제로 못 찾는 입력을 만드는 것은 tests/measure_stage_classification.py
 // 쪽 책임이다).
-test("E2E design S5 — 사전에 없는 서류는 \"단계를 확정하지 못한 서류\" 구획에만 나타난다 (resolve_doc_stage 말단 분기)", async ({ page }) => {
+test("E2E design 시나리오 5 — 사전에 없는 서류는 \"단계를 확정하지 못한 서류\" 구획에만 나타난다 (resolve_doc_stage 말단 분기)", async ({ page }) => {
   const notice = copyBase();
   notice.docChecklist.items = [
     ...notice.docChecklist.items,

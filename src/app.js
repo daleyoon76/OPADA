@@ -822,10 +822,13 @@ const POST_AWARD_DOC_GROUPS = [
   },
   {
     condition: "소유권이전 단계",
-    // 🔴 압류재산 공고문에는 「공사는 체납자를 대신하여 매각재산의 권리이전 절차를 수행한다」는
-    // 조항이 있다. 매수인이 이 서류를 직접 등기소에 내는지, 캠코에 넘기는지는 확인되지 않았다
-    // (2026-10-18 researcher-fact-check 사실 10 · [미확인]). 그래서 항목마다 제출처를 단정하지
-    // 않고 「공고기관에 확인하십시오」를 붙인다.
+    // 소유권을 넘겨받는 매각 절차의 서류다. 임대·대부 공고에는 소유권이전이 없으므로 접는다
+    // (2026-10-19 정합성 대조 · 임대 공고에도 펼쳐져 나가던 문제).
+    dispositions: ["매각"],
+    // 제출처는 재산유형마다 다르다. 압류재산은 매수인이 서류를 준비해 캠코에 내고 캠코가 등기를
+    // 촉탁한다. 국유재산 매각은 매수자가 직접 이전등기를 한다. 이용기관 물건은 공고문이 정한다
+    // (온비드 이용안내 「낙찰절차 안내」 압류재산 STEP04·국유재산 STEP03 · FAQ 「압류재산
+    // 소유권이전절차 및 유의사항」 · team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md C6·C8·C10).
     items: [
       { name: "등기사항전부증명서", howto: "인터넷등기소", howtoUrl: "https://www.iros.go.kr/" },
       { name: "토지·건축물대장", howto: "정부24", howtoUrl: "https://www.gov.kr/" },
@@ -834,7 +837,7 @@ const POST_AWARD_DOC_GROUPS = [
       { name: "국민주택채권 매입필영수증", howto: "", howtoUrl: "" },
       { name: "등기신청수수료 납부영수증", howto: "인터넷등기소 또는 등기소", howtoUrl: "https://www.iros.go.kr/" },
     ],
-    note: "압류재산은 공사가 체납자를 대신해 권리이전 절차를 수행한다는 공고문 조항이 있습니다. 이 서류를 매수인이 직접 등기소에 제출하는지, 공고기관에 넘기는지는 확인되지 않았습니다. 절차와 제출처는 공고기관에 확인하십시오.",
+    note: "제출처는 재산유형마다 다릅니다. 압류재산은 매수인이 서류를 준비해 캠코 관할 부점에 우편이나 방문으로 내고, 등기촉탁은 캠코가 합니다. 매수인이 등기소에 직접 낼 수는 없습니다. 국유재산 매각은 매수자가 직접 이전등기를 합니다. 그 밖의 재산은 공고문이 정한 절차를 따르십시오. 근거는 온비드 이용안내 「낙찰절차 안내」입니다.",
   },
 ];
 
@@ -903,11 +906,27 @@ function isConfirmedPreBidDoc(item) {
 const POST_AWARD_ASSET_TYPE_UNKNOWN = "재산유형 확인";
 
 function isPostAwardGroupApplicable(group) {
+  return !postAwardNotApplicableReason(group);
+}
+
+// 처분방식도 같은 비대칭 기본값을 쓴다 — 매각인지 임대인지 읽지 못했으면 해당하는 것으로 본다.
+// 「임대·대부」로 «읽혔고» 「매각·공매」 낱말이 없을 때만 매각 묶음을 접는다.
+function isLeaseOnlyDisposition() {
+  const disposition = String(sampleNotice.dispositionLabel || "");
+  return /임대|대부/.test(disposition) && !/매각|공매/.test(disposition);
+}
+
+// 해당하지 않으면 그 이유(화면 문구 종류)를, 해당하면 빈 문자열을 돌려준다.
+function postAwardNotApplicableReason(group) {
   const assetTypes = Array.isArray(group?.assetTypes) ? group.assetTypes : [];
-  if (!assetTypes.length) return true;
-  const assetType = String(sampleNotice.assetType || "").trim();
-  if (!assetType || assetType === POST_AWARD_ASSET_TYPE_UNKNOWN) return true;
-  return assetTypes.some((candidate) => assetType.includes(candidate));
+  if (assetTypes.length) {
+    const assetType = String(sampleNotice.assetType || "").trim();
+    const known = assetType && assetType !== POST_AWARD_ASSET_TYPE_UNKNOWN;
+    if (known && !assetTypes.some((candidate) => assetType.includes(candidate))) return "assetType";
+  }
+  const dispositions = Array.isArray(group?.dispositions) ? group.dispositions : [];
+  if (dispositions.includes("매각") && isLeaseOnlyDisposition()) return "disposition";
+  return "";
 }
 
 function splitDocGroupsByStage(groups) {
@@ -955,6 +974,7 @@ function getVisibleDocGroups() {
   const postAwardGroups = POST_AWARD_DOC_GROUPS.map((group) => ({
     condition: group.condition,
     notApplicable: !isPostAwardGroupApplicable(group),
+    notApplicableReason: postAwardNotApplicableReason(group),
     items: group.items
       .filter((base) => !existingNames.has(base.name))
       .map((base) => buildPostAwardDocItem(base, group)),
@@ -1666,6 +1686,16 @@ async function askNoticeQuestion() {
   }
 }
 
+// 온비드가 입찰자에게 공통으로 거는 규칙이다. 공고마다 달라지는 값이 아니라 고정 문구로 둔다.
+// 근거: 온비드 이용안내 「입찰참가 안내」 STEP04-4·STEP04-5, 입찰참가자 준수규칙(압류 제8조②·
+// 제9조③④, 국유 제9조④⑤ 등) · team-reports/2026-10-19-onbid-journey-conformance/
+// researcher-onbid-journey.md A8~A10. 이용기관이 따로 정하면 예외가 있어 「원칙」으로 쓴다.
+const ONBID_BID_RULES = [
+  "입찰서는 제출한 뒤에 수정하거나 취소할 수 없는 것이 원칙입니다.",
+  "입찰보증금 납부 계좌는 입찰서를 제출한 뒤에 발급됩니다. 입찰 마감 시각까지 보증금을 내지 않으면 입찰이 무효가 됩니다.",
+  "입찰서 제출과 보증금 납부가 끝났는지는 나의온비드에서 직접 확인하십시오. 확인하지 않아 생긴 불이익은 입찰자 책임입니다.",
+];
+
 // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리에 두는 정보 리스트다.
 // 새 추출 로직을 만들지 않고 1·3단계 task의 action(이미 서버가 계산한 값)을 그대로 보여준다.
 // 개찰일시는 notice에 그 값을 담는 필드가 없어 추출 로직이 생기기 전까지는 행 자체를 만들지 않는다.
@@ -1689,6 +1719,11 @@ function renderBidParticipationInfo(taskSummary) {
           </div>`,
         )
         .join("")}
+    </div>
+    <div class="bid-rules">
+      <h4>온비드 입찰 규칙</h4>
+      <ul>${ONBID_BID_RULES.map((rule) => `<li>${rule}</li>`).join("")}</ul>
+      <p class="small-text">근거는 온비드 이용안내 「입찰참가 안내」와 입찰참가자 준수규칙입니다. 공고마다 예외가 있을 수 있으니 공고 원문도 확인하십시오.</p>
     </div>
   </div>`;
 }
@@ -2397,9 +2432,13 @@ function renderPostAwardPanel() {
   const groupsHtml = groups
     .map((group) => {
       const applicable = !group.notApplicable;
+      const reasonText =
+        group.notApplicableReason === "disposition"
+          ? `이 묶음은 소유권을 넘겨받는 매각 절차의 서류여서, 지금 공고의 처분방식(${sampleNotice.dispositionLabel})에는 해당하지 않을 수 있습니다.`
+          : `이 묶음은 압류재산 공매공고문에 근거한 것이어서, 지금 공고의 재산유형(${sampleNotice.assetType})에는 해당하지 않을 수 있습니다.`;
       const noteHtml = applicable
         ? ""
-        : `<p class="post-award-not-applicable">이 묶음은 압류재산 공매공고문에 근거한 것이어서, 지금 공고의 재산유형(${sampleNotice.assetType})에는 해당하지 않을 수 있습니다. 접어 두었지만 지웠다는 뜻은 아닙니다. 해당 여부는 공고 원문과 담당기관에서 확인하십시오.</p>`;
+        : `<p class="post-award-not-applicable">${reasonText} 접어 두었지만 지웠다는 뜻은 아닙니다. 해당 여부는 공고 원문과 담당기관에서 확인하십시오.</p>`;
       return noteHtml + renderDocGroup(group, docState, false, applicable, "");
     })
     .join("");

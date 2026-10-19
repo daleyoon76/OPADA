@@ -420,7 +420,8 @@ HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     # 낙찰 후·계약 시 (8개) — appendix 표본 11~13, 15~17, 20, 22.
     (re.compile(r"구비\s*서류"), "낙찰 후·계약 시"),  # "다. 계약 체결 시 구비서류"(표본11) · "나. 구비서류"(표본12)
     (re.compile(r"계약\s*체결\s*장소"), "낙찰 후·계약 시"),  # "다. 계약체결 장소"(표본12, 나.구비서류 바로 다음 조항)
-    (re.compile(r"낙찰\s*자\s*제출\s*서류"), "낙찰 후·계약 시"),  # "8. 낙찰자 제출서류 (낙찰일로부터 30일 이내 제출)"(표본13)
+    # "8. 낙찰자 제출서류 (낙찰일로부터 30일 이내 제출)"(표본13) · "바. 낙찰자의 제출서류"(2026-10-19 실공고 909691 관측)
+    (re.compile(r"낙찰\s*자\s*의?\s*제출\s*서류"), "낙찰 후·계약 시"),
     (re.compile(r"낙찰\s*일\s*로\s*부터"), "낙찰 후·계약 시"),  # 표본13 괄호 안 "낙찰일로부터 30일 이내" · 표본20 "낙찰일로부터"
     (re.compile(r"계약\s*체결\s*시\s*필요\s*서류"), "낙찰 후·계약 시"),  # "계약체결시 필요서류"(표본15~17)
     (re.compile(r"계약\s*체결\s*시\s*지참\s*서류"), "낙찰 후·계약 시"),  # "14. 계약체결 시 지참 서류"(표본22)
@@ -449,6 +450,44 @@ SENTENCE_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 # 표제로 본다(표본 20 「■ 제출서류(방문시 계약서 날인용 도장 지참)」가 숫자·문자로
 # 시작하지 않는다). 조건 물림(LINE_RESET_RE)과는 별개 — 그 쪽은 바꾸지 않는다.
 HEADING_LINE_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.|■|◆)")
+
+# 조항 번호 체계별 층. 「10.」·「가.」·「1)」은 서로 다른 층이다. 표제를 «마지막 번호 줄
+# 하나»로만 들고 가면 「10. 최종낙찰자 제출서류」 아래 「가. 사업자등록증 …」 같은 항목 줄이
+# 표제를 덮어써, 사전에 있는 표제인데도 그 아래 서류가 전부 미분류로 떨어진다
+# (2026-10-19 실공고 관측 — 909445 「10. 최종낙찰자 제출서류」 · 909691 「바. 낙찰자의 제출서류」).
+# 그래서 층별로 쌓고, 안쪽 층부터 사전에 걸리는 표제를 찾는다. 「1)」을 「1.」보다 먼저 본다.
+HEADING_KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("paren", re.compile(r"^\s*\d+\s*\)")),
+    ("number", re.compile(r"^\s*\d+\s*\.")),
+    ("hangul", re.compile(r"^\s*[가-하]\s*\.")),
+    ("roman", re.compile(r"^\s*[IVX]+\s*\.")),
+    ("symbol", re.compile(r"^\s*[■◆]")),
+)
+
+
+def heading_kind(line: str) -> str:
+    for kind, pattern in HEADING_KIND_RULES:
+        if pattern.match(line):
+            return kind
+    return ""
+
+
+def push_heading(stack: list[tuple[str, str]], line: str) -> None:
+    """같은 층 번호가 다시 나오면 그 층과 그 아래 층을 걷어내고 바꾼다. 처음 보는 층이면 안쪽으로 쌓는다."""
+    kind = heading_kind(line)
+    for index, (existing, _line) in enumerate(stack):
+        if existing == kind:
+            del stack[index:]
+            break
+    stack.append((kind, line))
+
+
+def stage_heading_from_stack(stack: list[tuple[str, str]]) -> str:
+    """안쪽 층부터 HEADING_STAGE_RULES 에 걸리는 표제를 찾는다. 없으면 가장 안쪽 표제를 준다(옛 동작)."""
+    for _kind, line in reversed(stack):
+        if any(pattern.search(line) for pattern, _stage in HEADING_STAGE_RULES):
+            return line
+    return stack[-1][1] if stack else ""
 
 
 def resolve_doc_stage(current_heading: str, window: str, name: str = "") -> str:
@@ -689,6 +728,7 @@ def extract_doc_items(
         # 방식으로 물린다 — 표제 문자열 자체를 들고 가서 HEADING_STAGE_RULES 와 대조한다
         # (resolve_doc_stage). 안 물리면 표 아래 항목의 단계를 알 길이 없다(2026-09-12 · #15 실측).
         current_heading = ""
+        heading_stack: list[tuple[str, str]] = []
         # 단계 판정 창(doc_stage_at)은 줄바꿈이 실제로 있는 공고문에서도 "그 줄 하나"가 아니라
         # «전체 절 텍스트 안에서의 실제 위치»를 기준으로 본다 — 결정적 문구가 서류명과 같은
         # 줄이 아니라 몇 줄 뒤(예: 「ㅇ 공동입찰의 경우…」 다음에 번호 목록, 그 뒤에야 「입찰
@@ -729,7 +769,8 @@ def extract_doc_items(
             # 조항 표제는 이름 유무와 무관하게 먼저 캡처한다 — 표제 줄 자체에 서류명이 실리는
             # 경우는 없지만, 캡처를 이름 분기 뒤로 미루면 그 표제가 적용되는 첫 항목을 놓친다.
             if HEADING_LINE_RE.match(line):
-                current_heading = line
+                push_heading(heading_stack, line)
+                current_heading = stage_heading_from_stack(heading_stack)
             conditions = [item for item in find_conditions(line) if not item["negative"]]
             name_spans = find_doc_name_spans(line)
             names: list[str] = []
@@ -1045,6 +1086,21 @@ def extract_notice_outline(sections: dict[str, str]) -> list[dict[str, str]]:
     return outline
 
 
+def deposit_basis_note(deposit: str, minimum_bid_display: str) -> str:
+    """입찰보증금 원문 표시값이 무엇을 기준으로 계산되는지에 맞춰 note 를 고른다.
+
+    🔴 기준은 재산유형마다 다르다. 압류재산만 공매예정가격(최저입찰가) 기준이고, 국유·수탁·
+    이용기관 물건은 «입찰금액» 기준이다(온비드 준수규칙 — 압류 제8조① · 국유 제8조① · 수탁
+    제6조① · 최고가 제8조①). 옛 note 는 원문이 「입찰금액 X 5%」인데도 「기준이 되는
+    최저입찰가격은 …」이라고 붙여 기준을 잘못 안내했다(2026-10-19 정합성 대조).
+    """
+    if re.search(r"입찰\s*금액", deposit):
+        return "온비드 원문 표시값입니다. 이 보증금은 최저입찰가격이 아니라 내가 써 내는 입찰금액을 기준으로 계산합니다."
+    if re.search(r"최저\s*입찰\s*가|예정\s*가", deposit):
+        return f"온비드 원문 표시값입니다. 기준이 되는 최저입찰가격은 {minimum_bid_display or '원문 확인'}입니다."
+    return "온비드 원문 표시값입니다. 계산 기준은 공고 원문에서 확인하십시오."
+
+
 def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> list[dict[str, str]]:
     """공고 원문에 적힌 비용 조건만 모은다. 세율·요율은 계산하지 않는다."""
     chunk = strip_tooltips(section_html(sections, "입찰방법"))
@@ -1055,7 +1111,7 @@ def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> li
             {
                 "title": "입찰보증금",
                 "value": deposit,
-                "note": f"온비드 원문 표시값입니다. 기준이 되는 최저입찰가격은 {minimum_bid_display or '원문 확인'}입니다.",
+                "note": deposit_basis_note(deposit, minimum_bid_display),
                 "source": "온비드 상세 페이지 > 입찰방법",
             }
         )
@@ -1066,7 +1122,9 @@ def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> li
                 {
                     "title": label,
                     "value": value,
-                    "note": "온비드 원문 표시값입니다.",
+                    # 온비드 화면 필드가 첨부 공고문 본문과 어긋난 사례가 있다(시연 공고 887335 —
+                    # 필드 「낙찰 후 7일 이내」 · 공고문 「계약 체결 후 30일 이내」 · 2026-10-19 관측).
+                    "note": "온비드 원문 표시값입니다. 첨부 공고문 본문의 기한과 다를 수 있으니 공고문도 확인하십시오.",
                     "source": "온비드 상세 페이지 > 입찰방법",
                 }
             )
@@ -1732,7 +1790,7 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
             "action": price_value,
             "due": "입찰 전",
             "detail": (
-                "최저입찰가격이 「비공개」이면 이용기관이 공개하지 않기로 선택한 것입니다. 보증금은 이 값에 이용기관이 정한 비율을 곱해 정해집니다."
+                "최저입찰가격이 「비공개」이면 이용기관이 공개하지 않기로 선택한 것입니다. 입찰보증금이 입찰금액 기준인지 최저입찰가격 기준인지는 공고마다 다르니 비용 항목의 원문 표시값을 확인하십시오."
                 if price_value == PRICE_UNDISCLOSED
                 else "가격, 보증금, 대부료, 납부 방식은 입찰 판단에 영향을 주지만 본 MVP는 수익성 판단을 제공하지 않습니다."
             ),

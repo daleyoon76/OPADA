@@ -27,7 +27,9 @@ const SCREEN_SPEC = "screen.spec.js";
 // 2026-10-18 준비 보드 4단계화에서 3건을 더해 19 → 22. 더한 것은 ⑴ 항목이 0개인 4단계가
 // 「완료」로 표시되지 않는다(P0-1) ⑵ 4단계 머리 안내와 입찰 전·낙찰 후 서류 분리(P0-2·P1-2)
 // ⑶ 4단계 체크가 2단계 진행률·단계 잠금에 영향을 주지 않는다.
-const EXPECTED_TEST_COUNT = 24;
+// 2026-10-19: 24 → 32. 10-18 에 더한 S10·S11·설계서 시나리오 5건(갱신 누락으로 「29/24」가 떴다)과
+// 10-19 정합성 대조의 S12·S12 음성·S13 3건이다. 개수는 `grep -c '^test(' tests/screen.spec.js` 로 셌다.
+const EXPECTED_TEST_COUNT = 32;
 
 class GateReporter {
   onBegin(config, suite) {

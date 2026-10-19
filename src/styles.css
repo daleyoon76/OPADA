@@ -2052,3 +2052,23 @@ a:hover {
   border-radius: 6px;
   font-size: 0.9rem;
 }
+
+/* 3단계 「온비드 입찰 규칙」 — 공고 값(fact-list)과 구분되는 고정 규칙 안내 (2026-10-19 정합성 대조). */
+.bid-rules {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #c9a08f;
+  background: var(--soft-blue);
+}
+
+.bid-rules h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.bid-rules ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}

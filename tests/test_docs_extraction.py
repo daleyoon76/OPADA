@@ -108,6 +108,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "A16",
+        "조항 번호 층별 표제",
+        "「10.」 표제 아래 「가.」 항목 · 「바.」 표제 아래 「1).」 항목이 상위 표제를 따름 · 같은 층 번호가 오면 끊김 · 「낙찰자의 제출서류」 변형",
+        "같은 층 걷어내기 삭제 · 가장 안쪽 표제만 보기(옛 동작) · 「의?」 삭제 · 「1)」 층 규칙 삭제",
+        "Y",
+    ),
+    (
         "E1",
         "API 플래그 거르기",
         "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
@@ -554,6 +561,53 @@ def test_attachments() -> None:
 # A10. 첨부 텍스트 배선 — 첨부는 본문과 게이트가 다르다(제출 동사 없어도·1200자 넘어도
 # 잡되, 조건은 안 붙인다). 본문 축(A1·A5)은 그대로임을 같은 테스트에서 다시 확인한다.
 # ---------------------------------------------------------------------------
+def test_heading_layers() -> None:
+    # A16. 항목 줄도 「가.」·「1).」처럼 조항 번호 모양이라, 표제를 마지막 번호 줄 하나로만 들고 가면
+    # 항목 줄이 상위 표제를 덮어써 사전에 있는 표제 아래 서류가 전부 미분류로 떨어졌다.
+    # 픽스처는 2026-10-19 실공고 두 건의 문장을 줄여 썼다(909445 수원 · 909691 서울 중구).
+    check("A16 층 판별 1).", server.heading_kind("1). 주민등록등본 1부") == "paren", server.heading_kind("1). 주민등록등본 1부"))
+    check("A16 층 판별 10.", server.heading_kind("10. 최종낙찰자 제출서류") == "number", server.heading_kind("10. 최종낙찰자 제출서류"))
+    check("A16 층 판별 가.", server.heading_kind("가. 사업자등록증") == "hangul", server.heading_kind("가. 사업자등록증"))
+
+    # 판정 함수 직접 호출 — 같은 층이 다시 오면 그 층과 안쪽 층을 걷어내고, 처음 보는 층은 안쪽으로 쌓는다.
+    stack: list[tuple[str, str]] = []
+    for line in ("10. 최종낙찰자 제출서류", "가. 사업자등록증 1부", "나. 법인인감증명서 1부"):
+        server.push_heading(stack, line)
+    check("A16 쌓기 — 형제 항목은 서로 바뀌고 상위는 남음", [kind for kind, _ in stack] == ["number", "hangul"] and stack[-1][1].startswith("나."), str(stack))
+    check("A16 안쪽부터 사전 표제 찾기", server.stage_heading_from_stack(stack) == "10. 최종낙찰자 제출서류", server.stage_heading_from_stack(stack))
+    server.push_heading(stack, "11. 기타사항")
+    check("A16 같은 층 번호가 오면 안쪽까지 걷어냄", stack == [("number", "11. 기타사항")], str(stack))
+    # 바깥과 안쪽이 둘 다 사전 표제면 더 구체적인 안쪽이 이긴다. 바깥부터 찾으면 입찰 전으로 뒤집힌다.
+    nested = [("number", "2. 입찰참가자격"), ("hangul", "가. 계약체결 시 구비서류")]
+    check("A16 안쪽 표제가 바깥 표제를 이김", server.stage_heading_from_stack(nested) == "가. 계약체결 시 구비서류", server.stage_heading_from_stack(nested))
+
+    # 양성 ⑴ — 「10.」 표제 아래 「가.」·「나.」 항목.
+    numbered = "10. 최종낙찰자 제출서류\n가. 사업자등록증 및 법인등기부등본 각1부\n나. 법인인감증명서 1부\n"
+    numbered_stages = {item["name"]: item["stage"] for item in server.extract_doc_items({}, [("첨부:공고문.pdf", numbered)])}
+    check(
+        "A16 양성 「10.」 아래 「가.」 항목이 표제를 따름",
+        all(numbered_stages.get(name) == "낙찰 후·계약 시" for name in ("사업자등록증", "법인 등기사항증명서", "법인인감증명서")),
+        str(numbered_stages),
+    )
+    # 양성 ⑵ — 「바.」 표제 아래 「1).」 항목 + 조사 「의」가 붙은 표제.
+    paren = "바. 낙찰자의 제출서류\n1). 주민등록등본(법인의 경우 법인등기부등본) 1부\n4). 국세 및 지방세 완납증명서 각 1부.\n"
+    paren_stages = {item["name"]: item["stage"] for item in server.extract_doc_items({}, [("첨부:공고문.hwp", paren)])}
+    check(
+        "A16 양성 「바.」 아래 「1).」 항목 · 「낙찰자의 제출서류」",
+        paren_stages.get("주민등록등본") == "낙찰 후·계약 시" and paren_stages.get("국세 및 지방세 완납증명서") == "낙찰 후·계약 시",
+        str(paren_stages),
+    )
+    # 음성 ⑴ — 같은 층의 새 조항(「11.」)이 오면 앞 표제를 물려받지 않는다. 「같은 층 걷어내기」를
+    # 지우면 「10.」이 스택에 남아 사업자등록증이 낙찰 후로 끌려간다.
+    sibling = "10. 최종낙찰자 제출서류\n가. 법인인감증명서 1부\n11. 기타사항\n가. 사업자등록증 지참\n"
+    sibling_stages = {item["name"]: item["stage"] for item in server.extract_doc_items({}, [("첨부:공고문.pdf", sibling)])}
+    check("A16 음성 같은 층 새 조항은 앞 표제를 안 물려받음", sibling_stages.get("사업자등록증") == "미분류", str(sibling_stages))
+    # 음성 ⑵ — 「낙찰자」만 있고 「제출서류」가 없는 표제는 「의?」 변형이 걸리지 않는다.
+    selection = "바. 낙찰자 선정 기준\n1). 주민등록등본 1부\n"
+    selection_stage = next((i["stage"] for i in server.extract_doc_items({}, [("첨부:공고문.pdf", selection)]) if i["name"] == "주민등록등본"), None)
+    check("A16 음성 「낙찰자 선정 기준」은 낙찰 후로 안 감", selection_stage == "미분류", str(selection_stage))
+
+
 def test_attachment_wiring() -> None:
     # attachment_parser.detect_kind() — 배선 단정과 별개로 판정 함수 자체를 직접 부른다.
     check("A10 detect_kind pdf", attachment_parser.detect_kind(b"%PDF-1.4 ...") == "pdf", "")
@@ -1101,6 +1155,19 @@ def test_costs() -> None:
     # 음성 대조: 입찰방법 절이 없으면 원문값 항목을 만들지 않는다.
     bare = server.extract_cost_terms({}, "")
     check("B4 음성 절 없음", [term["title"] for term in bare] == ["낙찰 후 세금·부대비용"], str(bare))
+    # 보증금 계산 기준 — 압류재산만 최저입찰가(예정가) 기준이고 국유·수탁·이용기관은 입찰금액
+    # 기준이다(온비드 준수규칙). 원문이 「입찰금액 X 5%」인데 「기준이 되는 최저입찰가격은 …」을
+    # 붙이면 기준을 잘못 안내한다(2026-10-19 정합성 대조 · 시연 공고 3건 중 2건이 입찰금액 기준).
+    by_bid = server.deposit_basis_note("입찰금액 X 5%", "20,128,466")
+    check("B4 입찰금액 기준은 최저입찰가격을 기준으로 말하지 않음", "입찰금액을 기준" in by_bid and "20,128,466" not in by_bid, by_bid)
+    by_floor = server.deposit_basis_note("최저입찰가격 X 10%", "20,128,466")
+    check("B4 음성 최저입찰가 기준은 그 값을 그대로 안내", "20,128,466" in by_floor and "입찰금액을 기준" not in by_floor, by_floor)
+    unknown_basis = server.deposit_basis_note("공고문 참조", "20,128,466")
+    check("B4 기준을 못 읽으면 단정하지 않음", "원문에서 확인" in unknown_basis and "20,128,466" not in unknown_basis, unknown_basis)
+    # 배선 — extract_cost_terms 가 실제로 이 판정을 부른다(원문값이 입찰금액 기준인 절).
+    bid_amount_sections = server.split_sections(ONBID_HELP_SECTION.replace("최저입찰가격 X 10%", "입찰금액 X 5%"))
+    wired = next(term for term in server.extract_cost_terms(bid_amount_sections, "비공개") if term["title"] == "입찰보증금")
+    check("B4 배선 입찰금액 기준 note", "입찰금액을 기준" in str(wired["note"]), str(wired))
 
 
 # ---------------------------------------------------------------------------
@@ -1990,6 +2057,7 @@ def main() -> int:
         test_profile,
         test_attachments,
         test_attachment_wiring,
+        test_heading_layers,
         test_generic_table_is_not_success,
         test_checklist_states,
         test_minimum_bid,
