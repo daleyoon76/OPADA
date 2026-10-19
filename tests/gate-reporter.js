@@ -30,7 +30,8 @@ const SCREEN_SPEC = "screen.spec.js";
 // 2026-10-19: 24 → 32. 10-18 에 더한 S10·S11·설계서 시나리오 5건(갱신 누락으로 「29/24」가 떴다)과
 // 10-19 정합성 대조의 S12·S12 음성·S13 3건이다. 개수는 `grep -c '^test(' tests/screen.spec.js` 로 셌다.
 // 2026-10-19 오후: 32 → 33. AI 코치 질문창의 온비드 용어 설명 표시 1건을 더했다.
-const EXPECTED_TEST_COUNT = 33;
+// 2026-10-19 저녁: 33 → 34. 화면 머리 코드 판 표시 1건을 더했다.
+const EXPECTED_TEST_COUNT = 34;
 
 class GateReporter {
   onBegin(config, suite) {

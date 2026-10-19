@@ -175,6 +175,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "D4",
+        "화면 머리 코드 판",
+        "git 이 주는 HEAD 와 같은 해시 · 누적 번호 · 저장소 밖이면 빈 값 · /api/version 이 기동 판과 지금 판을 함께 싣는다",
+        "git 인자 바꾸기 · 빈 값 분기 삭제 · 라우트 키 삭제",
+        "Y",
+    ),
+    (
         "D2",
         "Vertex 429 재시도",
         "429 1회 후 성공 · 429 연속이면 포기 · 500 은 즉시 포기 · 질문·코치 호출부 배선",
@@ -2064,6 +2071,50 @@ def test_onbid_references() -> None:
     check("D3 절차 용어마다 설명과 출처가 있다", not empty, str(empty))
 
 
+def test_code_revision() -> None:
+    import subprocess
+    import tempfile
+
+    repo = Path(server.__file__).resolve().parent.parent
+    # 기대값은 검사 대상 함수가 아니라 git 을 직접 불러 얻는다(P-38 ⑶).
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    count = subprocess.run(["git", "-C", str(repo), "rev-list", "--count", "HEAD"], capture_output=True, text=True).stdout.strip()
+    got = server.code_revision(repo)
+    check("D4 코드 판 해시는 git HEAD 와 같다", bool(head) and got["commit"] == head, f"{got['commit']} vs {head}")
+    check("D4 코드 판 번호는 누적 커밋 수다", got["number"] == count and count.isdigit(), f"{got['number']} vs {count}")
+    check("D4 코드 판에 브랜치가 실린다", bool(got["branch"]), str(got["branch"]))
+    with tempfile.TemporaryDirectory() as outside:
+        empty = server.code_revision(Path(outside))
+    check("D4 저장소 밖이면 commit 이 빈 값이다", empty["commit"] == "" and empty["number"] == "" and empty["dirty"] is False,
+          str(empty))
+    check("D4 기동 시점 판을 들고 있다", server.SERVER_REVISION.get("commit") == head, str(server.SERVER_REVISION))
+    # dirty 는 src/ 의 커밋 안 된 변경만 본다. 임시 저장소에서 src/ 밖 변경(음성)과 src/ 안 변경(양성)을 가른다.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_repo = Path(tmp)
+        run = lambda *args: subprocess.run(["git", "-C", str(tmp_repo), *args], capture_output=True, text=True)  # noqa: E731
+        run("init", "-q")
+        run("config", "user.email", "test@example.invalid")
+        run("config", "user.name", "test")
+        (tmp_repo / "src").mkdir()
+        (tmp_repo / "src" / "a.js").write_text("1\n")
+        (tmp_repo / "notes.md").write_text("1\n")
+        run("add", "src/a.js", "notes.md")
+        run("commit", "-q", "-m", "init")
+        clean = server.code_revision(tmp_repo)
+        (tmp_repo / "notes.md").write_text("2\n")
+        outside_only = server.code_revision(tmp_repo)
+        (tmp_repo / "src" / "a.js").write_text("2\n")
+        inside = server.code_revision(tmp_repo)
+    check("D4 커밋 직후 dirty 는 거짓이고 번호는 1이다", clean["dirty"] is False and clean["number"] == "1", str(clean))
+    check("D4 src/ 밖 변경은 dirty 로 세지 않는다", outside_only["dirty"] is False, str(outside_only))
+    check("D4 src/ 안 변경은 dirty 다", inside["dirty"] is True, str(inside))
+    route = Path(server.__file__).read_text(encoding="utf-8")
+    block = route[route.index('parsed.path == "/api/version"'):route.index('parsed.path == "/api/analyze"')]
+    code = "\n".join(line.split("#")[0] for line in block.splitlines())
+    check("D4 배선: /api/version 이 기동 판·기동 시각·지금 판을 싣는다",
+          '"server": SERVER_REVISION' in code and '"startedAt": SERVER_STARTED_AT' in code and '"current": code_revision()' in code)
+
+
 def test_vertex_429_retry() -> None:
     import urllib.error
     req = lambda: server.vertex_read(server.urllib.request.Request("https://example.invalid", data=b"{}"), 5)  # noqa: E731
@@ -2257,6 +2308,7 @@ def main() -> int:
         test_asset_type_notice_detail,
         test_question_board_state,
         test_onbid_references,
+        test_code_revision,
         test_vertex_429_retry,
         test_api_doc_terms_flag_filter,
         test_api_unusable_term_value,

@@ -21,6 +21,37 @@ from pathlib import Path
 HOST = "127.0.0.1"
 PORT = 8975
 ROOT = Path(__file__).resolve().parent
+
+
+def code_revision(root: Path | None = None) -> dict[str, object]:
+    """화면 머리에 띄울 코드 판을 git 에서 읽는다. git 이 없거나 저장소가 아니면 commit 이 빈 값이다.
+
+    번호(number)는 HEAD 까지의 누적 커밋 수다. 같은 브랜치에서는 커밋할수록 커지므로
+    「r352 가 떠 있다」처럼 판을 사람 눈으로 견줄 수 있다(2026-10-19 동원님 요청).
+    dirty 는 src/ 에 커밋하지 않은 변경이 있는지다. 화면 코드는 src/ 만 쓴다.
+    """
+    base = root or ROOT.parent
+
+    def git(*args: str) -> str:
+        try:
+            result = subprocess.run(["git", "-C", str(base), *args], capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    return {
+        "commit": git("rev-parse", "--short", "HEAD"),
+        "number": git("rev-list", "--count", "HEAD"),
+        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+        "committedAt": git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M"),
+        "dirty": bool(git("status", "--porcelain", "--", "src")),
+    }
+
+
+# server.py 는 기동할 때의 판으로 메모리에 올라 있다. 그 뒤 파일이 바뀌어도 재시작 전까지는
+# 옛 판으로 돈다(known-pitfalls: 포트 18982 재시작). 그래서 기동 시점 판을 따로 들고 있다.
+SERVER_STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S")
+SERVER_REVISION = code_revision()
 _VERTEX_TOKEN = ""
 _VERTEX_TOKEN_EXPIRES_AT = 0.0
 # 스킴은 `https` 다. 참고문서 6종의 「서비스URL · 운영환경」이 전부 `https://apis.data.go.kr/B010003/…`
@@ -3474,6 +3505,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/version":
+            # server 는 기동 시점 판, current 는 지금 디스크의 판이다. 둘이 다르면 화면이 재시작을 알린다.
+            self.send_json(200, {
+                "ok": True, "server": SERVER_REVISION, "startedAt": SERVER_STARTED_AT, "current": code_revision(),
+            })
+            return
         if parsed.path == "/api/analyze":
             query = urllib.parse.parse_qs(parsed.query)
             raw_url = (query.get("url") or [""])[0]
