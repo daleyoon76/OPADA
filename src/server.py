@@ -459,6 +459,7 @@ def is_note_heading(line: str) -> bool:
         stripped.startswith("※")
         and len(stripped) <= INHERIT_ITEM_MAX_CHARS
         and not find_doc_name_spans(stripped)
+        and not PREBID_WORD_RE.search(stripped)
         and bool(SUBMISSION_LIST_HEADING_RE.search(stripped))
         and any(heading_rule_search(pattern, stripped) for pattern, _stage in HEADING_STAGE_RULES)
     )
@@ -590,7 +591,7 @@ HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     # "8. 낙찰자 제출서류 (낙찰일로부터 30일 이내 제출)"(표본13) · "바. 낙찰자의 제출서류"(2026-10-19 실공고 909691 관측)
     # · "10. 낙찰(예정)자 제출서류"(판교 글로벌R&D센터) · "12. 낙찰자의 사용허가 신청시 제출서류"(과천시민회관)
     # · "※ 낙찰자의 계약체결 전 제출서류"(강남터미널 광고) — 2026-10-19 원문 36건 측정에서 앞 둘이 사전에 안 걸렸다.
-    (re.compile(r"낙찰\s*(?:\(\s*예정\s*\)\s*)?자\s*의?\s*[^\n]{0,12}?제출\s*서류"), "낙찰 후·계약 시"),
+    (re.compile(r"낙찰\s*(?:\(\s*예정\s*\)\s*)?자\s*의?\s*(?:(?!선정|결정|위한)[^\n]){0,12}?제출\s*서류"), "낙찰 후·계약 시"),
     (re.compile(r"낙찰\s*일\s*로\s*부터"), "낙찰 후·계약 시"),  # 표본13 괄호 안 "낙찰일로부터 30일 이내" · 표본20 "낙찰일로부터"
     (re.compile(r"계약\s*체결\s*시\s*필요\s*서류"), "낙찰 후·계약 시"),  # "계약체결시 필요서류"(표본15~17)
     (re.compile(r"계약\s*체결\s*시\s*지참\s*서류"), "낙찰 후·계약 시"),  # "14. 계약체결 시 지참 서류"(표본22)
@@ -822,8 +823,13 @@ def doc_stage_at(
     center = (start + end) / 2
     best_stage: str | None = None
     best_dist: float | None = None
+    deemed_here = bool(DEEMED_SUBMITTED_RE.search(text, end, min(len(text), end + DOC_MENTION_AFTER_REACH)))
     for pattern, stage in SENTENCE_STAGE_RULES + AWARDEE_SENTENCE_RULES:
         for match in pattern.finditer(text, lo, hi):
+            if (pattern, stage) in AWARDEE_SENTENCE_RULES and not deemed_here and (
+                match.end() > start or "\n" in text[match.end() : start] or "다." in text[match.end() : start]
+            ):
+                continue
             dist = min(abs(match.start() - center), abs(match.end() - center))
             if best_dist is None or dist < best_dist:
                 best_dist, best_stage = dist, stage
@@ -1054,7 +1060,8 @@ def extract_doc_items(
     items: list[dict[str, object]] = []
     # 값은 (items 안의 위치, 그 단계가 조항 표제로 확정됐는가). 같은 서류명이 같은 문서
     # 안에 단계가 다른 두 자리에서 나올 수 있다(표본 20 「신분증」). 2026-10-19 전까지는 주석과 달리 먼저 나온
-    # 쪽만 남았다(리뷰 r1 F7). 지금은 앞이 미분류면 뒤의 확정 판정으로 바꾸고, 둘 다 확정이면 둘 다 남긴다(아래 key 분기).
+    # 쪽만 남았다(리뷰 r1 F7). 지금은 앞이 미분류이고 뒤가 입찰 전이면 바꾸고, 뒤가 낙찰 후면 둘 다 남기고,
+    # 둘 다 확정이고 단계가 다르면 둘 다 남긴다(아래 key 분기 · 리뷰 d8378b6 r1 P0-1).
     seen: dict[tuple[str, str], tuple[int, bool]] = {}
     # 같은 (서류명, 조건)이 단계를 달리해 두 번 남을 때 같은 단계가 세 번째로 쌓이지 않게 막는다.
     seen_stage: set[tuple[str, str, str]] = set()
@@ -1142,9 +1149,10 @@ def extract_doc_items(
             # 조항 표제는 이름 유무와 무관하게 먼저 캡처한다 — 표제 줄 자체에 서류명이 실리는
             # 경우는 없지만, 캡처를 이름 분기 뒤로 미루면 그 표제가 적용되는 첫 항목을 놓친다.
             if note_scope is not None and not continues_note_scope(note_scope, line):
+                current_heading = str(note_scope["prev"])
                 note_scope = None
             if is_note_heading(line):
-                note_scope = {"heading": line, "kind": "", "num": -1}
+                note_scope = {"heading": line, "kind": "", "num": -1, "prev": current_heading}
                 current_heading = line
             elif HEADING_LINE_RE.match(line):
                 push_heading(heading_stack, line)
@@ -1173,11 +1181,13 @@ def extract_doc_items(
                 heading_stack.clear()
                 pos_stack.clear()
                 current_heading = ""
-            if note_scope is not None:
+            if note_scope is not None and not PREBID_WORD_RE.search(line):
                 current_heading = str(note_scope["heading"])
             # 다음 줄부터의 제출 목록 안내(submission_cue)를 이 줄 판정 «뒤»에 바꾸려고 값을 먼저 잡아 둔다.
             cue_before = submission_cue
-            if not find_doc_name_spans(line):
+            if re.match(r"첨부\s*[ː:]", line):
+                submission_cue = True
+            elif not find_doc_name_spans(line):
                 if len(line) <= SUBMISSION_CUE_MAX_CHARS and SUBMISSION_LIST_HEADING_RE.search(line):
                     submission_cue = True
                 elif LIST_HEAD_RE.match(line):
@@ -1238,7 +1248,18 @@ def extract_doc_items(
                 # 줄이 문서 전체일 수 있어, 이름마다 그 위치 기준으로 따로 판정한다
                 # (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§3).
                 start, end = first_span[name]
-                if doc_is_mention_only(line, end):
+                if long_line:
+                    for _n, s0, e0 in name_spans:
+                        if _n != name or doc_is_mention_only(line, e0):
+                            continue
+                        c_lo, c_hi = doc_clause_bounds(line, s0, e0)
+                        c = line[c_lo:c_hi]
+                        if (any(not it["negative"] and it["key"] != "license" for it in find_conditions(c))
+                                or doc_request_in(c) or under_submission_heading_inline(line, s0)):
+                            start, end = s0, e0
+                            break
+                # 제출 목록 절 안의 「위임장(별지 제2호 참조) 1부」는 서식 안내라 언급이 아니다(리뷰 d8378b6 r1 P1-6).
+                if not in_submission_list and doc_is_mention_only(line, end):
                     continue
                 if long_line:
                     clause_lo, clause_hi = doc_clause_bounds(line, start, end)
@@ -1306,9 +1327,16 @@ def extract_doc_items(
                     # 계약 때 또 내는 공고가 있다(강남터미널 광고의 사업자등록증). 앞의 확정 판정은 덮지 않는다.
                     # 한 줄짜리 첨부(long_line)의 판정은 조항 경계가 흐려 둘째 항목을 더하지 않는다(인천공항 제안요청서 · 측정 중 확인).
                     at, _was_confident = seen[key]
-                    if items[at]["stage"] in UNRESOLVED_STAGES and stage not in UNRESOLVED_STAGES:
+                    if items[at]["stage"] in UNRESOLVED_STAGES and stage == "입찰 전":
                         items[at] = item
                         seen[key] = (at, _confident)
+                    elif items[at]["stage"] in UNRESOLVED_STAGES and stage == "낙찰 후·계약 시":
+                        # 앞 미분류를 낙찰 후로 바꾸면 그 서류가 2단계에서 사라진다. 입찰 때 내는 사본일 수 있다
+                        # (리뷰 d8378b6 r1 P0-1 · 「입찰서 제출 시 사업자등록증 사본」 뒤 「10. 낙찰자 제출서류」). 둘 다 남긴다.
+                        # 한 줄짜리 첨부는 조항 경계가 흐려 둘째 항목도 더하지 않는다.
+                        if not long_line and (name, key[1], stage) not in seen_stage:
+                            seen_stage.add((name, key[1], stage))
+                            items.append(item)
                     elif (
                         not long_line
                         and items[at]["stage"] not in UNRESOLVED_STAGES
@@ -1344,7 +1372,10 @@ def link_form_attachment_stages(items: list[dict[str, object]]) -> None:
         file_name = section.split(":", 1)[-1]
         if not FORM_FILE_RE.search(file_name):
             continue
-        for form_name in find_doc_names(file_name):
+        form_names = find_doc_names(file_name)
+        if len({body_stage.get(n, "") for n in form_names}) != 1:
+            continue
+        for form_name in form_names:
             if form_name != item["name"] and form_name in body_stage:
                 item["stage"] = body_stage[form_name]
                 item["sourceHeading"] = f"첨부 서식 「{form_name}」에 딸린 서류 · 본문 「{form_name}」 항목과 같은 시점"

@@ -143,6 +143,27 @@ def main() -> int:
         if not any(i["name"] == row["name"] for i in items):
             failures.append(f"⑶ 남아야 함({row['group']}) #{row['idx']} {row['name']} 사라짐")
 
+    # ⑷ 미분류가 낙찰 후로 가거나(비싼 방향) 미분류·낙찰 후 항목이 사라진 쌍은 사람이 승인한 목록에 있어야 한다
+    # (리뷰 d8378b6 r1 검증 장치 결함 · 지금까지는 「입찰 전」 손실만 셌다). 목록은 기대값 파일 approvedChanges 다.
+    approved = {
+        (row["kind"], row["idx"], row["name"], row["section"]) for row in EXPECT.get("approvedChanges", [])
+    }
+    for idx, items in got.items():
+        before: dict[tuple[str, str], set[str]] = collections.defaultdict(set)
+        now_pairs: dict[tuple[str, str], set[str]] = collections.defaultdict(set)
+        for i in baseline[idx]["items"]:
+            before[(str(i["name"]), str(i["sourceSection"]))].add(str(i["stage"]))
+        for i in items:
+            now_pairs[(str(i["name"]), str(i["sourceSection"]))].add(str(i["stage"]))
+        for (name, section), stages in before.items():
+            short = section[:22]
+            if (name, section) not in now_pairs:
+                if stages - {PREBID} and ("LOST", idx, name, short) not in approved:
+                    failures.append(f"⑷ 승인 안 된 사라짐 #{idx} {name} | {short} | {sorted(stages)}")
+            elif "미분류" in stages and POSTAWARD in now_pairs[(name, section)] and POSTAWARD not in stages:
+                if ("U2P", idx, name, short) not in approved:
+                    failures.append(f"⑷ 승인 안 된 미분류→낙찰 후 #{idx} {name} | {short}")
+
     rows = len(EXPECT["stage"]) + len(EXPECT["mustDisappear"]) + len(EXPECT["mustStay"])
     print(f"\n덤프 {len(files)}건 · 기대값 {rows}행 · 실패 {len(failures)}건 · 잔여 {len(residual_lines)}건")
     for line in residual_lines:
