@@ -24,7 +24,8 @@ test("analyzes a real OnBid URL and renders source notes", async ({ page }) => {
   await expect(page.locator("#report-hero")).toContainText("경기도 용인시 수지구 신봉동 202", {
     timeout: 30000,
   });
-  await expect(page.locator("#quick-facts")).toContainText("205,575,000");
+  // 2026-10-19 3팀 묶음 C(U10 ⑴): 2-1 공고 요약에서 최저입찰가격 칸을 뺐다. 값은 「마감·비용」 탭 비용 행에 남는다.
+  await expect(page.locator("#deadline-cost-list")).toContainText("205,575,000");
   // 2026-09-08 변경: 온비드 「제출서류」 표의 구분명(공동입찰서류·대리입찰서류)은 실제
   // 서류명이 아니므로 체크리스트에 서류명으로 싣지 않는다. 본문에서 뽑은 실제 서류명을 쓴다.
   await expect(page.locator("#task-list")).toContainText("농지취득자격증명");

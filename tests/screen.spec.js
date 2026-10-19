@@ -629,11 +629,13 @@ async function aiClaimHits(page, scope) {
   return AI_CLAIM_PHRASES.filter((phrase) => text.includes(phrase.replace(/\s+/g, " ")));
 }
 
-/** 최저입찰가격 칸의 «보이는» 값. 요약(#quick-facts)과 분석 직후 두 창을 따로 잰다. */
+/** 최저입찰가격 칸의 값. 준비 보드와 분석 직후 두 창을 따로 잰다.
+ * 2026-10-19 3팀 묶음 C(U10 ⑴)로 2-1 공고 요약(#quick-facts)에서 최저입찰가격 칸을 뺐다. 준비 보드의 칸은
+ * 2-3 「입찰 참여 정보」에 남아 있다. 2-3 은 다른 단계를 보는 동안 hidden 이라 innerText 대신 textContent 를 쓴다. */
 async function minimumBidCellTexts(page) {
-  const quick = page.locator("#quick-facts .fact-row", { hasText: "최저입찰가격" }).locator("strong");
+  const quick = page.locator("#task-list .bid-participation-info .fact-row", { hasText: "최저입찰가격" }).locator("strong");
   const preview = page.locator("#analysis-result .preview-grid div", { hasText: "최저입찰가격" }).locator("strong");
-  return { quick: (await quick.innerText()).trim(), preview: (await preview.innerText()).trim() };
+  return { quick: ((await quick.textContent()) || "").trim(), preview: (await preview.innerText()).trim() };
 }
 
 test("N1 「원문에 없음」 단정과 첨부 목록을 같은 화면에 함께 세우지 않는다", async ({ page }) => {

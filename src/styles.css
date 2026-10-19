@@ -2937,3 +2937,165 @@ button.mini-step {
 .board-dock .board-status[hidden] {
   display: none;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 3팀 묶음 C · 시각 정리(2026-10-19). 옛 규칙 위에 덧씌우는 자리라 같은 선택자는 여기서 이긴다.
+ * 더 구체적인 옛 선택자가 있는 곳은 그만큼 구체적으로 적었다.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* V1 · V2 머리표 대비. 주황 글자(#f5901e)는 연주황 바탕에서 1.98:1, 벽돌색 safe 는 4.44:1 이었다.
+   warn #8a4b00 on #fde8d0 = 5.71:1 · safe #6b2015 on #f0f7ea = 10.42:1 (WCAG 상대휘도 계산).
+   주황 색감은 테두리로 남긴다. */
+.badge.warn {
+  color: #8a4b00;
+  box-shadow: inset 0 0 0 1px #f0c68a;
+}
+
+.badge.safe {
+  color: var(--green-dark);
+}
+
+/* V3 잠긴 행을 통째로 흐리게 하지 않는다. 마감 머리표가 1.45:1 로 읽히지 않았다.
+   잠김은 체크박스 disabled 와 제목 색으로만 보인다. 머리표는 원래 색이다. */
+.task-row.is-locked-row,
+.doc-group li.is-locked {
+  opacity: 1;
+}
+
+.task-row.is-locked-row .task-check strong,
+.doc-group li.is-locked strong {
+  color: var(--muted);
+}
+
+/* V4 「할 일」 머리와 안내를 한 줄 블록 제목 줄로 줄인다. 안내는 그 아래 12px 메모다. */
+.board-page-toolbar {
+  margin-top: 4px;
+  align-items: center;
+}
+
+.board-page-toolbar .block-title {
+  margin: 0;
+}
+
+.guide-level-hint {
+  margin: 4px 0 10px;
+  font-size: 12px;
+}
+
+/* V5 · I8 위쪽 단계 버튼에도 아래와 같은 상태 아이콘을 둔다(진행 중은 아이콘 없음). */
+.wizard-progress .prep-stage-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* V6 관심 공고 — 정보 행 모양 · 지표는 값 칸 한 블록 */
+.watch-summary {
+  display: block;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+}
+
+/* 지표 3칸은 짧은 값이라 좁은 화면에서도 한 줄 3열로 둔다. 세로로 쌓이면 모바일에서 첫 화면을 다 썼다. */
+.watch-summary .fact-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 12px;
+}
+
+.watch-row .star-button,
+.watch-row .star-placeholder {
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+}
+
+/* V7 서류 목록 글자를 화면의 최소 글자(12px)로 맞추고, 왼쪽 세로선 장식을 지운다. */
+.doc-chip,
+.doc-howto,
+.doc-group li details > summary {
+  font-size: 12px;
+}
+
+.doc-group li,
+.doc-group-unclassified li,
+.doc-group-needs-inquiry li {
+  border-left: 0;
+  padding-left: 0;
+}
+
+/* V8 ⑴ 「자세히」 28px 들여쓰기 제거 ⑵ 값 칸 라벨 굵기를 1-3 과 보드에서 400 으로 ⑶ 정보 행 안 머리표 틈은 gap 하나만 */
+.task-item details {
+  margin: 8px 0 0;
+}
+
+.field-label,
+.fact-grid .fact-row .field-label {
+  font-weight: 400;
+}
+
+.info-row-head .badge {
+  margin-right: 0;
+}
+
+/* V10 · R7 「고지」 라벨이 390 · 768 에서 「고 / 지」로 끊겼다. */
+.notice-band strong {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* R3 sr-only(absolute)의 기준 상자를 단계 버튼으로 둔다. 기준이 바깥이라 320px 에서 26px 가로 넘침이 났다. */
+.mini-step {
+  position: relative;
+}
+
+/* R9 긴 한국어 제목 · 값이 낱말 중간에서 끊기지 않게 한다(긴 번호 · 영문은 anywhere 로 끊는다). */
+.report-hero h3,
+.field-value,
+.fact-grid .fact-row .field-value,
+.info-row-title {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* I9 포커스 윤곽선을 주 버튼과 같은 3px 하나로 맞춘다. */
+.mini-step:focus-visible,
+.link-chip:focus-visible,
+.coach-toggle:focus-visible,
+.support-tab:focus-visible,
+.seg-option:focus-visible,
+.star-button:focus-visible,
+#coach-question-input:focus-visible {
+  outline: 3px solid rgba(194, 75, 37, 0.35);
+  outline-offset: 2px;
+}
+
+/* I10 아래 단계 버튼 hover 를 위쪽과 같게 한다. */
+.prep-stage-stepper button.mini-step:hover:not([aria-current]) {
+  border-color: var(--green);
+  color: var(--ink);
+}
+
+@media (max-width: 600px) {
+  /* V4 ⑶ 모바일 공고 머리 카드 제목 */
+  .report-hero h3 {
+    font-size: 15px;
+  }
+
+  /* V12 위쪽 단계 버튼도 지금 단계만 이름을 보인다(아래 고정 단계 표시와 같은 규칙). */
+  #board-top-stepper .mini-step:not(.is-active) .mini-step-label {
+    display: none;
+  }
+}
+
+@media (max-width: 400px) {
+  /* R4 360px 에서 아래 고정 단계 표시의 2-4 가 잘렸다. */
+  .board-dock .mini-step {
+    padding: 4px 8px;
+  }
+
+  .board-dock .mini-stepper {
+    gap: 4px;
+  }
+}

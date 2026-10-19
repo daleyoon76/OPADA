@@ -1540,7 +1540,8 @@ function getAiPrecheckForTask(task, fit) {
       const precheck =
         task.id === "price" && task.action === "비공개"
           ? "공고 원문에서 가격이 비공개로 설정된 것으로 보입니다. 원문·담당기관 확인을 우선합니다."
-          : `공고 원문에서 ${task.action}로 확인된 것으로 보입니다. 원문·담당기관 확인을 우선합니다.`;
+          : // 값은 바로 위 「공고 원문에서 확인된 값」 칸에 있다. 같은 값을 문장으로 되풀이하지 않는다(U10 ⑶).
+            "공고 원문에서 확인된 것으로 보입니다. 원문·담당기관 확인을 우선합니다.";
       return { precheck };
     }
     return {
@@ -1665,7 +1666,7 @@ function renderBoardCoach(coach, stageNum) {
   const suggestions = COACH_SUGGESTIONS[stageNum] || [];
   return `<section class="coach-ask-card coach-dock${coachCollapsed ? " is-collapsed" : ""}">
     <div class="coach-dock-head">
-      <span class="coach-dock-label">${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "safe" : "warn")}<strong>AI 코치에게 물어보기</strong></span>
+      <span class="coach-dock-label">${badge(llmConnected ? "AI 누락 점검" : "규칙 기반 누락 점검", llmConnected ? "neutral" : "warn")}<strong>AI 코치에게 물어보기</strong></span>
       <span class="coach-context" title="${sampleNotice.title || ""}">${title ? `「${title}」 정보를 알고 답합니다` : "이 공고 정보를 알고 답합니다"}</span>
       <button type="button" class="coach-toggle" data-coach-toggle aria-expanded="${!coachCollapsed}" aria-controls="coach-dock-body">${coachCollapsed ? "펴기 ▴" : "접기 ▾"}</button>
     </div>
@@ -1826,7 +1827,7 @@ function renderOnbidReferences(references, collapsed = false) {
     </details>`;
   }
   return `<div class="coach-ask-reference">
-      ${badge("온비드 안내 기준 용어 설명", "safe")}
+      ${badge("온비드 안내 기준 용어 설명", "neutral")}
       ${items}
     </div>`;
 }
@@ -1882,7 +1883,7 @@ function renderQuestionAnswer(answer) {
           ? "공매 절차 일반 안내"
           : "공고 원문 기반 답변";
     return `<div class="coach-ask-answer">
-      ${badge(badgeLabel, "safe")}
+      ${badge(badgeLabel, "neutral")}
       <p>${answer.answer}</p>
       ${renderOnbidReferences(answer.references, true)}
     </div>`;
@@ -2013,7 +2014,9 @@ function renderBidParticipationInfo(taskSummary) {
   const rows = [
     ["입찰기간", bidPeriodTask?.action || NOTICE_VALUE_FALLBACK],
     ["입찰 장소", bidPlace],
-    ["최저입찰가격", priceTask?.action || NOTICE_VALUE_FALLBACK],
+    // 2-1 공고 요약에서 이 칸을 뺐으므로(U10 ⑴) 준비 보드에서 최저입찰가격을 보는 곳은 여기다. price 할 일이
+    // 없는 공고도 옛 요약 칸처럼 공고 값을 보인다.
+    ["최저입찰가격", priceTask?.action || sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK],
   ];
   return `<div class="bid-participation-info">
     <section class="block">
@@ -2319,8 +2322,8 @@ function renderBidParticipationApplyPanel() {
       ${infoRow({
         tag: "불필요",
         tone: "safe",
-        title: "입찰참가신청 불필요",
-        text: "이 물건은 공고기관의 사전 승인 없이 바로 입찰할 수 있습니다.",
+        // 블록 제목 · 머리표가 이미 「입찰참가신청 · 불필요」라 행 제목은 뜻만 말한다(V11).
+        title: "사전 승인 없이 바로 입찰할 수 있습니다",
         meta: `근거: ${info.source}`,
       })}
     </section>`;
@@ -2352,7 +2355,7 @@ function renderBidLimitsPanel() {
   const rowsHtml = limits
     .map(
       (limit) => `<li class="info-row${limit.restricted ? " is-restricted" : ""}">
-        <div class="info-row-head">${badge(limit.restricted ? "제한 있음" : "제한 없음", limit.restricted ? "warn" : "neutral")}<strong class="info-row-title">${limit.label}</strong></div>
+        <div class="info-row-head">${badge(limit.restricted ? "제한 있음" : "제한 없음", limit.restricted ? "warn" : "safe")}<strong class="info-row-title">${limit.label}</strong></div>
         <p class="info-row-text">${limit.value}</p>
       </li>`,
     )
@@ -2584,7 +2587,8 @@ function renderGlossary() {
 function countdownBadge() {
   const countdown = sampleNotice.countdown;
   if (!countdown?.label) return "";
-  const type = countdown.state === "urgent" ? "urgent" : countdown.state === "closed" ? "warn" : "safe";
+  // 머리표 뜻은 셋이다 — 주의(warn) · 정보(neutral) · 충족(safe). 긴급이 아닌 마감 D-n 은 정보다(V2).
+  const type = countdown.state === "urgent" ? "urgent" : countdown.state === "closed" ? "warn" : "neutral";
   return `${badge(countdown.label, type)} <span class="small-text">${countdown.deadline} 마감 · 알림 발송은 하지 않습니다</span>`;
 }
 
@@ -2641,7 +2645,7 @@ function renderPrepStageStepper(stageStatus, activeNum = null) {
       // 그 상태를 "완료"로 보여주면 잠금을 숨기는 것이 된다.
       // notYet 은 done 보다 먼저 본다 — 항목이 0개인 4단계는 파생값에서 done 을 눌러 두지만,
       // 표시 쪽에서도 순서를 지켜 「완료」가 뜰 경로를 남기지 않는다(P0-1).
-      const icon = stage.locked ? "🔒" : stage.notYet ? "⏳" : stage.done ? "✅" : "▶";
+      const icon = getStageIcon(stage);
       const label = stage.locked
         ? `잠김, 2-${stage.num - 1} 단계를 마치면 열립니다`
         : stage.notYet
@@ -2656,7 +2660,7 @@ function renderPrepStageStepper(stageStatus, activeNum = null) {
       return `<li class="${cls}${viewing ? " is-viewing" : ""}" role="listitem">
         <button type="button" class="mini-step" data-board-stage="${stage.num}" title="${label}"${viewing ? ` aria-current="step"` : ""}>
           <span class="mini-step-num">2-${stage.num}</span>
-          <span class="prep-stage-icon" aria-hidden="true">${icon}</span>
+          ${icon ? `<span class="prep-stage-icon" aria-hidden="true">${icon}</span>` : ""}
           <span class="mini-step-label">${stage.title}</span>
           <span class="sr-only">${label}</span>
         </button>
@@ -2664,6 +2668,12 @@ function renderPrepStageStepper(stageStatus, activeNum = null) {
     })
     .join("");
   return `<ol class="prep-stage-stepper mini-stepper" role="list" aria-label="준비 단계">${items}</ol>`;
+}
+
+// 위·아래 단계 표시가 같은 아이콘을 쓴다. 진행 중은 아이콘이 없다(▶ 는 「접힘」 표시와 같은 모양이라 쓰지 않는다).
+// 아이콘은 aria-hidden 이고 상태 문구는 sr-only · title 에 따로 있다. 색으로만 상태를 구분하지 않게 한다(V5 · I8).
+function getStageIcon(stage) {
+  return stage.locked ? "🔒" : stage.notYet ? "⏳" : stage.done ? "✓" : "";
 }
 
 // 준비 보드 위쪽 단계 표시. 공고 가져오기(1-1~1-3)와 같은 버튼 모양이고, 누르면 그 단계 페이지로 간다.
@@ -2677,7 +2687,7 @@ function renderBoardTopStepper(stageStatus, activeNum) {
         .filter(Boolean)
         .join(" ");
       return `<li><button type="button" class="mini-step ${cls}" data-board-stage="${stage.num}" title="${state}"${viewing ? ` aria-current="step"` : ""}>
-        <span class="mini-step-num">2-${stage.num}</span><span class="mini-step-label">${stage.title}</span><span class="sr-only"> · ${state}</span>
+        <span class="mini-step-num">2-${stage.num}</span>${getStageIcon(stage) ? `<span class="prep-stage-icon" aria-hidden="true">${getStageIcon(stage)}</span>` : ""}<span class="mini-step-label">${stage.title}</span><span class="sr-only"> · ${state}</span>
       </button></li>`;
     })
     .join("")}</ol>`;
@@ -2733,16 +2743,14 @@ function renderStageHeading(stage) {
   }
   if (stage.done) {
     return `<h4 class="stage-group-heading is-done">
-      <span aria-hidden="true">✅</span>
+      <span aria-hidden="true">✓</span>
       <span>2-${stage.num} ${stage.title}</span>
       ${badge("완료", "safe")}
     </h4>`;
   }
-  return `<h4 class="stage-group-heading is-active">
-    <span aria-hidden="true">▶</span>
-    <span>2-${stage.num} ${stage.title}</span>
-    ${badge("진행중", "neutral")}
-  </h4>`;
+  // 진행 중인 단계는 머리를 그리지 않는다. 페이지 제목이 이미 단계 이름이고, ▶ 가 바로 아래 「▶ 자세히」(닫힌 접기)와
+  // 같은 모양이라 「접혀 있다」로 읽혔다(V4 · V5). 잠김 · 낙찰 후 · 완료처럼 할 말이 있을 때만 머리를 둔다.
+  return "";
 }
 
 // 4단계(낙찰 후 준비) 블록. 머리 안내는 과설명이 아니라 단계 판정 오분류의 안전망이다 —
@@ -2891,7 +2899,7 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
             </span>
           </label>
           <span class="task-badges">
-            ${aiMatch && !done ? badge("확인 필요", "safe") : ""}
+            ${aiMatch && !done ? badge("확인 필요", "warn") : ""}
             ${badge(done ? "완료" : task.due, dueTone)}
           </span>
         </div>
@@ -3172,21 +3180,12 @@ function renderReport() {
         </div>
       </article>`;
 
+  // 공고 유형 · 입찰기간 · 최저입찰가격은 같은 2-1 화면의 할 일 카드 값과 1-3 핵심 정보에 이미 있다.
+  // 한 화면에 입찰기간이 네 번 나와 진짜 확인할 것이 묻혔다(U10 ⑴). 다른 곳에 없는 칸만 남긴다.
   byId("quick-facts").innerHTML = [
-    ["공고 유형", `${sampleNotice.assetType} · ${sampleNotice.dispositionLabel}`],
-    [
-      "입찰기간",
-      sampleNotice.bidPeriod || NOTICE_VALUE_FALLBACK,
-      sampleNotice.bidPeriod ? "" : "is-fallback",
-    ],
     ["공고번호", sampleNotice.noticeId],
     ["공고기관", sampleNotice.agency],
     ["입찰방식", sampleNotice.bidMethod],
-    [
-      "최저입찰가격",
-      sampleNotice.minimumBidPrice || NOTICE_VALUE_FALLBACK,
-      sampleNotice.minimumBidPrice ? "" : "is-fallback",
-    ],
     // 공동입찰은 못 읽었으면 「원문 확인」이다. 「불가능」·「해당없음」으로 접거나 행을 숨기지 않는다 —
     // 숨기면 사용자가 「해당 없다」로 읽는다.
     ["공동입찰", sampleNotice.jointBidAllowed || "원문 확인"],
@@ -3200,7 +3199,8 @@ function renderReport() {
     .join("");
 
   byId("deadline-cost-list").innerHTML = [
-    ...sampleNotice.alerts.map((item) => ({ ...item, type: "알림" })),
+    // 입찰기간 알림 행은 뺀다. 마감 D-n 행과 할 일 카드가 같은 값을 말한다(U10 ⑵).
+    ...sampleNotice.alerts.filter((item) => item.title !== "입찰기간").map((item) => ({ ...item, type: "알림" })),
     ...sampleNotice.costs.map((item) => ({ ...item, type: "비용" })),
   ]
     .map((item) => {
@@ -3233,7 +3233,7 @@ function renderReport() {
     "보조 데이터 값과 공고 원문이 다를 경우 공고 원문 및 담당기관 확인을 우선합니다.",
     "입찰 여부, 법률 판단, 권리관계 판단, 수익성 판단은 제공하지 않습니다.",
   );
-  byId("source-notes").innerHTML = sourceNotes.map((note) => infoRow({ tag: "확인", tone: "safe", text: note })).join("");
+  byId("source-notes").innerHTML = sourceNotes.map((note) => infoRow({ tag: "확인", tone: "neutral", text: note })).join("");
 }
 
 function renderWatchlist() {
@@ -3264,13 +3264,14 @@ function renderWatchlist() {
   // 합쳐 세면 하나도 저장하지 않은 사용자에게 「관심 공고 2건」이 뜬다.
   const savedByUser = savedItems.filter((item) => !item.sample);
 
-  byId("watch-summary").innerHTML = [
+  // 지표 카드 3개 대신 1-3 과 같은 값 칸 한 블록이다(V6).
+  byId("watch-summary").innerHTML = `<div class="fact-grid">${[
     ["관심 공고", `${savedByUser.length}건`],
     ["최근 살펴본 공고", `${recent.length}건`],
     ["현재 공고 진행률", hasBlockingMessage ? "입력 공고 미분석" : formatProgress(summary)],
   ]
-    .map(([label, value]) => `<div class="summary-item"><b>${label}</b><strong>${value}</strong></div>`)
-    .join("");
+    .map(([label, value]) => factCell(label, `<strong class="field-value">${value}</strong>`))
+    .join("")}</div>`;
 
   const savedHtml = savedItems.length
     ? savedItems.map((item) => watchItemHtml(item, { showFavorite: item.dynamic })).join("")
@@ -3299,7 +3300,6 @@ function renderWatchlist() {
 }
 
 function watchItemHtml(item, options = {}) {
-  const statusType = item.status?.includes("필요") || item.status?.includes("미") ? "warn" : "safe";
   const favoriteLabel = item.favorite ? "관심 공고에서 해제" : "관심 공고에 추가";
   const favoriteButton = options.showFavorite
     ? `<button class="star-button ${item.favorite ? "is-on" : ""}" type="button" data-favorite-id="${item.id}" aria-pressed="${item.favorite ? "true" : "false"}" title="${favoriteLabel}" aria-label="${favoriteLabel}">${item.favorite ? "★" : "☆"}</button>`
@@ -3307,22 +3307,21 @@ function watchItemHtml(item, options = {}) {
   // countdown은 카드가 저장된 시점(공고를 분석했을 때)의 마감 상태다. 다시 분석하지
   // 않으면 갱신되지 않으므로 "지금 이 순간"의 마감 여부와 다를 수 있다.
   const countdown = item.countdown;
-  const countdownType = countdown?.state === "urgent" ? "urgent" : countdown?.state === "closed" ? "warn" : "safe";
-  return `<article class="watch-item">
-    ${favoriteButton}
-    <div>
-      <strong>${item.title || item.notice}${item.sample ? ` ${badge("예시", "warn")}` : ""}</strong>
-      <span>${item.notice}</span>
-      <span>${item.type}</span>
-      ${countdown?.label ? badge(countdown.label, countdownType) : ""}
-    </div>
-    <p>${item.next}</p>
-    <div class="watch-actions">
-      ${badge(item.status, statusType)}
-      ${item.sample
-        ? `<span class="text-action is-disabled" aria-disabled="true">예시 항목(원문 없음)</span>`
-        : `<a class="text-action" href="${item.sourceUrl || "https://www.onbid.co.kr/"}" target="_blank" rel="noreferrer">원문</a>`}
-    </div>
+  const countdownType = countdown?.state === "urgent" ? "urgent" : countdown?.state === "closed" ? "warn" : "neutral";
+  // 정보 행 모양이다(V6) — 머리 줄(별표 · 머리표 · 물건명 · 원문) / 공고번호 · 유형 / 다음 할 일 · 진행.
+  // 같은 말을 두 번 쓰지 않는다. 예시 항목은 공고번호 자리에 제목이 그대로 들어 있고, 최근 공고는 다음 할 일이
+  // 공고 유형 값일 때가 있다.
+  const title = item.title || item.notice;
+  const headBadge = item.sample ? badge("예시", "warn") : countdown?.label ? badge(countdown.label, countdownType) : "";
+  const textParts = [item.notice !== title ? item.notice : "", item.type].filter(Boolean);
+  const metaParts = [item.next !== item.type ? item.next : "", item.status ? `${item.status}` : ""].filter(Boolean);
+  const action = item.sample
+    ? `<span class="info-row-action text-action is-disabled" aria-disabled="true">예시 항목(원문 없음)</span>`
+    : `<a class="info-row-action link-chip" href="${item.sourceUrl || "https://www.onbid.co.kr/"}" target="_blank" rel="noreferrer">원문 ↗</a>`;
+  return `<article class="info-row watch-row">
+    <div class="info-row-head">${favoriteButton}${headBadge}<strong class="info-row-title">${title}</strong>${action}</div>
+    ${textParts.length ? `<p class="info-row-text">${textParts.join(" · ")}</p>` : ""}
+    ${metaParts.length ? `<p class="info-row-meta">${metaParts.join(" · ")}</p>` : ""}
   </article>`;
 }
 
