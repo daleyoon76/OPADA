@@ -2165,8 +2165,34 @@ function renderDocCheckRow(item, docState, locked, lockMsgId) {
         ? `<span class="doc-howto">발급처: <a href="${item.howtoUrl}" target="_blank" rel="noreferrer">${item.howto}</a></span>`
         : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
     }
-    <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p></details>
+    ${isUnclassifiedDoc(item) && UPON_REQUEST_DOC_RE.test(String(item.evidence || "")) ? `<span class="doc-howto">${UPON_REQUEST_DOC_NOTE}</span>` : ""}
+    <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p>${
+      item.sourceHeading ? `<p class="small-text">시점 근거: ${escapeHtml(item.sourceHeading)}</p>` : ""
+    }</details>
   </li>`;
+}
+
+// D7(2026-10-19) · 「예술의전당의 요청이 있을 경우 … 제출」처럼 기관이 요청할 때만 내는 서류는 시점이 없어 미분류로
+// 남는다. 「입찰 전에 필요할 수 있다」는 구획 안내와 다르다는 것을 그 행에 따로 적는다.
+const UPON_REQUEST_DOC_RE = /요청이\s*있을\s*경우|요청\s*시|요청하는\s*경우/;
+const UPON_REQUEST_DOC_NOTE = "기관이 요청할 때만 내는 서류일 수 있습니다.";
+
+// D2(2026-10-19) · 서버는 첨부를 4개까지 · 8MB 까지만 읽는다. 읽지 못한 첨부가 있으면 그 수와 이유를 말한다 —
+// 말하지 않으면 목록이 첨부까지 다 읽은 결과처럼 보인다(원문 36건 중 18건이 일부를 못 읽음).
+const ATTACHMENT_READ_REASON = {
+  not_tried: "한 번에 읽는 개수를 넘음",
+  too_large: "파일이 너무 큼",
+  failed: "내용을 읽지 못함",
+};
+function renderAttachmentReadNotice(checklist) {
+  const unread = (Array.isArray(checklist?.attachmentReads) ? checklist.attachmentReads : []).filter(
+    (read) => read && read.status !== "read",
+  );
+  if (!unread.length) return "";
+  const names = unread
+    .map((read) => `${escapeHtml(String(read.name || ""))}(${ATTACHMENT_READ_REASON[read.status] || "읽지 못함"})`)
+    .join(", ");
+  return `<p class="small-text attachment-unread">첨부 ${unread.length}개를 읽지 못했습니다: ${names}. 그 첨부에 서류가 더 있을 수 있으니 직접 확인하십시오.</p>`;
 }
 
 // 조건별 서류 그룹 1개. 2단계(renderDocChecklist)와 4단계(renderPostAwardPanel)가 같은 마크업을
@@ -2201,7 +2227,9 @@ function renderUnclassifiedDocSection(docState, locked, lockMsgId) {
   return renderDocFlatSection(
     "doc-group-unclassified",
     "단계를 확정하지 못한 서류",
-    `<p class="small-text">단계를 확정하지 못했습니다. 공고문 원문을 확인하십시오.</p>`,
+    // 2026-10-19 · 판정이 실패했다는 사실만 말하면 초보자는 서비스가 고장 난 것으로 읽는다. 왜 여기 있는지를 말한다
+    // (team-reports/2026-10-19-bid-stage-sot/implementation-plan.md 4단계 · D1: 시점을 못 찾은 서류는 2단계에 남긴다).
+    `<p class="small-text">공고문에서 이 서류의 제출 시점을 찾지 못했습니다. 입찰 전에 필요할 수 있어 여기에 함께 두었습니다. 「원문 근거」를 열어 확인하고, 그래도 모르면 담당기관에 확인하십시오.</p>`,
     items,
     docState,
     locked,
@@ -2460,6 +2488,7 @@ function renderDocChecklist(locked) {
     <p>${profile.label || ""}</p>
     <p class="small-text">${profile.detail || ""}</p>
     ${profile.code === "B" ? renderAttachmentPointer() : ""}
+    ${renderAttachmentReadNotice(checklist)}
     ${
       hasAnyPreBidItems
         ? groupsHtml + unclassifiedHtml + needsInquiryHtml
