@@ -175,6 +175,14 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "D5",
+        "자주 묻는 질문 고정 안내",
+        "갈래 9종 양성 · 다른 경로가 답하는 질문 5종 음성 · 순서(낙찰 뒤 > 보증금 > 입찰금액) · 공고 값 주입 · "
+        "재산유형별 보증금 기준 · 모델 미호출 배선 · 금지표현",
+        "갈래 패턴 삭제 · exclude 삭제 · 목록 순서 바꾸기 · 라우트 guide 분기 삭제",
+        "Y",
+    ),
+    (
         "D4",
         "화면 머리 코드 판",
         "git 이 주는 HEAD 와 같은 해시 · 누적 번호 · 저장소 밖이면 빈 값 · /api/version 이 기동 판과 지금 판을 함께 싣는다",
@@ -2179,6 +2187,78 @@ def test_onbid_references() -> None:
     check("D3 절차 용어마다 설명과 출처가 있다", not empty, str(empty))
 
 
+def test_common_question_guides() -> None:
+    """D5: 초보자가 자주 묻는 질문은 모델 대신 고정 안내로 답한다(2026-10-19 · 입찰금액 질문에 「담당기관 문의」만 나왔다)."""
+    match = lambda q, n=None, b=None: (server.match_common_question(q, n or {}, b or {}) or {}).get("id")
+    positives = {
+        "입찰금액은 어떻게 정하면 좋을까요?": "bid-amount",
+        "최저가 대비 몇프로나 써야 안전할까요": "bid-amount",
+        "제출한 입찰서를 취소할 수 있나요?": "bid-cancel",
+        "입찰보증금은 얼마를 언제 내나요?": "deposit",
+        "낙찰됐는지 어디서 확인하나요?": "result-check",
+        "낙찰을 포기하면 보증금은 어떻게 되나요?": "after-award",
+        "입찰에 쓰는 인증서는 뭔가요?": "certificate",
+        "개인도 입찰할 수 있나요?": "qualification",
+        "임차인 보증금 떠안나요?": "rights",
+        "사진만 보고 입찰해도 되나요": "site-check",
+    }
+    wrong = {q: match(q) for q, want in positives.items() if match(q) != want}
+    check("D5 갈래별 대표 질문이 그 갈래로 간다", not wrong, str(wrong))
+    # 음성: 이미 다른 경로(용어 설명 · 보드 안내)가 맞게 답하는 질문은 가로채지 않는다.
+    # 「유찰」은 deposit 의 exclude 하나만 빼면 deposit 으로 뒤집힌다. 「설명도」는 rights 의 (?<!설) 하나만 빼면 뒤집힌다.
+    negatives = ["유찰되면 보증금은 어떻게 돼?", "보증금 설명도 부탁해요", "매각결정기일이 뭐지?",
+                 "이제 뭘 해야 하나요?", "개찰결과가 취소인데 취소는 뭘까요?"]
+    caught = {q: match(q) for q in negatives if match(q)}
+    check("D5 다른 경로가 답하는 질문은 가로채지 않는다", not caught, str(caught))
+    check("D5 순서: 「낙찰되면 보증금은?」은 낙찰 뒤 절차", match("낙찰되면 보증금은 어떻게 돼요?") == "after-award")
+    check("D5 순서: 「보증금 몇 퍼센트?」는 보증금", match("보증금은 몇 퍼센트예요?") == "deposit")
+
+    notice = {"assetType": "공유재산", "dispositionLabel": "임대", "minimumBidPrice": "63,895,238",
+              "bidDeposit": "입찰금액 X 10%", "appraisalPrice": "-", "agency": "기관"}
+    guide = server.match_common_question("입찰금액은 어떻게 정하면 좋을까요?", notice, {}) or {}
+    text = " ".join(guide.get("lines", []))
+    check("D5 입찰금액 안내에 이 공고의 최저입찰가격과 보증금 표시가 들어간다",
+          "63,895,238" in text and "입찰금액 X 10%" in text, text)
+    check("D5 감정평가금액이 「-」이면 그 줄을 넣지 않는다", "감정평가금액(" not in text, text)
+    check("D5 임대 공고는 대부료 줄, 매각 공고는 잔대금·세금 줄",
+          "대부료" in text
+          and "취득세" in " ".join((server.match_common_question("입찰가 얼마 써야 해요", {**notice, "dispositionLabel": "매각"}, {}) or {}).get("lines", [])))
+    hidden = " ".join((server.match_common_question("입찰금액은 어떻게 정해요", {**notice, "minimumBidPrice": "비공개"}, {}) or {}).get("lines", []))
+    check("D5 최저입찰가격이 비공개면 비공개라고 적는다", "「비공개」" in hidden, hidden)
+    rule = server._deposit_rule_line
+    check("D5 보증금 기준: 압류는 공매예정가격 · 국유는 5% · 수탁은 10%",
+          "공매예정가격의 10%" in rule({"assetType": "압류재산"}) and "5% 이상" in rule({"assetType": "국유재산"})
+          and "10% 이상" in rule({"assetType": "수탁재산"}) and "일정률" in rule({"assetType": "공유재산"}))
+    check("D5 바로가기: 입찰금액 → 2-3 · 낙찰 뒤 → 2-4",
+          guide.get("jump") == 3 and (server.match_common_question("낙찰되면 뭐 해요", {}, {}) or {}).get("jump") == 4)
+
+    # 배선: 갈래에 맞으면 모델을 부르지 않는다.
+    original = (server.vertex_answer_question, server.gemini_answer_question)
+    calls = []
+    try:
+        server.vertex_answer_question = lambda n, d, q, b=None: calls.append(q) or None
+        server.gemini_answer_question = lambda n, d, q, b=None: calls.append(q) or None
+        routed = server.answer_notice_question(notice, [], "입찰금액은 어떻게 정하면 좋을까요?", {})
+        plain = server.answer_notice_question(notice, [], "이제 뭘 해야 하나요?", {})
+    finally:
+        server.vertex_answer_question, server.gemini_answer_question = original
+    check("D5 배선: 갈래 질문은 guide 로 답하고 모델을 부르지 않는다",
+          routed.get("answerType") == "guide" and routed.get("guide", {}).get("id") == "bid-amount"
+          and calls.count("입찰금액은 어떻게 정하면 좋을까요?") == 0, str(routed))
+    check("D5 배선: 갈래 밖 질문은 그대로 모델에 간다", "이제 뭘 해야 하나요?" in calls and "guide" not in plain, str(plain))
+
+    variants = [
+        {"assetType": a, "dispositionLabel": d, "minimumBidPrice": m, "appraisalPrice": "1,000", "evictionResponsibility": "매수인"}
+        for a in ("압류재산", "국유재산", "수탁재산", "공유재산") for d in ("매각", "임대") for m in ("100", "비공개", "")
+    ]
+    all_text = [line for guide_def in server.COMMON_QUESTION_GUIDES for n in variants
+                for line in server.common_question_lines(str(guide_def["id"]), n, {"userType": "법인"})[0]]
+    bad = [(phrase, line) for line in all_text for phrase in FORBIDDEN_SCREEN_PHRASES if phrase in line]
+    check("D5 고정 안내 문장에 금지표현이 없다", not bad and len(all_text) > 100, str(bad[:3]) + f" n={len(all_text)}")
+    markup = [line for line in all_text if any(ch in line for ch in "<&")]
+    check("D5 고정 안내 문장에 「<」·「&」가 없다(화면이 escape 없이 넣는다)", not markup, str(markup[:2]))
+
+
 def test_code_revision() -> None:
     import subprocess
     import tempfile
@@ -2416,6 +2496,7 @@ def main() -> int:
         test_asset_type_notice_detail,
         test_question_board_state,
         test_onbid_references,
+        test_common_question_guides,
         test_code_revision,
         test_vertex_429_retry,
         test_api_doc_terms_flag_filter,

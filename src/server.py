@@ -2524,9 +2524,247 @@ def normalize_question_answer(result: dict[str, object], board: dict[str, object
     }
 
 
+# 초보자가 커뮤니티에서 자주 묻고 곤란해하는 질문에는 모델 대신 고정 문장으로 답한다(2026-10-19 동원님 지시:
+# 「입찰금액은 어떻게 정하면 좋을까요?」에 「담당기관에 문의」만 나왔다). 질문 갈래는
+# docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1절·3절에서 골랐고, 문장은 온비드 이용안내·FAQ·
+# 입찰참가자 준수규칙(team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md)과
+# ONBID_GUIDE_TERMS 에 있는 사실만 쓴다. 얼마를 쓸지·권리관계·수익성은 여기서도 판단하지 않고, 판단 대신
+# 「정하기 전에 확인할 것」을 적는다(CLAUDE.md 행동 규칙 · 커뮤니티 조사 4-3).
+# patterns 는 띄어쓰기를 지운 질문에 맞춘다. 목록 순서가 우선순위다 — 「낙찰되면 보증금은?」은 낙찰 뒤 절차,
+# 「보증금 몇 퍼센트?」는 보증금으로 가야 하므로 보증금을 입찰금액보다 앞에 둔다.
+# exclude 는 다른 경로가 이미 맞게 답하는 질문을 돌려보낸다. 「유찰되면 보증금은?」은 유찰 용어 설명이 답한다.
+COMMON_QUESTION_GUIDES: tuple[dict[str, object], ...] = (
+    {
+        "id": "after-award",
+        "title": "낙찰 뒤 절차",
+        "patterns": (
+            r"낙찰(후|뒤|되면|돼면|받으면|받고|받은|이후|다음|된다음|된뒤|된후)",
+            r"(잔금|잔대금)\S{0,6}(언제|어떻게|기한|납부|내야|내나|낼)",
+            r"(소유권이전|이전등기|등기)\S{0,6}(어떻게|절차|언제|하나|해야|하면)",
+            r"(낙찰|계약)\S{0,4}포기",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "bid-cancel",
+        "title": "입찰서 취소·수정",
+        "patterns": (
+            r"(입찰|입찰서|응찰)\S{0,4}(취소|철회|수정|변경|바꿀|바꾸|바꿔)",
+            r"(제출한|낸|넣은)\S{0,6}(취소|수정|변경|바꿀|바꾸|바꿔)",
+        ),
+        "exclude": (r"개찰결과", r"결과가취소"),
+    },
+    {
+        "id": "result-check",
+        "title": "입찰 결과 확인",
+        "patterns": (
+            r"(낙찰|입찰|개찰)결과\S{0,4}(확인|어디|언제|볼|알)",
+            r"낙찰(됐|되었|여부)\S{0,6}(확인|어디|알|볼)",
+            r"입찰자(수|가몇)",
+            r"누가낙찰",
+            r"몇명\S{0,4}(입찰|응찰)",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "certificate",
+        "title": "입찰에 쓰는 인증서",
+        "patterns": (r"인증서", r"간편인증", r"입찰버튼"),
+        "exclude": (),
+    },
+    {
+        "id": "qualification",
+        "title": "입찰 자격",
+        "patterns": (
+            r"(개인|사업자|법인|외국인|미성년)\S{0,6}(입찰|참여|참가|응찰)\S{0,4}(할수|가능|되|돼|있)",
+            r"(입찰|참가)자격",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "rights",
+        "title": "권리관계·명도",
+        "patterns": (r"권리", r"인수", r"임차인", r"세입자", r"(?<!설)명도", r"인도명령", r"떠안", r"선순위", r"가압류", r"근저당"),
+        "exclude": (),
+    },
+    {
+        "id": "deposit",
+        "title": "입찰보증금",
+        "patterns": (r"보증금(은|을|는|이)?(얼마|몇|언제|어떻게|어디|계좌|납부|내야|내나|내면|넣)",),
+        "exclude": (r"유찰", r"패찰", r"떨어지", r"떨어졌", r"탈락"),
+    },
+    {
+        "id": "bid-amount",
+        "title": "입찰금액을 정할 때 확인할 것",
+        "patterns": (
+            r"입찰(금액|가격|가)(은|는|을|를)?(어떻게|얼마|정하|정해|정할|써야|쓰면|적어|넣어|결정)",
+            r"얼마(를|에|로|정도)?(써|쓰|적|넣|입찰|응찰)",
+            r"몇(프로|퍼센트|%)",
+            r"(적정|적당한)(가|가격|금액|입찰)",
+            r"(시세|낙찰가율)",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "site-check",
+        "title": "사진·현장 확인",
+        "patterns": (r"사진", r"현장", r"실물", r"직접(가|볼|봐)", r"구경"),
+        "exclude": (),
+    },
+)
+
+
+def _notice_text(notice: dict[str, object], key: str) -> str:
+    value = str(notice.get(key) or "").strip()
+    return "" if value in ("", "-", NOTICE_VALUE_FALLBACK) else value
+
+
+def _deposit_rule_line(notice: dict[str, object]) -> str:
+    """재산유형별 입찰보증금 기준 한 문장. 근거는 ONBID_GUIDE_TERMS['입찰보증금'] 과 같은 준수규칙 조항이다."""
+    asset = str(notice.get("assetType") or "")
+    shown = _notice_text(notice, "bidDeposit")
+    shown_part = f" 이 공고의 표시는 「{shown}」입니다." if shown else ""
+    if "압류재산" in asset:
+        base = "압류재산의 입찰보증금(공매보증)은 내가 쓴 입찰금액이 아니라 공매예정가격의 10% 이상입니다."
+    elif "국유재산" in asset:
+        base = "국유재산의 입찰보증금은 내가 쓴 입찰금액의 5% 이상이라, 금액을 높여 쓰면 보증금도 함께 늘어납니다."
+    elif "수탁재산" in asset:
+        base = "수탁재산의 입찰보증금은 내가 쓴 입찰금액의 10% 이상이라, 금액을 높여 쓰면 보증금도 함께 늘어납니다."
+    else:
+        base = "이용기관 물건의 입찰보증금은 기관이 정한 「입찰금액의 일정률」 이상입니다. 입찰금액 기준이면 금액을 높여 쓸수록 보증금도 늘어납니다."
+    return base + shown_part
+
+
+def _is_lease_notice(notice: dict[str, object]) -> bool:
+    label = str(notice.get("dispositionLabel") or "")
+    return bool(re.search(r"임대|대부", label)) and not re.search(r"매각|공매", label)
+
+
+def common_question_lines(guide_id: str, notice: dict[str, object], board: dict[str, object] | None) -> tuple[list[str], str]:
+    """자주 묻는 질문 갈래마다 이 공고 값을 넣은 안내 문장과 출처를 돌려준다."""
+    minimum = _notice_text(notice, "minimumBidPrice")
+    appraisal = _notice_text(notice, "appraisalPrice")
+    asset = str(notice.get("assetType") or "")
+    if guide_id == "bid-amount":
+        if minimum == "비공개":
+            minimum_line = "이 물건의 최저입찰가격은 「비공개」입니다. 이용기관이 공개하지 않기로 한 값이라 담당기관에 문의하십시오."
+        elif minimum:
+            minimum_line = f"이 물건의 최저입찰가격은 {minimum}입니다. 이 회차에 입찰할 수 있는 가장 낮은 금액이라 이보다 낮게 쓸 수 없습니다."
+        else:
+            minimum_line = "최저입찰가격(이 회차에 입찰할 수 있는 가장 낮은 금액)은 공고 원문에서 확인하십시오."
+        lines = [
+            "얼마를 쓸지는 이 서비스가 정해 드리지 않습니다. 적정 가격·낙찰 가능성·수익성은 판단하지 않고, 금액을 정하기 전에 확인할 것만 정리합니다.",
+            minimum_line,
+            _deposit_rule_line(notice),
+        ]
+        if appraisal:
+            lines.append(f"감정평가금액({appraisal})은 최저입찰가격과 다른 값입니다. 둘의 관계는 공고마다 다르므로 공고 원문에서 확인하십시오.")
+        lines.append("제출한 입찰서는 수정·변경·취소할 수 없는 것이 원칙입니다. 제출 전에 금액의 자릿수(0의 개수)를 다시 확인하십시오.")
+        if _is_lease_notice(notice):
+            lines.append("낙찰되면 대부료·사용료를 공고문이 정한 기한 안에 내야 합니다. 기한과 금액 산정 방식은 공고 원문에서 확인하십시오.")
+        else:
+            lines.append("낙찰되면 잔대금을 공고문이 정한 기한 안에 내야 합니다. 취득세 같은 세금과 이전 비용은 이 서비스가 계산하지 않으니 관할 세무서와 담당기관에서 확인하십시오.")
+        lines.append("가격을 판단할 때 쓸 물건 상태와 이용 조건은 공고 첨부, 현장 확인, 담당기관 문의로 직접 확인하십시오.")
+        return lines, "온비드 용어 설명(최저입찰가격·입찰보증금·감정평가금액) · 온비드 FAQ 「입찰 및 개찰 일정」 · 입찰참가자 준수규칙 보증금 조항"
+    if guide_id == "deposit":
+        return [
+            _deposit_rule_line(notice),
+            "납부 계좌는 입찰서를 제출한 뒤 물건마다 따로 주어지는 1회용 가상계좌입니다.",
+            "입찰 마감 시각까지 보증금을 내지 않으면 입찰이 무효가 됩니다.",
+            "보증금이 1천만 원을 넘으면 마감 전까지 나눠 낼 수 있다고 온비드가 안내하지만, 분할 납부를 막는 공고도 있으니 공고문을 확인하십시오.",
+        ], "온비드 이용안내 「입찰참가 안내」 STEP04-5·STEP05 · 입찰참가자 준수규칙 보증금 조항"
+    if guide_id == "bid-cancel":
+        return [
+            "제출한 입찰서는 수정·변경·취소할 수 없는 것이 원칙입니다.",
+            "온비드에서 2회 이상 입찰서 제출이 가능하다고 안내된 물건이면 같은 회차에 다시 입찰할 수 있습니다.",
+            "입찰보증금을 마감 시각까지 내지 않으면 그 입찰은 무효가 됩니다. 무효가 된 입찰에 다른 불이익이 따르는지는 공고문과 담당기관에서 확인하십시오.",
+        ], "온비드 FAQ 「입찰 및 개찰 일정」 · 온비드 FAQ(같은 회차 재입찰) · 압류재산 입찰참가자 준수규칙 제8조②"
+    if guide_id == "result-check":
+        return [
+            "개찰일시는 공고기관이 개찰을 시작하는 시각입니다. 개찰이 끝난 뒤에 결과를 볼 수 있습니다.",
+            "내 입찰 결과는 온비드 「나의온비드 > 입찰관리 > 입찰결과내역」에서 직접 확인합니다. 결과 알림도 신청할 수 있습니다.",
+            "낙찰자가 누구인지는 공개되지 않습니다.",
+            "입찰 결과의 「유찰」은 내 입찰만 탈락한 경우와 물건 자체가 유찰된 경우, 두 가지 뜻이 있습니다.",
+        ], "온비드 이용안내 「입찰참가 안내」 STEP06 · 온비드 FAQ 「본인의 입찰결과를 확인하는 방법」·「입찰결과에서 '유찰'의 의미」 · 국유재산 입찰참가자 준수규칙 제12조③"
+    if guide_id == "certificate":
+        lines = [
+            "온비드 전자입찰에는 공동인증서나 간편인증서(개인회원만)가 필요합니다.",
+            "공동인증서는 전자거래범용인증서나 온비드전용인증서를 온비드에 등록해야 합니다. 은행용·증권용처럼 용도가 정해진 인증서는 등록할 수 없습니다.",
+            "유료 인증서 수수료(1년)는 개인 온비드전용 1,100원 · 범용 4,400원, 사업자·법인·단체 11,000원 · 88,000원입니다.",
+        ]
+        user_type = str((board or {}).get("userType") or "")
+        if user_type and user_type != "개인":
+            lines.append(f"지금 고른 사용자 유형은 「{user_type}」입니다. 사업자·법인 회원은 간편인증서 없이 공동인증서를 씁니다.")
+        return lines, "온비드 인증서 안내 · 온비드 이용안내 「입찰참가 안내」 STEP02"
+    if guide_id == "qualification":
+        lines = [
+            "누가 입찰할 수 있는지는 공고문의 참가자격 조항이 정합니다. 개인·사업자·법인 가운데 누가 입찰할 수 있는지는 공고마다 다릅니다.",
+            "조항에 괄호 안 표기(예: 일반사업자 또는 법인사업자)가 있으면 그 뜻은 공고 원문과 담당기관에서 확인하십시오.",
+        ]
+        user_type = str((board or {}).get("userType") or "")
+        if user_type:
+            lines.append(f"지금 고른 사용자 유형은 「{user_type}」입니다. 이 유형이 참가자격 조항에 해당하는지 확인하십시오.")
+        return lines, "공고문 참가자격 조항 · 공공데이터 온비드 물건 입찰정보(입찰 자격 조건)"
+    if guide_id == "rights":
+        lines = ["권리관계, 인수해야 할 권리, 명도 책임은 이 서비스가 판단하지 않습니다. 확인할 곳만 안내합니다."]
+        eviction = _notice_text(notice, "evictionResponsibility")
+        if eviction:
+            lines.append(f"이 공고의 명도책임 표시는 「{eviction} 부담」입니다.")
+        if "압류재산" in asset:
+            lines.append("압류재산은 권리 관련 사항을 공매재산명세서로 안내합니다. 입찰시작 7일 전부터 입찰마감 전까지 물건 상세페이지 [입찰정보] 탭에서 볼 수 있습니다.")
+        else:
+            lines.append("공고문의 유의사항·명도 조항과 등기사항증명서를 직접 확인하십시오.")
+        lines.append("확인한 내용의 뜻이 분명하지 않으면 입찰 전에 담당기관이나 법률 전문가에게 문의하십시오.")
+        return lines, "온비드 FAQ(압류재산 · 공매재산명세서) · 공고 원문"
+    if guide_id == "site-check":
+        return [
+            "온비드 사진과 기재 내용만으로 물건 상태를 판단하지 마십시오. 기재 내용이 실제와 달랐다는 이용자 후기가 있습니다.",
+            "현장을 볼 수 있는지, 언제 볼 수 있는지는 담당기관에 문의하십시오.",
+            "부동산은 등기사항증명서·건축물대장, 차량은 자동차등록원부 같은 공적 서류로 기재 내용을 다시 확인할 수 있습니다.",
+        ], "공고 원문과 담당기관 확인 원칙"
+    # after-award 는 재산유형별 절차 문장이 화면(postAwardProcessNote)에 있어 화면이 이어 붙인다.
+    return ["낙찰 뒤 절차와 기한, 입찰보증금 처리는 재산유형마다 다릅니다."], "온비드 이용안내 「낙찰절차 안내」"
+
+
+GUIDE_JUMPS = {
+    "after-award": (4, "2-4 낙찰 후 준비 보기"),
+    "qualification": (1, "2-1 입찰 자격 조건 보기"),
+    "bid-amount": (3, "2-3 입찰 참여 보기"),
+    "deposit": (3, "2-3 입찰 참여 보기"),
+}
+
+
+def match_common_question(
+    question: str, notice: dict[str, object] | None = None, board: dict[str, object] | None = None
+) -> dict[str, object] | None:
+    """자주 묻는 질문 갈래에 맞으면 고정 안내를 돌려준다. 맞는 갈래가 없으면 None 이다."""
+    compact = re.sub(r"\s+", "", question or "")
+    if not compact:
+        return None
+    for guide in COMMON_QUESTION_GUIDES:
+        if any(re.search(pattern, compact) for pattern in guide["exclude"]):
+            continue
+        if not any(re.search(pattern, compact) for pattern in guide["patterns"]):
+            continue
+        lines, source = common_question_lines(str(guide["id"]), notice or {}, board)
+        result: dict[str, object] = {"id": guide["id"], "title": guide["title"], "lines": lines, "source": source}
+        jump = GUIDE_JUMPS.get(str(guide["id"]))
+        if jump:
+            result["jump"], result["jumpLabel"] = jump
+        return result
+    return None
+
+
 def answer_notice_question(
     notice: dict[str, object], docs: list[str], question: str, board: dict[str, object] | None = None
 ) -> dict[str, object]:
+    # 자주 묻는 질문은 모델을 부르지 않고 고정 안내로 답한다. 모델이 붙지 않았으므로 connected 는 False 다.
+    guide = match_common_question(question, notice, board)
+    if guide:
+        return {
+            "connected": False, "answerable": True, "answerType": "guide", "answer": "",
+            "sourceField": str(guide["id"]), "guide": guide, "references": find_onbid_references(question),
+        }
     # 모델에 붙지 않았으면 「AI 가 확인했다」고 말하지 않는다(coach 의 llmStatus 와 같은 원칙).
     result = vertex_answer_question(notice, docs, question, board) or gemini_answer_question(notice, docs, question, board)
     if isinstance(result, dict) and isinstance(result.get("answerable"), bool):
