@@ -2364,7 +2364,7 @@ function renderGlossary() {
   const beginnerNote = isExperienceBeginner()
     ? `<p class="small-text">처음이시면 모르는 용어가 나올 때 이 탭에서 먼저 찾아보세요.</p>`
     : "";
-  // 서버는 두 묶음을 준다 — basic(이 공고 유형이면 늘 보여 주는 절차 용어 · server.py PROCESS_TERMS)과
+  // 서버는 두 묶음을 준다 — basic(이 공고 유형이면 보여 주는 절차 용어 · server.py GLOSSARY_TAB_TERMS ∩ ONBID_GUIDE_TERMS)과
   // match(공고 표기에 든 낱말을 사전에서 찾은 것). group 이 없는 옛 응답과 E2E 픽스처는 match 로 본다.
   // 2026-10-19 커뮤니티 조사: 초보자 질문의 첫째 갈래가 「용어 뜻을 모른다」였는데 이 탭은 공고명에 든
   // 낱말만 보여 줘서 거의 비어 있었다.

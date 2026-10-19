@@ -1284,7 +1284,7 @@ test("S14 공고 유형별 안내 — 용어 탭 기본 용어 · 4단계 절차
   // 첨부가 1건 이상인데 파일명에 「명세서」가 없는 상태. 0건이면 안내가 뜨지 않는다(아래 음성 ⓓ).
   seized.relatedDocs = ["압류재산 공매공고문.hwp"];
   seized.glossary = [
-    { term: "매각결정기일", meaning: "개찰 뒤 캠코가 매각을 확정하는 날입니다.", group: "basic" },
+    { term: "매각결정기일", meaning: "개찰 뒤 캠코가 매각을 확정하는 날입니다.", group: "basic", source: "온비드 FAQ 「압류재산의 매각결정기일」" },
     { term: "유찰", meaning: "두 가지 뜻으로 쓰입니다.", group: "basic" },
     { term: "압류재산", meaning: "체납자의 압류 재산을 캠코가 위임받아 처리하는 재산입니다.", group: "match" },
   ];
@@ -1292,6 +1292,10 @@ test("S14 공고 유형별 안내 — 용어 탭 기본 용어 · 4단계 절차
   // 지원 탭 패널은 hidden 이어도 DOM 에 그려져 있다. 다른 축(S1·S8)과 같이 탭을 누르지 않고 본문을 본다.
   const titles = page.locator("#glossary-list .glossary-group-title");
   await expect(titles).toHaveCount(2);
+  // 출처가 있는 기본 용어에만 「근거:」 줄이 붙는다(source 없는 유찰 · match 압류재산에는 없다).
+  const sources = page.locator("#glossary-list .glossary-source");
+  await expect(sources).toHaveCount(1);
+  await expect(sources).toContainText("근거: 온비드 FAQ");
   await expect(titles.nth(0)).toContainText("압류재산 · 매각");
   await expect(titles.nth(0)).toContainText("기본 용어");
   await expect(titles.nth(1)).toContainText("공고 표기에 나온 용어");

@@ -1333,6 +1333,28 @@ def test_glossary() -> None:
     # 음성 — 머리표가 없는 글은 손대지 않는다.
     plain = next(e["meaning"] for e in entries if e["term"] == "유찰")
     check("B6 머리표 없는 글은 원문 그대로", plain == str(server.ONBID_GUIDE_TERMS["유찰"]["text"]), "")
+    # 처분방식 낱말 하나씩 — 「임대」·「대부」·「매각」·「공매」 어느 표기로 읽혀도 같은 조각을 고른다(돌연변이 분모 대조).
+    due_for = lambda a, d: next(e["meaning"] for e in server.build_glossary(a, d, "") if e["term"] == "대금납부기한")  # noqa: E731
+    check("B6 머리표 국유 「임대」 표기", "5영업일" in due_for("국유재산", "임대") and "60일" not in due_for("국유재산", "임대"), "")
+    check("B6 머리표 국유 「대부」 표기", "5영업일" in due_for("국유재산", "대부") and "60일" not in due_for("국유재산", "대부"), "")
+    check("B6 머리표 국유 「매각」 표기", "60일" in due_for("국유재산", "매각") and "5영업일" not in due_for("국유재산", "매각"), "")
+    check("B6 머리표 국유 「공매」 표기", "60일" in due_for("국유재산", "공매") and "5영업일" not in due_for("국유재산", "공매"), "")
+    check("B6 머리표 국유 처분방식 미상이면 매각·대부 둘 다", "60일" in due_for("국유재산", "처분방식 확인") and "5영업일" in due_for("국유재산", "처분방식 확인"), "")
+    trust = {e["term"]: e["meaning"] for e in server.build_glossary("수탁재산", "매각", "") if e["group"] == "basic"}
+    check("B6 머리표 수탁 조각(소유권이전)", "위임기관" in trust["소유권이전"] and "캠코" not in trust["소유권이전"], trust["소유권이전"][:80])
+    etc_sale = {e["term"]: e["meaning"] for e in server.build_glossary("기타일반재산", "매각", "") if e["group"] == "basic"}
+    check("B6 머리표 기타일반 조각(보증금 귀속)", "이용기관이 정합니다" in etc_sale["보증금 귀속"] and "국고" not in etc_sale["보증금 귀속"], etc_sale["보증금 귀속"][:80])
+    # 머리표 정규식 직접 호출 — 대괄호 머리표만 자르고, 소괄호·꺾쇠는 머리표가 아니다.
+    cut = server._guide_text_for("머리. [압류재산] 가. [국유재산] 나.", "압류재산", "매각")
+    check("B6 머리표 함수 직접 호출", cut == "머리. 가.", cut)
+    not_cut = server._guide_text_for("머리. (압류재산) 가. (국유재산) 나.", "압류재산", "매각")
+    check("B6 음성 소괄호는 머리표가 아니다", not_cut == "머리. (압류재산) 가. (국유재산) 나.", not_cut)
+    one_head = server._guide_text_for("[압류재산] 가.", "국유재산", "매각")
+    check("B6 음성 머리표 하나뿐이고 안 맞으면 원문 그대로", one_head == "[압류재산] 가.", one_head)
+    one_head_hit = server._guide_text_for("[압류재산] 가.", "압류재산", "매각")
+    check("B6 머리표 하나뿐이어도 맞으면 자른다", one_head_hit == "가.", one_head_hit)
+    no_type = server._guide_text_for("[압류재산] 가. [국유재산] 나.", "", "")
+    check("B6 음성 재산유형이 비면 원문 그대로", no_type == "[압류재산] 가. [국유재산] 나.", no_type)
 
     # 음성 대조: 용어 안내는 «뜻»만 적는다. 처분방식 사이의 금액·보증금 비교를 담으면
     # 임대(사용료)와 매각(매매대금)의 금액 규모를 같게 오해시킨다.

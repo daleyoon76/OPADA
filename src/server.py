@@ -3189,9 +3189,10 @@ def _guide_text_for(text: str, asset_type: str, disposition_label: str) -> str:
     heads = parts[1::2]
     bodies = [body.strip() for body in parts[2::2]]
     asset_type = asset_type or ""
-    disposition_label = disposition_label or ""
-    is_lease = bool(re.search(r"임대|대부", disposition_label)) and not re.search(r"매각|공매", disposition_label)
-    is_sale = bool(re.search(r"매각|공매", disposition_label))
+    # 매각·임대 판정은 _notice_scopes 와 한 곳에서만 한다(둘이 갈리면 용어 선택과 머리표 선택이 어긋난다).
+    scopes = _notice_scopes(asset_type, disposition_label)
+    is_lease = "lease" in scopes
+    is_sale = "sale" in scopes
     # exact 는 머리표와 글자까지 같아야 하고, prefix 는 머리표가 그 낱말로 시작하면 된다(「수탁·유입재산」 · 「이용기관 물건」).
     exact: list[str] = []
     prefix: list[str] = []
