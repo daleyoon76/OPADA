@@ -1257,3 +1257,38 @@ test("E2E design S2 보강 — 대리입찰 서류에 \"인감증명서 또는 �
   await expect(checklist).toContainText("입찰자의 인감증명서 또는 본인서명사실확인서");
   await expect(checklist).toContainText("인감증명서가 없으면 본인서명사실확인서로 대신할 수 있습니다");
 });
+
+// 시나리오 3 — 공동입찰(압류재산, 온비드 등록 예외)(신규). 근거: 압류재산 공매공고문
+// 「16. 주의사항」 자항 ③호 단서 — "다만, 인터넷 공매의 경우에는 공동입찰신청을 온비드
+// 등록으로 대신할 수 있습니다". 이 예외를 빼면 사용자가 하지 않아도 되는 우편·방문 제출을
+// 하게 된다(researcher-fact-check 사실 1).
+test("E2E design S3 — 압류재산 공동입찰에 온비드 등록 대체 예외 문구가 뜬다 (공매공고문 16. 주의사항 자항 ③호 단서)", async ({ page }) => {
+  await analyzeWith(page, jointAndProxyNotice());
+  await page.locator("#prepare").click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+
+  await checklist.locator('button[data-doc-condition="joint"][data-doc-condition-value="yes"]').click();
+  await expect(checklist).toContainText("공동입찰서류 원문 항목");
+  await expect(checklist).toContainText(
+    "압류재산 공매는 인터넷 공매이므로, 공동입찰신청을 온비드 등록으로 대신할 수 있습니다",
+  );
+});
+
+// 시나리오 3 음성 대조 — 국유재산 공고문은 이 단서가 없고 "전자서명방식 또는 서류제출방식
+// 중 선택"을 제시한다(researcher-fact-check 사실 3). 재산유형을 조건으로 가르지 않으면
+// 압류재산 전용 예외가 국유재산 화면에도 새어 나갈 수 있다 — 이 테스트는 그 새어 나감을
+// 잡는 음성 대조다.
+test("E2E design S3 음성 대조 — 국유재산 공동입찰에는 압류재산 전용 온비드 등록 예외 문구가 뜨지 않는다", async ({ page }) => {
+  const notice = jointAndProxyNotice();
+  notice.assetType = "국유재산";
+  await analyzeWith(page, notice);
+  await page.locator("#prepare").click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+
+  await checklist.locator('button[data-doc-condition="joint"][data-doc-condition-value="yes"]').click();
+  await expect(checklist).not.toContainText(
+    "압류재산 공매는 인터넷 공매이므로, 공동입찰신청을 온비드 등록으로 대신할 수 있습니다",
+  );
+});

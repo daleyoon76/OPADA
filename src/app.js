@@ -731,7 +731,11 @@ const DOC_CONDITION_SUPPLEMENT = {
       // 경우에는 공동입찰신청을 온비드 등록으로 대신할 수 있습니다」. 같은 공고문 「1. 입찰방법
       // 가」항이 압류재산 공매를 인터넷 공매로 명시하므로, 이 단서를 빼면 하지 않아도 되는 직접
       // 제출을 하라고 안내하게 된다(2026-10-18 researcher-fact-check 사실 1).
+      // 🔴 이 단서는 압류재산 전용이다 — 국유재산 대부입찰 공고문(researcher-fact-check 사실 3)
+      // 은 이 단서가 없고 "전자서명 방식 또는 서류제출 방식 중 선택"을 제시한다. 재산유형을
+      // 가르지 않으면 압류재산 전용 문구가 국유재산 화면에도 새어 나간다(2026-10-19 E2E S3).
       note: "압류재산 공매는 인터넷 공매이므로, 공동입찰신청을 온비드 등록으로 대신할 수 있습니다(압류재산 공매공고문 「16. 주의사항」 자항 ③호 단서). 서류를 직접 제출하기 전에 공고 원문의 해당 조항을 먼저 확인하십시오.",
+      noteAssetTypes: ["압류재산"],
     },
     {
       name: "공동매수신청인 전원의 인감증명서 또는 본인서명사실확인서",
@@ -761,7 +765,12 @@ const DOC_CONDITION_SUPPLEMENT = {
 const DOC_SUPPLEMENT_EVIDENCE =
   "이 공고 원문에서 추출한 문장이 아니라, 공동입찰·대리입찰 시 온비드 공매에서 통상 요구하는 서류에 대한 일반 안내입니다. 실제 필요 여부와 서식은 공고 원문과 담당기관 기준으로 다시 확인하십시오.";
 
-function buildDocConditionSupplementItem(base, conditionLabel) {
+function buildDocConditionSupplementItem(base, conditionLabel, assetType) {
+  // noteAssetTypes 가 있으면 그 재산유형에서만 note 를 붙인다 — 특정 재산유형의 공고문
+  // 조항을 근거로 한 note 는 다른 재산유형에 그대로 옮기면 틀린 안내가 된다(위 joint[0] 참조).
+  const noteApplies =
+    !base.noteAssetTypes || base.noteAssetTypes.some((type) => String(assetType || "").includes(type));
+  const note = noteApplies ? base.note : "";
   return {
     name: base.name,
     conditions: [conditionLabel],
@@ -775,7 +784,7 @@ function buildDocConditionSupplementItem(base, conditionLabel) {
     howto: base.howto,
     howtoUrl: base.howtoUrl,
     sourceSection: "",
-    evidence: base.note ? `${base.note} ${DOC_SUPPLEMENT_EVIDENCE}` : DOC_SUPPLEMENT_EVIDENCE,
+    evidence: note ? `${note} ${DOC_SUPPLEMENT_EVIDENCE}` : DOC_SUPPLEMENT_EVIDENCE,
   };
 }
 
@@ -932,13 +941,13 @@ function getVisibleDocGroups() {
   if (answers.joint === "yes") {
     const items = DOC_CONDITION_SUPPLEMENT.joint
       .filter((base) => !existingNames.has(base.name))
-      .map((base) => buildDocConditionSupplementItem(base, "공동입찰"));
+      .map((base) => buildDocConditionSupplementItem(base, "공동입찰", sampleNotice.assetType));
     if (items.length) supplementGroups.push({ condition: "공동입찰 추가 안내", items });
   }
   if (answers.proxy === "yes") {
     const items = DOC_CONDITION_SUPPLEMENT.proxy
       .filter((base) => !existingNames.has(base.name))
-      .map((base) => buildDocConditionSupplementItem(base, "대리입찰"));
+      .map((base) => buildDocConditionSupplementItem(base, "대리입찰", sampleNotice.assetType));
     if (items.length) supplementGroups.push({ condition: "대리입찰 추가 안내", items });
   }
   // 낙찰 후 일반 안내는 조건(공동·대리) 답과 무관하게 항상 붙인다 — 재산유형·입찰 방식과
