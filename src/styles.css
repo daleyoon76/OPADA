@@ -624,6 +624,13 @@ textarea {
   font-size: 12px;
 }
 
+/* 모델 답 아래에 붙는 온비드 용어 설명. 답과 섞여 읽히지 않게 선으로 나눈다. */
+.coach-ask-answer > p + .coach-ask-reference {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 /* 질문-답변 온보딩(질문 A) — visual-audit §⑶. 새 카드를 만들지 않고 기존 .coach-ask-card
    안에 올려 상단 블록으로 쓴다. */
 .coach-experience-question p {

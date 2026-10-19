@@ -167,6 +167,14 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "D3",
+        "질문 답변의 온비드 용어 근거",
+        "사전 용어·출처 · 띄어쓰기 · 질문 속 순서 · 2글자 사전 용어 제외 · 겹침 · 상한 · 프롬프트 탑재·schema general · "
+        "모델 none·미연결에도 references 배선 · 절차 용어 금지표현",
+        "minLength 무시 · 겹침 검사 삭제 · 프롬프트 키 삭제 · references 줄 삭제",
+        "Y",
+    ),
+    (
         "D2",
         "Vertex 429 재시도",
         "429 1회 후 성공 · 429 연속이면 포기 · 500 은 즉시 포기 · 질문·코치 호출부 배선",
@@ -1939,6 +1947,88 @@ def _with_fake_vertex(codes: list[int], action):
     return result, len(calls), sleeps
 
 
+FORBIDDEN_SCREEN_PHRASES = (
+    "자동 입찰", "입찰 대행", "낙찰 가능성 예측", "투자수익률 판단", "법률 자문", "권리분석 대체",
+    "PDF 리포트", "Q&A", "공고 해석 리포트", "Vertex AI", "Gemini AI", "Local MVP", "로컬 분석 API", "완전 자동",
+)
+
+
+def test_onbid_references() -> None:
+    find = server.find_onbid_references
+    terms = lambda question: [ref["term"] for ref in find(question)]  # noqa: E731
+    got = find("감정가격이 뭐야?")
+    check("D3 사전 용어를 찾아 설명과 출처를 붙인다",
+          len(got) == 1 and got[0]["term"] == "감정가격" and got[0]["source"] == "온비드 자료실 용어사전" and got[0]["text"],
+          str(got))
+    check("D3 띄어쓰기를 무시한다", terms("감정 가격 은요") == ["감정가격"], str(terms("감정 가격 은요")))
+    # 짧은 용어를 앞에 둔다. 찾기는 긴 이름부터 하므로, 순서 정렬을 지우면 이 질문에서 뒤집힌다.
+    check("D3 질문 속 순서대로 싣는다", terms("감정가격이랑 개별공시지가 차이") == ["감정가격", "개별공시지가"],
+          str(terms("감정가격이랑 개별공시지가 차이")))
+    # 음성: TERM_GLOSSARY 에 「임대」가 있지만 2글자 사전 용어는 찾지 않는다.
+    check("D3 2글자 사전 용어는 찾지 않는다", "임대" in server.TERM_GLOSSARY and terms("임대료는 언제 내나요?") == [],
+          str(terms("임대료는 언제 내나요?")))
+    check("D3 용어가 없으면 빈 목록", terms("이제 뭘 해야 하나요?") == [] and find("") == [] and find(None) == [])
+    check("D3 긴 이름과 겹치는 짧은 이름은 버린다",
+          "개발이익" in server.ONBID_GLOSSARY_TERMS and terms("개발이익환수제가 뭐야") == ["개발이익환수제"],
+          str(terms("개발이익환수제가 뭐야")))
+    check("D3 한 질문에 3건까지만", len(find("감정가격 개별공시지가 개발부담금 감가상각률")) == 3)
+
+    # 온비드 이용안내·FAQ·준수규칙에서 옮긴 절차 용어(ONBID_GUIDE_TERMS). 2026-10-19 동원님이 「매각결정기일이 뭐지?」에
+    # 「담당기관 문의 필요」가 뜬 화면을 보고 지시한 자리다.
+    got = find("매각결정기일이 뭐지?")
+    check("D3 절차 용어: 매각결정기일을 온비드 FAQ 출처로 찾는다",
+          [ref["term"] for ref in got] == ["매각결정기일"] and "매각결정기일" in got[0]["source"]
+          and "개찰일로부터 7일 이내" in got[0]["text"], str(got))
+    check("D3 절차 용어도 띄어쓰기를 무시한다", terms("매각 결정 기일은 언제야") == ["매각결정기일"])
+    check("D3 절차 용어는 2글자도 찾는다", terms("유찰되면 어떻게 돼?") == ["유찰"], str(terms("유찰되면 어떻게 돼?")))
+    check("D3 별칭으로 찾는다(질문창 예시 문장)", terms("잔금은 언제까지 내야 하나요?") == ["대금납부기한"],
+          str(terms("잔금은 언제까지 내야 하나요?")))
+    # 음성: 사전의 「공유자우선매수」는 법원 경매 기준이라 온비드 공매 절차 설명과 같이 내지 않는다.
+    check("D3 절차 용어 별칭과 같은 사전 용어는 싣지 않는다",
+          "공유자우선매수" in server.ONBID_GLOSSARY_TERMS and terms("공유자우선매수가 뭐야") == ["우선매수 신청"],
+          str(terms("공유자우선매수가 뭐야")))
+    check("D3 긴 절차 용어 안의 짧은 절차 용어는 버린다", terms("적정최고가입찰이 뭐야") == ["적정최고가입찰"],
+          str(terms("적정최고가입찰이 뭐야")))
+    check("D3 공고 질문에는 용어 설명을 붙이지 않는다", terms("이 공고 입찰 마감이 언제야?") == [],
+          str(terms("이 공고 입찰 마감이 언제야?")))
+    scopes = {item.get("scope") for item in server.ONBID_GUIDE_TERMS.values()}
+    check("D3 절차 용어의 scope 는 합의한 여섯 값 안에 있다",
+          scopes <= {"common", "sale", "lease", "압류재산", "국유재산", "수탁재산"} and None not in scopes, str(scopes))
+
+    prompt = server.question_prompt({"title": "공고"}, [], "감정가격이 뭐야?", {})
+    check("D3 프롬프트에 onbidReference 가 실린다",
+          [ref["term"] for ref in prompt.get("onbidReference", [])] == ["감정가격"], str(prompt.get("onbidReference")))
+    check("D3 schema 가 general 을 허용한다", "general" in prompt["schema"]["answerType"], prompt["schema"]["answerType"])
+    check("D3 지시가 onbidReference 를 근거로 답하라고 한다",
+          "onbidReference" in prompt["instruction"] and "none 으로 답하지 않고" in prompt["instruction"])
+
+    # 배선 — 모델이 none 으로 답하거나 연결되지 않아도 references 가 결과에 실린다.
+    original = (server.vertex_answer_question, server.gemini_answer_question)
+    none_answer = {"answerable": False, "answerType": "none", "answer": "", "sourceField": ""}
+    try:
+        server.vertex_answer_question = lambda n, d, q, b=None: dict(none_answer)
+        server.gemini_answer_question = lambda n, d, q, b=None: None
+        declined = server.answer_notice_question({}, [], "감정가격이 뭐야?", {})
+        server.vertex_answer_question = lambda n, d, q, b=None: None
+        offline = server.answer_notice_question({}, [], "감정가격이 뭐야?", {})
+        plain = server.answer_notice_question({}, [], "이제 뭘 해야 하나요?", {})
+    finally:
+        server.vertex_answer_question, server.gemini_answer_question = original
+    check("D3 배선: 모델이 none 이어도 references 가 실린다",
+          declined["connected"] is True and declined["answerable"] is False
+          and [ref["term"] for ref in declined.get("references", [])] == ["감정가격"], str(declined))
+    check("D3 배선: 모델 미연결이어도 references 가 실린다",
+          offline["connected"] is False and [ref["term"] for ref in offline.get("references", [])] == ["감정가격"],
+          str(offline))
+    check("D3 배선: 용어가 없으면 references 는 빈 목록", plain.get("references") == [], str(plain.get("references")))
+
+    bad = [(term, phrase) for term, item in server.ONBID_GUIDE_TERMS.items()
+           for phrase in FORBIDDEN_SCREEN_PHRASES if phrase in f"{item.get('text', '')} {item.get('source', '')}"]
+    check("D3 절차 용어 설명·출처에 금지표현이 없다", not bad, str(bad))
+    empty = [term for term, item in server.ONBID_GUIDE_TERMS.items() if not item.get("text") or not item.get("source")]
+    check("D3 절차 용어마다 설명과 출처가 있다", not empty, str(empty))
+
+
 def test_vertex_429_retry() -> None:
     import urllib.error
     req = lambda: server.vertex_read(server.urllib.request.Request("https://example.invalid", data=b"{}"), 5)  # noqa: E731
@@ -2131,6 +2221,7 @@ def main() -> int:
         test_item_detail_uncertain_flag,
         test_asset_type_notice_detail,
         test_question_board_state,
+        test_onbid_references,
         test_vertex_429_retry,
         test_api_doc_terms_flag_filter,
         test_api_unusable_term_value,

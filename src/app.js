@@ -1603,14 +1603,43 @@ function renderBoardCoach(coach) {
   </section>`;
 }
 
+// 서버(find_onbid_references)가 질문에서 찾은 온비드 용어 설명이다. 모델 답과 따로 온다 — 모델이
+// 답하지 못했거나 연결되지 않았어도 이 설명은 보여 준다(2026-10-19 동원님 지시: 온비드 사이트·가이드에
+// 있는 용어 설명은 반드시 한다). 문장은 서버 상수에서 오고 모델이 만든 것이 아니다.
+// 모델이 답했으면 그 답이 이 설명을 풀어 쓴 것이라 같은 글이 두 번 보인다. 그때는 접어 둔다(collapsed).
+function renderOnbidReferences(references, collapsed = false) {
+  if (!Array.isArray(references) || !references.length) return "";
+  const items = references
+    .map(
+      (ref) => `<p><strong>${ref.term}</strong> ${ref.text}</p>
+      <p class="small-text">출처: ${ref.source}</p>`,
+    )
+    .join("");
+  if (collapsed) {
+    return `<details class="coach-ask-reference">
+      <summary>온비드 안내 기준 용어 설명 (${references.length})</summary>
+      ${items}
+    </details>`;
+  }
+  return `<div class="coach-ask-reference">
+      ${badge("온비드 안내 기준 용어 설명", "safe")}
+      ${items}
+    </div>`;
+}
+
 function renderQuestionAnswer(answer) {
+  const referencesHtml = renderOnbidReferences(answer?.references);
   if (!answer?.connected) {
+    if (referencesHtml) return `<div class="coach-ask-answer">${referencesHtml}</div>`;
     return `<div class="coach-ask-answer">
       ${badge("AI 연결 안 됨", "warn")}
       <p>이 질문에는 지금 자동으로 답할 수 없습니다. 담당기관에 문의하세요.</p>
     </div>`;
   }
   if (answer.answerable && answer.answer) {
+    // 제도·용어 질문(general)에 온비드 설명이 있으면 모델이 풀어 쓴 답 대신 온비드 문장을 그대로 보인다.
+    // 모델은 「text 에 없는 사실은 덧붙이지 않는다」는 지시를 받고도 덧붙였다(2026-10-19 「유찰」 실측).
+    if (answer.answerType === "general" && referencesHtml) return `<div class="coach-ask-answer">${referencesHtml}</div>`;
     const badgeLabel =
       answer.answerType === "board"
         ? "준비 보드 기반 안내"
@@ -1620,8 +1649,10 @@ function renderQuestionAnswer(answer) {
     return `<div class="coach-ask-answer">
       ${badge(badgeLabel, "safe")}
       <p>${answer.answer}</p>
+      ${renderOnbidReferences(answer.references, true)}
     </div>`;
   }
+  if (referencesHtml) return `<div class="coach-ask-answer">${referencesHtml}</div>`;
   return `<div class="coach-ask-answer">
     ${badge("담당기관 문의 필요", "warn")}
     <p>이 질문은 공고 원문만으로 답하기 어렵습니다. 담당기관에 문의하세요.</p>
