@@ -440,8 +440,6 @@ SENTENCE_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
             r"입찰\s*(?:시\s*)?무효|입찰\s*참가\s*불승인"
             r"|입찰.{0,10}(?:마감|기간).{0,15}(?:까지|중)"
             r"|가격\s*개찰.{0,20}이전"
-            # 「사전확인 후 응찰하시기 바랍니다」(국유재산 공고 9-라 · 표본 07·08) — 응찰 전에 갖출 요건이다.
-            r"|사전\s*확인\s*후\s*(?:응찰|입찰)"
         ),
         "입찰 전",
     ),
@@ -474,6 +472,9 @@ INHERIT_ITEM_MAX_CHARS = 100
 
 # 목록 항목으로 볼 때 번호 뒤에서 첫 서류명까지 허용하는 거리(글자). 「1). 주민등록등본」은 0~1자다.
 ITEM_NAME_OFFSET_MAX = 8
+
+
+PREBID_WORD_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전")
 
 
 def can_inherit_outer_heading(line: str) -> bool:
@@ -556,6 +557,9 @@ def governing_heading(text: str, pos: int, carried_heading: str, section_start: 
 PARAGRAPH_START_RE = re.compile(r"\n\s*(?:[※\-‐–▪·○ㅇ①-⑮■◆]|\(\d+\)|\d+\s*[.)]|[가-하]\s*\.)")
 
 
+PREBID_CONFLICT_RE = re.compile(r"사전\s*확인\s*후\s*(?:응찰|입찰)")
+
+
 def same_clause_has_prebid_phrase(text: str, start: int, end: int, section_bounds: tuple[int, int]) -> bool:
     """서류명이 든 문장(다음 문단 머리 전까지)과 그 앞 창에 입찰 전 결정 문구가 있는가.
 
@@ -567,7 +571,7 @@ def same_clause_has_prebid_phrase(text: str, start: int, end: int, section_bound
     next_paragraph = PARAGRAPH_START_RE.search(text, end, hi)
     if next_paragraph:
         hi = next_paragraph.start()
-    return any(pattern.search(text, lo, hi) for pattern, stage in SENTENCE_STAGE_RULES if stage == "입찰 전")
+    return bool(PREBID_CONFLICT_RE.search(text, lo, hi)) or any(pattern.search(text, lo, hi) for pattern, stage in SENTENCE_STAGE_RULES if stage == "입찰 전")
 
 
 def doc_stage_at(
@@ -828,6 +832,12 @@ def extract_doc_items(
                 # 물려받으면 쪽 전체가 낙찰 후로 끌려간다(리뷰 r1 T5). 그 밖은 옛 동작(그 줄 자체가 표제)이다.
                 if can_inherit_outer_heading(line):
                     current_heading = stage_heading_from_stack(heading_stack)
+                    if (
+                        current_heading != line
+                        and resolve_doc_stage(current_heading, "") == "낙찰 후·계약 시"
+                        and PREBID_WORD_RE.search(line)
+                    ):
+                        current_heading = line
                 else:
                     current_heading = line
             elif not find_doc_name_spans(line) and any(pattern.search(line) for pattern, _ in SENTENCE_STAGE_RULES):
