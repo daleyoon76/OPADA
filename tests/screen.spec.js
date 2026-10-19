@@ -847,6 +847,10 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   const documents = page.locator('[data-task-id="documents"]');
   const price = page.locator('[data-task-id="price"]');
 
+  // 배치: 단계 표시·진행률은 할 일 목록 바로 아래, AI 코치 카드는 보드 맨 아래다(2026-10-19 동원님 지시).
+  await expect(page.locator(".task-panel > #task-list + #board-status")).toHaveCount(1);
+  await expect(page.locator("#view-report > .panel > #board-coach:last-child")).toHaveCount(1);
+
   // 도달: 1단계는 열려 있고 2·3단계는 잠겨 있다.
   await expect(noticeType).toBeEnabled();
   await expect(bidPeriod).toBeEnabled();
@@ -858,9 +862,15 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   // 눌러서 미리 볼 수 있는 길만 남겨 두므로, 먼저 단계 헤딩을 눌러 펼친다.
   const documentsCard = documents.locator("xpath=ancestor::article[contains(@class,'task-item')]");
   await documentsCard.locator("xpath=ancestor::details[contains(@class,'stage-group')]").locator("> summary").click();
-  // 펼친 뒤에는 "자세히"·원문 링크·문의 문구가 항상 보인다(ux-audit §⑴).
-  await expect(documentsCard.locator("details summary", { hasText: "자세히" })).toBeVisible();
+  // 펼친 뒤에는 "자세히"·원문 값이 항상 보인다(ux-audit §⑴).
+  // 「자세히」 자체는 기본으로 접혀 있다(2026-10-19 · 텍스트가 너무 많다는 지적). 원문 링크는
+  // 그 안에 있으므로 한 번 눌러 펼쳐야 보인다.
+  const documentsDetail = documentsCard.locator("details.task-detail");
+  await expect(documentsDetail.locator("> summary")).toBeVisible();
+  expect(await documentsDetail.evaluate((el) => el.open)).toBe(false);
+  await expect(documentsCard.locator("a", { hasText: "온비드 원문" })).toBeHidden();
   await expect(documentsCard.locator(".task-action-value")).toBeVisible();
+  await documentsDetail.locator("> summary").click();
   await expect(documentsCard.locator("a", { hasText: "온비드 원문" })).toBeVisible();
 
   // 1단계를 모두 체크하면 2단계(문서)만 열리고 3단계(가격)는 그대로 잠긴다.
@@ -879,6 +889,18 @@ test("준비 단계 — 1단계를 모두 체크해야 2단계 체크박스가 �
   await expect(documents).toBeDisabled();
   await expect(documents).toBeChecked();
   await expect(page.locator(".stage-group-heading.is-locked")).toHaveCount(2);
+
+  // 「안내 수준」 버튼은 「자세히」를 모두 펼치고 다시 접는다. 완료된 카드(bid-period·documents)는
+  // 펼치지 않는다. 버튼은 경험 수준 질문에 답한 뒤에만 보인다.
+  const detailOpen = (taskId) =>
+    page.locator(`article.task-item:has([data-task-id="${taskId}"]) details.task-detail`).evaluate((el) => el.open);
+  await page.locator("[data-experience-skip]").click();
+  expect(await detailOpen("notice-type")).toBe(false);
+  await page.locator("[data-experience-toggle]").click();
+  expect(await detailOpen("notice-type")).toBe(true);
+  expect(await detailOpen("documents")).toBe(false);
+  await page.locator("[data-experience-toggle]").click();
+  expect(await detailOpen("notice-type")).toBe(false);
 });
 
 test("준비 단계 — 잠긴 task의 data-task-id로 change 이벤트를 직접 보내도 체크 상태가 바뀌지 않는다", async ({ page }) => {

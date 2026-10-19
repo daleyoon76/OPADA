@@ -922,7 +922,7 @@ a:hover {
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
-  margin-bottom: 18px;
+  margin-top: 18px;
 }
 
 .status-card {
@@ -1914,7 +1914,7 @@ a:hover {
 
   .board-status {
     gap: 8px;
-    margin-bottom: 12px;
+    margin-top: 12px;
   }
 
   .status-card {

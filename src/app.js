@@ -436,6 +436,10 @@ const wizardSteps = ["profile", "url", "result", "transition"];
 // 기본값(닫힘)으로 돌아간다. 사용자가 연속으로 여러 서류를 체크할 수 있도록 이 상태를
 // 따로 기억해뒀다가 다시 그릴 때 반영한다.
 let docChecklistOpen = false;
+// 할 일 카드의 「자세히」를 모두 펼쳐 둘지다. 기본은 접힘이다 — 펼쳐 두면 카드마다 문의 문장·
+// 상세 설명·근거가 쏟아져 화면이 정신없다(2026-10-19 동원님 지시). 「안내 수준」 버튼이 이 값만
+// 뒤집는다. 저장하지 않으므로 새로 열면 다시 접힌 상태다.
+let guideDetailed = false;
 const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
@@ -2468,9 +2472,9 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
   const isFoundValue = task.action && task.action !== NOTICE_VALUE_FALLBACK;
   const done = taskSummary.state[task.id];
   const dueTone = done ? "safe" : task.due === NOTICE_VALUE_FALLBACK ? "neutral" : "warn";
-  // 완료된 단계는 자세히 블록만 기본 닫힘(visual-audit §⑵). 그 외에는 경험 수준 질문 A의
-  // 응답에 따라 "처음이에요"면 기본 열림, "몇 번 해봤어요"면 기본 닫힘 — 표시 전환만이다.
-  const detailsOpen = !done && isExperienceBeginner();
+  // 자세히 블록은 기본 닫힘이다. 「안내 수준」 버튼으로 펼쳐도 완료된 카드는 닫아 둔다(visual-audit §⑵).
+  // 경험 수준 질문 A의 응답과는 묶지 않는다 — 「처음이에요」여도 기본은 접힘이다(2026-10-19).
+  const detailsOpen = !done && guideDetailed;
   const stageNum = getTaskStageNum(task.id);
   const lockMsgId = stageNum !== null ? `stage-lock-msg-${stageNum}` : "";
   return `<article class="task-item ${done ? "is-done" : ""} ${aiMatch ? "has-ai-nudge" : ""}">
@@ -2512,7 +2516,7 @@ function renderTaskItem(task, taskSummary, aiAssignments, fit, docChecklistHtml,
         </details>`
             : ""
         }
-        <details ${detailsOpen ? "open" : ""}>
+        <details class="task-detail" ${detailsOpen ? "open" : ""}>
           <summary>자세히</summary>
           <dl class="detail-grid">
             ${aiMatch?.check?.reason ? `<dt>${aiMatch.check.title}</dt><dd>${aiMatch.check.reason}</dd>` : ""}
@@ -3179,7 +3183,7 @@ function init() {
       return;
     }
     if (event.target.closest("[data-experience-toggle]")) {
-      setExperienceLevel(isExperienceBeginner() ? "experienced" : "beginner");
+      guideDetailed = !guideDetailed;
       renderReport();
       return;
     }
