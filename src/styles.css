@@ -625,7 +625,7 @@ textarea {
 }
 
 /* 모델 답 아래에 붙는 온비드 용어 설명. 답과 섞여 읽히지 않게 선으로 나눈다. */
-.coach-ask-answer > p + .coach-ask-reference {
+.coach-ask-answer > p:not(.coach-ask-note) + .coach-ask-reference {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--line);

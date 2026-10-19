@@ -3023,23 +3023,40 @@ def onbid_reference_entries() -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
     for term, item in ONBID_GUIDE_TERMS.items():
         names = (term, *item.get("aliases", ()))
-        entries.append({"term": term, "names": names, "text": item["text"], "source": item["source"], "minLength": 1})
+        entries.append({
+            "term": term, "names": names, "text": item["text"], "source": item["source"],
+            "scope": item.get("scope", ""), "minLength": 1,
+        })
     for term, meaning in TERM_GLOSSARY.items():
         # TERM_GLOSSARY 의 처음 9건은 캠코 회의(2026-09-07)에서 받은 설명이고 나머지는 온비드 용어사전이다.
         source = "온비드 자료실 용어사전" if term in ONBID_GLOSSARY_TERMS else "온비드 운영기관(캠코) 안내"
-        entries.append({"term": term, "names": (term,), "text": meaning, "source": source, "minLength": 3})
+        entries.append({"term": term, "names": (term,), "text": meaning, "source": source, "scope": "", "minLength": 3})
     return entries
 
 
+def _word_starts(question: str) -> set[int]:
+    """낱말마다 앞 문장부호를 건너뛴 첫 글자가, 띄어쓰기를 지운 질문에서 몇 번째 글자인지 모은다."""
+    starts: set[int] = set()
+    offset = 0
+    for token in (question or "").split():
+        lead = re.match(r"[^\w]*", token).end()
+        if lead < len(token):
+            starts.add(offset + lead)
+        offset += len(token)
+    return starts
+
+
 def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> list[dict[str, str]]:
-    """질문에 나온 온비드 용어를 찾아 설명과 출처를 질문 속 순서대로 돌려준다.
+    """질문에 나온 온비드 용어를 찾아 설명·출처·scope 를 질문 속 순서대로 돌려준다.
 
     띄어쓰기를 지우고 비교하므로 「매각 결정 기일」도 찾는다. 긴 이름부터 보고, 이미 고른 이름과
     자리가 겹치는 짧은 이름은 버린다. 「매각결정기일」을 찾았으면 그 안의 「매각결정」은 따로 싣지 않는다.
+    겹치는 자리 말고 다른 자리에 또 나오면 그 자리를 쓴다.
     """
-    compact = re.sub(r"\s+", "", question or "")
+    compact = "".join((question or "").split())
     if not compact:
         return []
+    word_starts = _word_starts(question)
     candidates: list[tuple[str, dict[str, object]]] = []
     for entry in onbid_reference_entries():
         for name in entry["names"]:
@@ -3057,14 +3074,24 @@ def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> 
             break
         if any(item["term"] == entry["term"] for _start, item in found):
             continue
-        start = compact.find(key)
-        if start < 0:
+        span = None
+        for match in re.finditer(re.escape(key), compact):
+            start, end = match.start(), match.end()
+            # 2글자 이름은 낱말 첫머리에서만 받는다. 낱말 가운데(「설명도」의 「명도」)나 띄어쓰기를 건넌 자리
+            # (「공동 점유」의 「동점」)에서 잡으면 엉뚱한 설명이 붙는다(2026-10-19 리뷰 r1 P1-1).
+            if len(key) <= 2 and start not in word_starts:
+                continue
+            if any(start < t_end and t_start < end for t_start, t_end in taken):
+                continue
+            span = (start, end)
+            break
+        if span is None:
             continue
-        end = start + len(key)
-        if any(start < t_end and t_start < end for t_start, t_end in taken):
-            continue
-        taken.append((start, end))
-        found.append((start, {"term": str(entry["term"]), "text": str(entry["text"]), "source": str(entry["source"])}))
+        taken.append(span)
+        found.append((span[0], {
+            "term": str(entry["term"]), "text": str(entry["text"]), "source": str(entry["source"]),
+            "scope": str(entry["scope"]),
+        }))
     return [item for _start, item in sorted(found, key=lambda pair: pair[0])]
 
 

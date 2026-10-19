@@ -1991,6 +1991,24 @@ def test_onbid_references() -> None:
           str(terms("적정최고가입찰이 뭐야")))
     check("D3 공고 질문에는 용어 설명을 붙이지 않는다", terms("이 공고 입찰 마감이 언제야?") == [],
           str(terms("이 공고 입찰 마감이 언제야?")))
+    # 2글자 이름은 낱말 첫머리에서만 찾는다(리뷰 r1 P1-1). 음성은 낱말 가운데·띄어쓰기를 건넌 자리다.
+    for question in ("보증금 설명도 부탁해요", "공동 점유자가 있으면 어떻게 하나요?", "지명도 높은 기관인가요"):
+        check(f"D3 2글자 이름은 낱말 가운데서 찾지 않는다: {question}", terms(question) == [], str(terms(question)))
+    for question, expected in (("명도는 누가 해요?", ["명도책임"]), ("동점이면 어떻게 돼요?", ["무작위 추첨"]),
+                               ("(유찰) 뜻이 뭐예요", ["유찰"])):
+        check(f"D3 2글자 이름은 낱말 첫머리에서 찾는다: {question}", terms(question) == expected, str(terms(question)))
+    check("D3 같은 용어는 별칭이 여러 번 맞아도 한 번만 싣는다", terms("잔금이랑 중도금은 언제 내요?") == ["대금납부기한"],
+          str(terms("잔금이랑 중도금은 언제 내요?")))
+    check("D3 겹친 자리 뒤에 또 나오면 그 자리를 쓴다",
+          terms("매각결정기일 전에 매각결정이 취소되면?") == ["매각결정기일", "매각결정"],
+          str(terms("매각결정기일 전에 매각결정이 취소되면?")))
+    check("D3 references 에 scope 가 실린다(사전 용어는 빈 값)",
+          find("매각결정기일이 뭐지?")[0].get("scope") == "압류재산" and find("감정가격이 뭐야?")[0].get("scope") == "",
+          str([find("매각결정기일이 뭐지?")[0].get("scope"), find("감정가격이 뭐야?")[0].get("scope")]))
+    # 화면이 escape 없이 넣는다(renderOnbidReferences). 상수에 「<」·「&」가 들어오면 그대로 HTML 이 된다.
+    markup = [term for term, item in {**server.ONBID_GUIDE_TERMS, **{k: {"text": v} for k, v in server.TERM_GLOSSARY.items()}}.items()
+              if any(ch in f"{term}{item.get('text', '')}{item.get('source', '')}" for ch in "<&")]
+    check("D3 용어 설명 상수에 「<」·「&」가 없다", not markup, str(markup))
     scopes = {item.get("scope") for item in server.ONBID_GUIDE_TERMS.values()}
     check("D3 절차 용어의 scope 는 합의한 여섯 값 안에 있다",
           scopes <= {"common", "sale", "lease", "압류재산", "국유재산", "수탁재산"} and None not in scopes, str(scopes))

@@ -1607,13 +1607,22 @@ function renderBoardCoach(coach) {
 // 답하지 못했거나 연결되지 않았어도 이 설명은 보여 준다(2026-10-19 동원님 지시: 온비드 사이트·가이드에
 // 있는 용어 설명은 반드시 한다). 문장은 서버 상수에서 오고 모델이 만든 것이 아니다.
 // 모델이 답했으면 그 답이 이 설명을 풀어 쓴 것이라 같은 글이 두 번 보인다. 그때는 접어 둔다(collapsed).
+// 재산유형 전용 설명은 용어 옆에 그 사실을 붙인다. 압류재산 전용 15건 가운데 6건은 문장에 「압류」가 없다
+// (2026-10-19 리뷰 r1 P2-1). common·sale·lease 와 사전 용어(scope 빈 값)에는 붙이지 않는다.
+const ONBID_REFERENCE_SCOPE_TAGS = { 압류재산: "압류재산 기준", 국유재산: "국유재산 기준", 수탁재산: "수탁재산 기준" };
+// 모델이 답하지 않았는데 용어 설명만 보이면 질문에 답한 것처럼 읽힌다(리뷰 r1 P1-2).
+const ONBID_REFERENCE_DECLINED_NOTE = "이 질문에는 답하지 않았습니다. 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
+// 설명이 질문의 일부만 덮을 수 있다(「유찰되면 보증금은?」에는 유찰 뜻만 붙는다 · 리뷰 r1 P1-1).
+const ONBID_REFERENCE_PARTIAL_NOTE = "질문하신 내용 가운데 위 설명에 없는 것은 공고 원문이나 담당기관에서 확인하세요.";
+
 function renderOnbidReferences(references, collapsed = false) {
   if (!Array.isArray(references) || !references.length) return "";
   const items = references
-    .map(
-      (ref) => `<p><strong>${ref.term}</strong> ${ref.text}</p>
-      <p class="small-text">출처: ${ref.source}</p>`,
-    )
+    .map((ref) => {
+      const tag = ONBID_REFERENCE_SCOPE_TAGS[ref.scope];
+      return `<p><strong>${ref.term}</strong>${tag ? ` <span class="small-text">(${tag})</span>` : ""} ${ref.text}</p>
+      <p class="small-text">출처: ${ref.source}</p>`;
+    })
     .join("");
   if (collapsed) {
     return `<details class="coach-ask-reference">
@@ -1629,8 +1638,11 @@ function renderOnbidReferences(references, collapsed = false) {
 
 function renderQuestionAnswer(answer) {
   const referencesHtml = renderOnbidReferences(answer?.references);
+  const declinedHtml = referencesHtml
+    ? `<div class="coach-ask-answer"><p class="small-text coach-ask-note">${ONBID_REFERENCE_DECLINED_NOTE}</p>${referencesHtml}</div>`
+    : "";
   if (!answer?.connected) {
-    if (referencesHtml) return `<div class="coach-ask-answer">${referencesHtml}</div>`;
+    if (declinedHtml) return declinedHtml;
     return `<div class="coach-ask-answer">
       ${badge("AI 연결 안 됨", "warn")}
       <p>이 질문에는 지금 자동으로 답할 수 없습니다. 담당기관에 문의하세요.</p>
@@ -1639,7 +1651,9 @@ function renderQuestionAnswer(answer) {
   if (answer.answerable && answer.answer) {
     // 제도·용어 질문(general)에 온비드 설명이 있으면 모델이 풀어 쓴 답 대신 온비드 문장을 그대로 보인다.
     // 모델은 「text 에 없는 사실은 덧붙이지 않는다」는 지시를 받고도 덧붙였다(2026-10-19 「유찰」 실측).
-    if (answer.answerType === "general" && referencesHtml) return `<div class="coach-ask-answer">${referencesHtml}</div>`;
+    if (answer.answerType === "general" && referencesHtml) {
+      return `<div class="coach-ask-answer">${referencesHtml}<p class="small-text">${ONBID_REFERENCE_PARTIAL_NOTE}</p></div>`;
+    }
     const badgeLabel =
       answer.answerType === "board"
         ? "준비 보드 기반 안내"
@@ -1652,7 +1666,7 @@ function renderQuestionAnswer(answer) {
       ${renderOnbidReferences(answer.references, true)}
     </div>`;
   }
-  if (referencesHtml) return `<div class="coach-ask-answer">${referencesHtml}</div>`;
+  if (declinedHtml) return declinedHtml;
   return `<div class="coach-ask-answer">
     ${badge("담당기관 문의 필요", "warn")}
     <p>이 질문은 공고 원문만으로 답하기 어렵습니다. 담당기관에 문의하세요.</p>

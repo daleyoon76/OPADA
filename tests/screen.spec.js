@@ -916,28 +916,40 @@ test("AI 코치 질문 — 온비드 용어 설명이 오면 「담당기관 문
     await page.locator("#coach-question-input").fill("매각결정기일이 뭐지?");
     await page.locator("#board-coach [data-ask-question]").click();
   };
-  const ref = (text) => ({ term: "매각결정기일", text, source: "시험용 출처" });
+  const ref = (text, scope = "") => ({ term: "매각결정기일", text, source: "시험용 출처", scope });
+  const declinedNote = "이 질문에는 답하지 않았습니다. 질문에 나온 용어의 온비드 설명만 보여 드립니다.";
+  const partialNote = "질문하신 내용 가운데 위 설명에 없는 것은 공고 원문이나 담당기관에서 확인하세요.";
   const declined = { connected: true, answerable: false, answerType: "none", answer: "", sourceField: "" };
 
-  // 모델이 답하지 못해도(none) 설명이 있으면 그것을 보여 준다.
-  await askWith({ ...declined, references: [ref("설명 하나입니다.")] });
-  await expect(answerBox).toContainText("설명 하나입니다.");
-  await expect(answerBox).toContainText("출처: 시험용 출처");
+  // 모델이 답하지 못해도(none) 설명이 있으면 그것을 «보이게» 둔다. 답하지 않았다는 사실도 함께 적는다.
+  // 재산유형 전용 설명이면 용어 옆에 그 사실을 붙인다.
+  await askWith({ ...declined, references: [ref("설명 하나입니다.", "압류재산")] });
+  await expect(answerBox.getByText("설명 하나입니다.")).toBeVisible();
+  await expect(answerBox.getByText("출처: 시험용 출처")).toBeVisible();
+  await expect(answerBox.getByText("온비드 안내 기준 용어 설명")).toBeVisible();
+  await expect(answerBox.getByText(declinedNote)).toBeVisible();
+  await expect(answerBox.getByText("(압류재산 기준)")).toBeVisible();
   await expect(answerBox).not.toContainText("담당기관 문의 필요");
 
-  // AI 가 연결되지 않아도 같다.
-  await askWith({ ...declined, connected: false, references: [ref("설명 둘입니다.")] });
-  await expect(answerBox).toContainText("설명 둘입니다.");
+  // AI 가 연결되지 않아도 같다. scope 가 common 이면 꼬리표를 붙이지 않는다.
+  await askWith({ ...declined, connected: false, references: [ref("설명 둘입니다.", "common")] });
+  await expect(answerBox.getByText("설명 둘입니다.")).toBeVisible();
+  await expect(answerBox.getByText(declinedNote)).toBeVisible();
   await expect(answerBox).not.toContainText("AI 연결 안 됨");
+  await expect(answerBox).not.toContainText("기준)");
 
   // 제도·용어 질문(general)에 설명이 있으면 모델이 풀어 쓴 답 대신 온비드 설명을 그대로 보인다.
   await askWith({ connected: true, answerable: true, answerType: "general", answer: "모델이 풀어 쓴 답입니다.", sourceField: "시험용 출처", references: [ref("설명 넷입니다.")] });
-  await expect(answerBox).toContainText("설명 넷입니다.");
+  await expect(answerBox.getByText("설명 넷입니다.")).toBeVisible();
+  await expect(answerBox.getByText(partialNote)).toBeVisible();
   await expect(answerBox).not.toContainText("모델이 풀어 쓴 답입니다.");
+  await expect(answerBox).not.toContainText(declinedNote);
 
   // 공고 사실 답(notice)이면 답 아래에 설명을 «접어서» 붙인다 — 펼쳐 두면 글이 너무 길어진다.
   await askWith({ connected: true, answerable: true, answerType: "notice", answer: "모델 답 문장입니다.", sourceField: "bidDeadline", references: [ref("설명 셋입니다.")] });
-  await expect(answerBox).toContainText("모델 답 문장입니다.");
+  await expect(answerBox.getByText("모델 답 문장입니다.")).toBeVisible();
+  await expect(answerBox).not.toContainText(partialNote);
+  await expect(answerBox).not.toContainText(declinedNote);
   const folded = answerBox.locator(".coach-ask-answer > p + details.coach-ask-reference");
   await expect(folded).toHaveCount(1);
   expect(await folded.evaluate((el) => el.open)).toBe(false);
