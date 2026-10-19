@@ -1986,6 +1986,18 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
             }
         )
         ask_agency.append("입찰 전 보증금과 낙찰 후 납부금의 납부 방식·기한을 각각 확인할 수 있나요?")
+        # 매각 공고에도 현장·실물 확인 질문을 둔다. 임대 분기에만 있어서 차량·동산 매각(사진·기재와
+        # 실물이 다른 사례)에서는 코치가 아무 말도 하지 않았다(2026-10-19 커뮤니티 조사 1-5 · 4-2 B).
+        # 상태가 좋다·나쁘다는 판단은 쓰지 않는다. 확인 가능 여부를 묻는 문장까지만이다.
+        unresolved_checks.append(
+            {
+                "title": "현장·실물 상태를 확인할 수 있는지",
+                "reason": "사진과 기재 내용만으로는 실물 상태, 보관 장소, 낙찰 후 인수 방법이 드러나지 않을 수 있습니다.",
+                "action": "현장 확인 가능 시간과 인수 방법을 담당기관에 묻고, 공고 원문의 현황 기재와 대조합니다.",
+                "source": "물건 상세/담당기관",
+            }
+        )
+        ask_agency.append("현장이나 실물을 확인할 수 있는 시간과 방법, 낙찰 후 인수 절차를 확인할 수 있나요?")
     else:
         headline = "AI 누락 점검: 임대 후 실제 사용 조건"
         plain_summary = "대부료나 기간보다 실제 사용 가능 조건, 현장 상태, 추가 비용이 빠지기 쉽습니다."
@@ -3101,14 +3113,109 @@ def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> 
     return [item for _start, item in sorted(found, key=lambda pair: pair[0])]
 
 
-def build_glossary(*values: str) -> list[dict[str, str]]:
-    entries: list[dict[str, str]] = []
+
+# 절차 기본 용어 — 공고 표기에 그 낱말이 없어도 «이 공고 유형이면» 보여 주는 용어다.
+# TERM_GLOSSARY(표기 매칭 사전)와 따로 둔다. 그 사전은 「보증금」을 담지 않는다는 음성 대조(B6)가
+# 있고, 여기 뜻풀이는 입찰보증금·잔대금처럼 보증금을 직접 설명해야 하기 때문이다.
+# 근거는 온비드 이용안내 「입찰참가 안내」(G1) · 「낙찰절차 안내」(G2) · 입찰참가자 준수규칙(R1 압류 ·
+# R2 국유 · R3 수탁 · R4 이용기관) · 온비드 FAQ 문항 번호다. 정리본은
+# team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md 이고,
+# 커뮤니티 조사(docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1·1-3·1-4)에서
+# 초보자가 뜻을 물은 용어만 담았다. 1차 출처를 못 찾은 용어(배분요구종기·인도명령·공매재산명세서)는 넣지 않았다.
+# scope: common = 모든 공고 · sale = 매각/공매 · lease = 임대/대부 · 그 외는 재산유형 이름(부분 일치).
+PROCESS_TERMS: tuple[dict[str, str], ...] = (
+    {
+        "term": "최저입찰가격 (공매예정가격)",
+        "scope": "common",
+        "meaning": "이 회차에 입찰할 수 있는 가장 낮은 금액입니다. 감정평가금액과 다른 값일 수 있고, 회차가 여러 개인 공고는 회차마다 값이 다를 수 있습니다. 「비공개」로 표시되면 이용기관이 공개하지 않기로 한 것입니다.",
+    },
+    {
+        "term": "감정평가금액",
+        "scope": "common",
+        "meaning": "감정평가업자가 평가한 재산의 가격입니다. 최저입찰가격과는 다른 값이고, 둘이 어떤 관계인지는 공고마다 다르므로 공고 원문에서 확인합니다.",
+    },
+    {
+        "term": "입찰보증금",
+        "scope": "common",
+        "meaning": "입찰서를 제출한 뒤 발급되는 가상계좌에 입찰 마감 시각까지 내는 돈입니다. 계산 기준(최저입찰가격인지 내가 쓰는 입찰금액인지)과 비율은 재산유형과 공고마다 다릅니다. 기한 안에 내지 않으면 입찰이 무효가 됩니다. 낙찰되지 않으면 개찰 뒤 환급계좌로 돌려받습니다(이자 없음).",
+    },
+    {
+        "term": "개찰",
+        "scope": "common",
+        "meaning": "입찰 마감 뒤 공고기관이 입찰서를 열어 결과를 정하는 절차입니다. 「개찰일시」는 개찰을 시작하는 시각이고, 결과는 개찰이 끝난 뒤 온비드 입찰결과 화면에서 직접 확인합니다. 낙찰자가 누구인지는 공개되지 않습니다.",
+    },
+    {
+        "term": "유찰",
+        "scope": "common",
+        "meaning": "두 가지 뜻으로 쓰입니다. 내 입찰이 낙찰되지 않은 경우와, 유효한 입찰자가 입찰 성립 기준에 미치지 못해 물건 자체가 유찰된 경우입니다. 성립 기준(1인 이상인지 2인 이상인지)은 물건마다 다르고, 물건이 유찰되면 다음 회차로 넘어갈 수 있습니다.",
+    },
+    {
+        "term": "입찰참가자격",
+        "scope": "common",
+        "meaning": "공고가 정한 입찰 가능 조건입니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있습니다. 괄호 안 표기(사업자 등)가 있으면 그 뜻은 참가자격 조항 원문에서 확인합니다.",
+    },
+    {
+        "term": "잔대금 (잔금)",
+        "scope": "sale",
+        "meaning": "낙찰 뒤 입찰보증금을 뺀 나머지 매수대금입니다. 납부 기한은 재산유형과 공고가 정하고, 기한 안에 내지 않으면 매각결정이나 계약이 취소되고 입찰보증금은 돌려받지 못할 수 있습니다.",
+    },
+    {
+        "term": "소유권이전",
+        "scope": "sale",
+        "meaning": "잔대금을 낸 뒤 소유권 등기를 넘겨받는 절차입니다. 압류재산은 매수인이 서류를 캠코 관할 부점에 내고 캠코가 등기를 촉탁합니다. 국유재산 매각은 매수자가 직접 이전등기를 합니다. 이용기관 물건은 공고문이 정합니다.",
+    },
+    {
+        "term": "명도",
+        "scope": "sale",
+        "meaning": "낙찰받은 재산을 점유자에게서 넘겨받는 일입니다. 누가 부담하는지는 공고문의 「명도책임」 조항이 정하고, 절차는 담당기관에 확인합니다.",
+    },
+    {
+        "term": "매각결정기일",
+        "scope": "압류재산",
+        "meaning": "개찰 뒤 캠코가 매각을 확정하는 날입니다. 캠코 압류재산은 개찰일로부터 7일 이내(통상 다다음주 월요일 14:00)입니다. 농지 매수자격 서류처럼 이 날 전까지 내야 하는 서류가 있고, 체납액 납부 등의 사유가 생기면 결정이 안 될 수 있습니다.",
+    },
+    {
+        "term": "차순위 매수신고",
+        "scope": "압류재산",
+        "meaning": "낙찰자가 잔대금을 내지 않을 때 다음 순위로 매수할 수 있도록 미리 신청하는 것입니다. 신청하면 낙찰자가 잔대금을 완납할 때까지 내 입찰보증금을 돌려받을 수 없습니다.",
+    },
+    {
+        "term": "대부료",
+        "scope": "lease",
+        "meaning": "재산을 빌려 쓰는 대가로 내는 돈입니다. 국유재산 대부는 낙찰일로부터 5영업일 이내에 대부료 잔금을 내고 대부계약을 맺습니다. 계약을 맺지 않으면 낙찰이 무효가 되고 입찰보증금은 국고에 귀속됩니다.",
+    },
+)
+
+
+def _notice_scopes(asset_type: str, disposition_label: str) -> set[str]:
+    """이 공고에 보여 줄 절차 용어의 scope 집합. 판정 규칙은 app.js(isSaleNotice·isLeaseNotice)와 같다."""
+    asset_type = asset_type or ""
+    disposition_label = disposition_label or ""
+    scopes = {"common"}
+    if re.search(r"매각|공매", disposition_label) or "압류" in asset_type:
+        scopes.add("sale")
+    if re.search(r"임대|대부", disposition_label):
+        scopes.add("lease")
+    for name in KNOWN_ASSET_TYPES:
+        if name in asset_type:
+            scopes.add(name)
+    return scopes
+
+
+def build_glossary(asset_type: str = "", disposition_label: str = "", title: str = "") -> list[dict[str, str]]:
+    """기본 용어(group=basic)를 앞에, 공고 표기에 든 사전 용어(group=match)를 뒤에 둔다."""
+    scopes = _notice_scopes(asset_type, disposition_label)
+    entries: list[dict[str, str]] = [
+        {"term": item["term"], "meaning": item["meaning"], "group": "basic"}
+        for item in PROCESS_TERMS
+        if item["scope"] in scopes
+    ]
     seen: set[str] = set()
-    for value in values:
+    for value in (asset_type, disposition_label, title):
         for term, meaning in TERM_GLOSSARY.items():
             if term in (value or "") and term not in seen:
                 seen.add(term)
-                entries.append({"term": term, "meaning": meaning})
+                entries.append({"term": term, "meaning": meaning, "group": "match"})
     return entries
 
 
@@ -3320,7 +3427,15 @@ def build_notice(raw_url: str) -> dict[str, object]:
             }
         )
     if appraisal:
-        price_candidates.append({"title": "감정평가금액", "value": appraisal, "note": "온비드 상세 페이지 표시값"})
+        price_candidates.append(
+            {
+                "title": "감정평가금액",
+                "value": appraisal,
+                # 공매는 최저입찰가격이 감정평가금액보다 높게도 낮게도 정해진다(2026-10-19 커뮤니티 조사 3-4).
+                # 두 값의 관계는 계산하지 않고 다르다는 사실만 적는다.
+                "note": "온비드 상세 페이지 표시값입니다. 최저입찰가격과는 다른 값이고, 둘의 관계는 공고 원문에서 확인하십시오.",
+            }
+        )
     price_candidates.extend(extract_cost_terms(sections, minimum_bid))
     if not price_candidates:
         price_candidates.append({"title": "비용 후보", "value": "공고 원문 확인", "note": "보증금, 대부료, 납부 방식은 원문 기준 확인"})

@@ -1261,7 +1261,33 @@ def test_glossary() -> None:
     check("용어 압류재산", "압류재산" in terms, str(terms))
     check("용어 매각", "매각" in terms, str(terms))
     check("용어 중복 없음", len(terms) == len(set(terms)), str(terms))
-    check("용어 음성 미상", server.build_glossary("재산유형 확인", "처분방식 확인", "") == [], "")
+    # 2026-10-19: 재산유형·처분방식을 읽지 못한 공고도 공통 절차 용어(group=basic · scope=common)는 보여 준다.
+    # 종전 단정 「미상이면 []」은 「미상이면 표기 매칭(match) 0건 · 기본 용어는 공통 scope 만」으로 바뀌었다.
+    unknown = server.build_glossary("재산유형 확인", "처분방식 확인", "")
+    check("용어 음성 미상 — 표기 매칭 0건", [e for e in unknown if e["group"] == "match"] == [], str(unknown))
+    common_terms = {item["term"] for item in server.PROCESS_TERMS if item["scope"] == "common"}
+    check(
+        "용어 음성 미상 — 기본 용어는 공통 scope 만",
+        unknown and all(e["group"] == "basic" and e["term"] in common_terms for e in unknown),
+        str([e["term"] for e in unknown]),
+    )
+
+    # B6 기본 용어(PROCESS_TERMS) — 공고 유형에 따라 다른 묶음이 앞에 선다(2026-10-19 커뮤니티 조사 1-1 반영).
+    groups = [entry["group"] for entry in entries]
+    check("B6 기본 용어가 표기 매칭보다 앞", groups == sorted(groups, key=lambda g: 0 if g == "basic" else 1), str(groups))
+    basic_sale = {e["term"] for e in entries if e["group"] == "basic"}
+    check("B6 압류·매각 기본 용어에 매각결정기일", any("매각결정기일" in t for t in basic_sale), str(basic_sale))
+    check("B6 압류·매각 기본 용어에 잔대금", any("잔대금" in t for t in basic_sale), str(basic_sale))
+    check("B6 압류·매각 기본 용어에 유찰·개찰·입찰보증금", {"유찰", "개찰", "입찰보증금"} <= basic_sale, str(basic_sale))
+    basic_lease = {e["term"] for e in server.build_glossary("국유재산", "임대/대부입찰", "") if e["group"] == "basic"}
+    check("B6 국유·임대 기본 용어에 대부료", "대부료" in basic_lease, str(basic_lease))
+    check("B6 음성 국유·임대 기본 용어에 매각결정기일·잔대금 없음", not any("매각결정기일" in t or "잔대금" in t for t in basic_lease), str(basic_lease))
+    check("B6 음성 압류·매각 기본 용어에 대부료 없음", "대부료" not in basic_sale, str(basic_sale))
+    # 도달 증거 — 두 집합이 실제로 다르다(둘 다 공통만 돌려주면 위 단정들이 영구 초록이 된다).
+    check("B6 도달 증거 — 매각·임대 기본 용어 집합이 다름", basic_sale != basic_lease, "")
+    # 음성 — 기본 용어는 판단을 담지 않는다. 금지 낱말은 CLAUDE.md 행동 규칙(입찰 여부·수익성·권리 판단).
+    judging = [item["term"] for item in server.PROCESS_TERMS if re.search(r"수익|추천|유리|안전하|권리분석", item["meaning"])]
+    check("B6 음성 기본 용어 뜻풀이에 판단 낱말 없음", judging == [], str(judging))
 
     # 음성 대조: 용어 안내는 «뜻»만 적는다. 처분방식 사이의 금액·보증금 비교를 담으면
     # 임대(사용료)와 매각(매매대금)의 금액 규모를 같게 오해시킨다.

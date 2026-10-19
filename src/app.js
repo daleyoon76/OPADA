@@ -1750,6 +1750,11 @@ const ONBID_BID_RULES = [
   "입찰서는 제출한 뒤에 수정하거나 취소할 수 없는 것이 원칙입니다.",
   "입찰보증금 납부 계좌는 입찰서를 제출한 뒤에 발급됩니다. 입찰 마감 시각까지 보증금을 내지 않으면 입찰이 무효가 됩니다.",
   "입찰서 제출과 보증금 납부가 끝났는지는 온비드에서 직접 확인하십시오. 확인하지 않아 생긴 불이익은 입찰자 책임입니다.",
+  // 아래 두 줄의 근거: 온비드 FAQ #67972(2회 이상 제출 가능 물건이면 같은 회차에 재입찰 가능) ·
+  // 국유재산 입찰참가자 준수규칙 제12조③(낙찰자 신원 비공개). 2026-10-19 커뮤니티 조사 1-1·1-3 에서
+  // 초보자가 「입찰을 취소할 수 없나」「입찰자 수를 볼 수 있나」를 물었다.
+  "「2회 이상 입찰서 제출 가능」으로 표시된 물건이면 같은 회차에 다시 입찰할 수 있습니다. 그 표시가 없으면 한 번 제출한 입찰서가 그대로 유효합니다.",
+  "개찰 뒤 낙찰자가 누구인지는 공개되지 않습니다. 내 입찰 결과는 온비드 「나의온비드 > 입찰결과」에서 직접 확인합니다.",
 ];
 
 // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리에 두는 정보 리스트다.
@@ -2162,7 +2167,7 @@ function renderBidLimitsPanel() {
     ${
       hasRestriction
         ? `<p>제한 조건이 있습니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있으니 공고문 원문에서 먼저 확인하십시오.</p>`
-        : `<p class="small-text">제한 조건이 확인되지 않았습니다. 그래도 공고문 원문의 참가자격 조항을 한 번 확인하십시오.</p>`
+        : `<p class="small-text">제한 조건이 확인되지 않았습니다. 그래도 공고문 원문의 참가자격 조항을 한 번 확인하십시오. 조항에 괄호 안 표기(사업자 등)가 있으면 그 뜻은 원문과 담당기관에서 확인하십시오.</p>`
     }
     <ul>${rowsHtml}</ul>
   </div>`;
@@ -2265,6 +2270,17 @@ function renderAttachments() {
       )
       .join("")
     : `<p class="small-text">이 공고에는 첨부파일이 없습니다.</p>`;
+  host.innerHTML += attachmentInventoryNote(docs);
+}
+
+// 압류재산 공고의 첨부 목록에 「명세서」가 든 파일이 없으면 그 사실만 적는다. 「없으니 위험하다」는
+// 판단은 쓰지 않는다(2026-10-19 커뮤니티 조사 1-2 · 지식iN 「공매재산 명세서가 없어요」). 파일명 검사라
+// 본문 안에 명세서가 들어 있는 첨부는 못 알아본다 — 그래서 「찾지 못했습니다」까지만 말한다.
+function attachmentInventoryNote(docs) {
+  if (!String(sampleNotice.assetType || "").includes("압류재산")) return "";
+  const names = docs.map((doc) => (typeof doc === "string" ? doc : String(doc?.name || "")));
+  if (names.some((name) => name.includes("명세서"))) return "";
+  return `<p class="small-text attachment-inventory-note">첨부 파일명에서 「명세서」를 찾지 못했습니다. 압류재산 공매의 공매재산명세서가 따로 있는지는 온비드 물건 상세와 담당 부점에서 확인하십시오.</p>`;
 }
 
 function renderNoticeOutline() {
@@ -2346,10 +2362,23 @@ function renderGlossary() {
   const beginnerNote = isExperienceBeginner()
     ? `<p class="small-text">처음이시면 모르는 용어가 나올 때 이 탭에서 먼저 찾아보세요.</p>`
     : "";
+  // 서버는 두 묶음을 준다 — basic(이 공고 유형이면 늘 보여 주는 절차 용어 · server.py PROCESS_TERMS)과
+  // match(공고 표기에 든 낱말을 사전에서 찾은 것). group 이 없는 옛 응답과 E2E 픽스처는 match 로 본다.
+  // 2026-10-19 커뮤니티 조사: 초보자 질문의 첫째 갈래가 「용어 뜻을 모른다」였는데 이 탭은 공고명에 든
+  // 낱말만 보여 줘서 거의 비어 있었다.
+  const basic = entries.filter((entry) => entry.group === "basic");
+  const matched = entries.filter((entry) => entry.group !== "basic");
+  const rowsHtml = (list) =>
+    list.map((entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p></div>`).join("");
+  const typeLabel = `${sampleNotice.assetType || "재산유형 확인"} · ${sampleNotice.dispositionLabel || "처분방식 확인"}`;
+  const basicHtml = basic.length
+    ? `<h4 class="glossary-group-title">이 공고 유형(${typeLabel})의 기본 용어</h4>${rowsHtml(basic)}`
+    : "";
+  const matchedHtml = matched.length
+    ? `<h4 class="glossary-group-title">공고 표기에 나온 용어</h4>${rowsHtml(matched)}`
+    : "";
   host.innerHTML = entries.length
-    ? `${beginnerNote}${entries
-      .map((entry) => `<div class="compact-row"><strong>${entry.term}</strong><p>${entry.meaning}</p></div>`)
-      .join("")}<p class="small-text">화면의 재산유형·처분방식은 온비드 표기를 그대로 쓰고, 뜻만 여기에서 안내합니다.</p>`
+    ? `${beginnerNote}${basicHtml}${matchedHtml}<p class="small-text">화면의 재산유형·처분방식은 온비드 표기를 그대로 쓰고, 뜻만 여기에서 안내합니다. 뜻풀이의 근거는 온비드 이용안내·입찰참가자 준수규칙·FAQ 이고, 공고마다 예외가 있을 수 있으니 공고 원문이 우선입니다.</p>`
     : `<p class="small-text">이 공고의 표기에 해당하는 용어 안내가 없습니다. 온비드 원문 표기를 그대로 확인하십시오.</p>`;
 }
 
@@ -2478,6 +2507,67 @@ function renderStageHeading(stage) {
 //
 // 체크박스는 잠그지 않는다 — 미리 준비하는 사용자를 막을 이유가 없다. 다만 이 서류는
 // getDocSummary() 분모에 들어가지 않으므로 2단계 진행률과 단계 잠금에는 영향이 없다.
+// 낙찰 뒤 절차 순서와 보증금 귀속을 재산유형·처분방식별로 한 줄씩 적는다. 온비드 공통 규칙이 정하는
+// 것은 압류·국유·수탁 셋뿐이고, 공유·기타일반 같은 이용기관 물건은 공고문이 정한다(온비드 이용안내
+// 「낙찰절차 안내」 기타 탭 · 이용기관 입찰참가자 준수규칙 제13조). 일괄 문구는 틀리므로 유형마다 갈랐고,
+// 읽지 못한 유형은 공통 안내만 둔다. 근거 정리본: team-reports/2026-10-19-onbid-journey-conformance/
+// researcher-onbid-journey.md 2-C·2-D 절. 커뮤니티 조사 1-4(「그 이후의 절차가 어떻게 되는지」 · 「낙찰을
+// 포기하려 합니다. 보증금을 돌려받을 수 있는지요」)가 이 자리의 이유다.
+function postAwardProcessNote() {
+  const assetType = String(sampleNotice.assetType || "");
+  const disposition = String(sampleNotice.dispositionLabel || "");
+  const label = `${assetType || "재산유형 확인"} · ${disposition || "처분방식 확인"}`;
+  const isLease = isLeaseOnlyDisposition();
+  const isSale = /매각|공매/.test(disposition);
+  if (assetType.includes("압류재산")) {
+    return {
+      label,
+      order:
+        "개찰 → 매각결정(개찰일로부터 7일 이내) → 잔대금 납부(매각결정기일로부터 낙찰가 3,000만 원 이상 30일 · 미만 7일) → 소유권이전 서류를 캠코 관할 부점에 제출(등기촉탁은 캠코가 합니다). 별도 매매계약 단계는 없습니다.",
+      deposit: "잔대금을 기한 안에 내지 않으면 매각결정이 취소되고 입찰보증금은 돌려받지 못합니다.",
+      source: "압류재산 공매공고문 · 압류재산 입찰참가자 준수규칙 · 온비드 FAQ(매각결정기일 · 소유권이전절차)",
+    };
+  }
+  if (assetType.includes("국유재산") && isLease) {
+    return {
+      label,
+      order: "낙찰 → 대부료 잔금 납부(낙찰일로부터 5영업일 이내) → 대부계약 체결(점유자가 있으면 명도집행 완료 뒤).",
+      deposit: "기간 안에 계약을 맺지 않으면 낙찰이 무효가 되고 입찰보증금은 국고에 귀속됩니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 국유재산 대부 · 국유재산 입찰참가자 준수규칙 제15조",
+    };
+  }
+  if (assetType.includes("국유재산") && isSale) {
+    return {
+      label,
+      order: "낙찰 → 매매계약 체결(낙찰일로부터 5영업일) → 잔대금 납부(계약일로부터 60일) → 매수자가 직접 소유권이전등기.",
+      deposit: "계약을 맺지 않거나 잔대금을 내지 않으면 매매계약이 해제되고 입찰보증금은 국고에 귀속됩니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 국유재산 매각 · 국유재산 입찰참가자 준수규칙 제15조·제16조",
+    };
+  }
+  if (assetType.includes("수탁재산") && !isLease) {
+    return {
+      label,
+      order: "낙찰 → 매매계약 체결 → 중도금·잔대금 납부 → 위임기관에서 이전서류를 받아 매수자가 등기 신청. 계약 기한은 공고마다 다릅니다.",
+      deposit: "계약을 맺지 않으면 입찰보증금은 매도자에게 귀속됩니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 수탁재산 · 수탁재산 입찰참가자 준수규칙 제11조",
+    };
+  }
+  if (assetType.includes("공유재산") || assetType.includes("기타일반재산")) {
+    return {
+      label,
+      order: "낙찰 → 계약 체결 → 대금(또는 사용료) 납부 → 소유권이전(매각) 또는 사용 개시(임대). 계약 기한·대금 기한·서류는 모두 공고문이 정합니다.",
+      deposit: "계약을 맺지 않을 때 입찰보증금을 어떻게 처리하는지도 공고문이 정합니다. 공고기관 귀속으로 적은 공고가 있습니다.",
+      source: "온비드 이용안내 「낙찰절차 안내」 기타 탭 · 이용기관 입찰참가자 준수규칙 제13조",
+    };
+  }
+  return {
+    label,
+    order: "재산유형이나 처분방식을 읽지 못해 공통 안내만 둡니다. 낙찰 뒤 계약·대금·이전 절차와 기한은 재산유형마다 다르고, 공고 원문이 정합니다.",
+    deposit: "기한을 지키지 못하면 입찰보증금을 돌려받지 못할 수 있습니다. 귀속처는 재산유형과 공고마다 다릅니다.",
+    source: "온비드 이용안내 「낙찰절차 안내」",
+  };
+}
+
 function renderPostAwardPanel() {
   const groups = getPostAwardDocGroups();
   const docState = getDocState();
@@ -2499,9 +2589,16 @@ function renderPostAwardPanel() {
       return renderDocGroup(group, docState, false, applicable, "") + noteHtml;
     })
     .join("");
+  const process = postAwardProcessNote();
   return `<section class="doc-panel post-award-panel">
     <p class="post-award-caution">입찰 전에 내야 하는 서류가 여기 섞여 있을 수 있습니다. 2단계 목록도 함께 확인하십시오.</p>
     <p class="small-text">낙찰된 뒤에 할 일입니다. 지금 당장 준비할 필요는 없지만, 기한을 놓치면 낙찰이 취소될 수 있는 항목이 있어 미리 열어 둡니다.</p>
+    <div class="post-award-process">
+      <p><strong>낙찰 뒤 절차 순서</strong> · ${process.label}</p>
+      <p>${process.order}</p>
+      <p>${process.deposit}</p>
+      <p class="small-text">근거: ${process.source}. 기한과 서류는 공고 원문과 담당기관 확인이 우선입니다.</p>
+    </div>
     <p class="small-text">${DOC_DUE_CAUTION}</p>
     ${
       summary.totalCount
