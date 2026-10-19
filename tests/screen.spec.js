@@ -1737,7 +1737,8 @@ test("E2E 미분류 4단계 — 읽지 못한 첨부 · 요청 시 서류 · 시
     sourceSection: "첨부:제안요청서.hwp",
     evidence: "가. 예술의전당의 요청이 있을 경우 영업신고증 등 관계자료를 제출해야 한다.",
   };
-  const plain = { ...requested, name: "㉯ 시점 없는 서류", evidence: "조항 표제·문장 어디에도 시점이 없다." };
+  // 음성 대조 — 「보완 요청 시 … 제출」은 입찰 서류 문장에도 쓰여 「요청할 때만」 안내를 붙이지 않는다(리뷰 d8378b6 r2 P2-A).
+  const plain = { ...requested, name: "㉯ 시점 없는 서류", evidence: "서류가 미비하면 보완 요청 시 7일 이내 제출합니다." };
   notice.docChecklist.items = [...notice.docChecklist.items, requested, plain];
   // 화면은 groups 안의 항목을 그린다(copyBase 는 items 와 groups 를 따로 복사한다). 둘 다에 넣는다.
   const sotHeading = "온비드 압류재산 입찰참가자 준수규칙 제7조(입찰 마감시간 전까지 제출)";

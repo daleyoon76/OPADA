@@ -675,6 +675,9 @@ ITEM_NAME_OFFSET_MAX = 8
 
 
 PREBID_WORD_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전")
+# 입찰 때 함께 내는 서류를 말하는 줄(「입찰서 제출 시 … 사본을 함께 제출」). ※ 표제 범위와 중복 처리에서만 쓴다
+# (리뷰 d8378b6 r2 P0-A · P1-A). PREBID_WORD_RE 는 「입찰서」를 잡지 못한다.
+PREBID_COPY_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전|입찰\s*서")
 
 
 def can_inherit_outer_heading(line: str) -> bool:
@@ -1181,8 +1184,12 @@ def extract_doc_items(
                 heading_stack.clear()
                 pos_stack.clear()
                 current_heading = ""
-            if note_scope is not None and not PREBID_WORD_RE.search(line):
+            if note_scope is not None and not PREBID_COPY_RE.search(line):
                 current_heading = str(note_scope["heading"])
+            elif note_scope is not None and not HEADING_LINE_RE.match(line):
+                # 입찰 때 내는 사본을 말하는 「-」 줄은 ※ 표제를 씌우지 않고, 앞 줄이 씌운 표제도 걷어 범위 전 표제로 되돌린다
+                # (리뷰 d8378b6 r2 P1-A · 「※ 낙찰자 제출서류 / - 입찰참가 시 법인등기부등본 사본을 함께 제출」).
+                current_heading = str(note_scope["prev"])
             # 다음 줄부터의 제출 목록 안내(submission_cue)를 이 줄 판정 «뒤»에 바꾸려고 값을 먼저 잡아 둔다.
             cue_before = submission_cue
             if re.match(r"첨부\s*[ː:]", line):
@@ -1337,6 +1344,17 @@ def extract_doc_items(
                         if not long_line and (name, key[1], stage) not in seen_stage:
                             seen_stage.add((name, key[1], stage))
                             items.append(item)
+                    elif (
+                        items[at]["stage"] == "낙찰 후·계약 시"
+                        and stage in UNRESOLVED_STAGES
+                        and not long_line
+                        and PREBID_COPY_RE.search(line)
+                        and (name, key[1], stage) not in seen_stage
+                    ):
+                        # 거울 경로: 낙찰 후가 먼저 나오고(본문을 첨부보다 먼저 읽는다) 입찰 때 내는 사본이 뒤에 미분류로 나오면
+                        # 그 사본도 남긴다(리뷰 d8378b6 r2 P0-A). 입찰 때를 말하는 줄로 좁힌다 — 좁히지 않으면 잡음이 15건 는다.
+                        seen_stage.add((name, key[1], stage))
+                        items.append(item)
                     elif (
                         not long_line
                         and items[at]["stage"] not in UNRESOLVED_STAGES
