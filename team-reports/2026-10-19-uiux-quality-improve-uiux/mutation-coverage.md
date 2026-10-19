@@ -1,7 +1,7 @@
 # 3팀 diff 조건 조각 × 변이 대조 (1340f55..0b0e4a6 · src/app.js)
 
 > 팀장 작성(2026-10-19). 조각 목록은 `python3 ~/.claude/scripts/mutation-fragments.py 1340f55..0b0e4a6 -- src/app.js` 출력이다.
-> 변이 출처: A m1~m14(changes-A.md) · B 9행(changes-B.md) · C 7행(changes-C.md · 팀장 1행 포함) · D 7행(changes-D.md) · 「사본 X1~X7」은 팀장이 0b0e4a6 `git archive` 사본(19331)에서 구현자 프로브로 돌린 추가 변이다(21:36~21:4x · 결과 원문 `scratchpad/mutx/result.txt`).
+> 변이 출처: A m1~m14(changes-A.md) · B 9행(changes-B.md) · C 7행(changes-C.md · 팀장 1행 포함) · D 7행(changes-D.md) · 「사본 X1~X7」은 팀장이 0b0e4a6 `git archive` 사본(19331)에서 구현자 프로브로 돌린 추가 변이다(21:36:05 시작 · result.txt mtime 21:41:57 `stat` 출력 · 결과 원문 `scratchpad/mutx/result.txt`).
 > styles.css 의 규칙은 조각 도구가 뽑지 않는다. CSS 판정은 각 묶음의 계산 스타일 측정(대비 · 넘침 · 높이)과 재판정 r1 종료 조건이 맡는다.
 
 | # | 조각 | 위치 | 결과 | 근거 |
