@@ -407,6 +407,10 @@ const pipelineSteps = [
 ];
 
 const initialSampleNotice = JSON.parse(JSON.stringify(sampleNotice));
+// 「샘플 불러오기」가 입력칸에 넣는 주소다(2026-10-19 동원님 지정 · 공유재산 임대 · 경기도 성남시
+// 분당구 삼평동 696-1). 위 sampleNotice 와는 다른 공고다. 버튼은 주소만 채우고, 화면 내용은
+// 「다음」으로 분석해야 이 공고로 바뀐다. 단축 주소는 서버가 302 를 따라가 물건상세로 읽는다.
+const SAMPLE_INPUT_URL = "https://www.onbid.co.kr/shortcut.do?code=C8Femdw4sdo4";
 
 const userTypeLabels = {
   person: "개인",
@@ -3044,7 +3048,7 @@ function init() {
     byId("analyze").disabled = false;
     byId("analyze").textContent = "다음";
     replaceNotice(JSON.parse(JSON.stringify(initialSampleNotice)));
-    byId("notice-url").value = sampleNotice.sourceUrl;
+    byId("notice-url").value = SAMPLE_INPUT_URL;
     analyzedInputValue = "";
     boardGenerated = false;
     analysisError = null;
