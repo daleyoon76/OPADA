@@ -9,14 +9,15 @@ test("analyzes a real OnBid URL and renders source notes", async ({ page }) => {
   // 다른 포트로 띄워 돌릴 때 이 테스트만 운영 서버로 접속해 영원히 타임아웃이 난다
   // (screen.spec.js 가 같은 이유로 이미 상대 경로를 쓴다).
   await page.goto("/");
-  // 마법사 1쪽을 지나야 #notice-url 이 보인다. 이 단계를 거치지 않아 「#notice-url 이 보이지
-  // 않는다」는 타임아웃으로 실패하던 자리다(2026-10-18 implementation.md §3).
+  // #asset-focus는 마법사 1단계(목적 선택) 화면에 있고, #notice-url은 #profile-next로 넘어간
+  // 2단계 화면에 있다(src/index.html Step 1-1/1-2). #asset-focus 선택은 #profile-next 클릭
+  // «전에» 해야 한다 — 클릭 뒤에는 1단계 화면이 숨겨져 타임아웃이 난다(2026-10-19 확인).
   const profileNext = page.locator("#profile-next");
   if (await profileNext.isVisible().catch(() => false)) {
+    await page.locator("#asset-focus").selectOption("sale");
     await profileNext.click();
   }
   await page.locator("#notice-url").fill("https://www.onbid.co.kr/shortcut.do?code=q8ddH9CdE4E7");
-  await page.locator("#asset-focus").selectOption("sale");
   await page.locator("#analyze").click();
 
   // 원문 분석 결과 (인증키 유무와 무관하게 항상 표시)
