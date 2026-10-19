@@ -1,0 +1,9 @@
+2026-10-19 13:09:55 KST
+code fbad694
+rentB desk 11.0s 가로넘침 0 콘솔오류 0 
+rentB mob 9.8s 가로넘침 0 콘솔오류 0 
+demo1 desk 11.9s 가로넘침 0 콘솔오류 0 
+demo1 mob 8.0s 가로넘침 0 콘솔오류 0 
+seized desk 12.3s 가로넘침 0 콘솔오류 0 
+seized mob 14.4s 가로넘침 0 콘솔오류 0 
+2026-10-19 13:11:05 KST
