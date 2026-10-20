@@ -3,6 +3,31 @@
 (각 세션 종료 시 아래 형식으로 항목 추가. 최대 10개 유지, 초과 시 가장 오래된 항목 삭제)
 
 ---
+## [원문 근거 출처 · develop→main 머지 · 배포 대기] 「공고문 > 10. 낙찰(예정)자 제출서류」 2026-10-20
+- 시각: 기능 커밋 243d1a4 09:03:03 · main 머지 2f38609 09:06:12(`git log --format=%ci`) · handoff 작성 `date` 09:07:00
+
+### 완료
+- 동원님 요청: 「원문 근거」에 어느 문서의 어느 조항인지 보이게 했다. 브랜치 `agentic-evidence-source-20261020`(워크트리 `~/Documents/Dev/.hometest-wt/evidence-source`).
+  - 서버 `sourceOutline`: 서류 줄을 감싸는 가장 바깥 조항 표제. 소수·날짜 줄(「604.41」 · 「2026. 10. 6.」)은 표제가 아니다.
+  - 중간 층은 싣지 않는다. 판교 공고처럼 「라. → 2) → 가.」로 층이 섞이면 스택 중간 층이 틀린다.
+  - 화면: 「출처: 공고문 > 10. …」 · 「출처: 첨부 「파일명」」.
+- 검증: 단위 549/549 · 화면 문자열 20/20 · E2E 40 passed(게이트 39/39). 서버 변이 6종 · 화면 변이 3종 모두 붉음. 판교 실화면 확인(포트 8981).
+- 머지: develop 2c46005 → main 2f38609(handoff · changelog 충돌만 · 양쪽 항목 보존). origin/main push 877fd48..2f38609.
+
+### 미완료 / 이유
+- 🔴 **배포 안 됨.** 라이브(ngrok `overripe-astrology-impure`)는 맥미니에서 돈다. 이 기기(회사망 10.61.x)에서 `ssh mini` 가 `Could not resolve hostname dale-mac-mini.local`(exit 255)로 두 번 실패했다.
+  - 09:0x 기준 라이브 화면은 `app.js?v=20261012-input-wizard-r1` 판이고 `/api/version` 은 404 다.
+- develop 은 여전히 원격에 없다(push 안 함). improve-uiux 의 9c326a2(문서)는 develop 에 넣지 않았다.
+- 120자 표제 상한 조각은 변이를 넣지 않았다.
+
+### 다음 시작점
+1. 맥미니에 닿는 곳에서: `ssh mini` → 라이브 서버 작업 디렉터리에서 `git pull origin main` → `launchctl kickstart -k gui/501/com.dale.hometest-server` → 공개 주소 `/api/version` 의 server 가 2f38609 인지 확인
+   - 라이브 서버의 작업 디렉터리가 어디인지(운영 경로 · 작업 레포 · 포트 8975/18982)는 맥미니에서 `lsof` 로 먼저 확인한다(10-19 handoff 의 인프라 정정 참고).
+
+### 불안정 영역
+- main 작업 트리에 다른 세션의 v09 슬라이드 미추적 파일이 있다. 이 세션은 건드리지 않았다.
+
+---
 ## [미분류 서류 단계 판정 · SOT 조사 · improve-uiux 합류 · develop 머지] 공고문 시점 표지 · 준수규칙 · 첨부 읽기 결과 2026-10-19
 - 시각: 측정 직후 `date` 18:43:09 · 첫 커밋 d8378b6 21:03:08 · 최종 62d20d6 21:50:46(`git log --format=%ci` · author 21:48:41) · develop 7054c5c 22:10:21 · a1e1f3a 22:16:57 · handoff 작성 21:53:08 · 갱신 `date` 22:33:44
 
