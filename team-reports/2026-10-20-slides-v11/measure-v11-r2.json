@@ -1,0 +1,78 @@
+[
+ {
+  "slide": 1,
+  "leaves": 5,
+  "clipped": 1,
+  "overlap": 0,
+  "samples": [
+   [
+    "안쪽영역 벗어남",
+    "contest",
+    "2026 KAMCO Startup"
+   ]
+  ]
+ },
+ {
+  "slide": 2,
+  "leaves": 12,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 3,
+  "leaves": 13,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 4,
+  "leaves": 32,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 5,
+  "leaves": 21,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 6,
+  "leaves": 19,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 7,
+  "leaves": 20,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 8,
+  "leaves": 25,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 9,
+  "leaves": 14,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ },
+ {
+  "slide": 10,
+  "leaves": 3,
+  "clipped": 0,
+  "overlap": 0,
+  "samples": []
+ }
+]
