@@ -38,7 +38,8 @@
     - 개발 중에는 1,000건으로 충분합니다 — 공고 1건 분석이 4종 각 1회라 하루 1,000건 분석이 가능합니다. 절차 상세는 `to-do.md` 를 보세요.
 - 공공데이터포털 인증키(`ONBID_API_SERVICE_KEY`)가 없으면 온비드 공개 원문 분석만 동작합니다. 승인 직후 일부 API가 403/`NODATA_ERROR`를 반환할 수 있으나 원문 분석 결과는 계속 표시됩니다 — API 실패를 전체 실패로 착각하지 마세요.
   - `NODATA_ERROR`는 원인이 둘입니다 — **권한 반영 대기**와 **위의 하이픈 형식 오류**. 형식부터 확인하세요.
-- AI 코치는 `local_ai_coach` → `gemini_ai_coach`(`GEMINI_API_KEY`/`GOOGLE_API_KEY`) → `vertex_ai_coach`(gcloud 토큰) 순으로 폴백합니다. 인증키/토큰이 없어도 `local_ai_coach`로 동작은 계속됩니다.
+- AI 코치(분석)는 `vertex_ai_coach`(gcloud 토큰) → `gemini_ai_coach`(`GEMINI_API_KEY`/`GOOGLE_API_KEY`) 순으로 시도하고, 둘 다 안 되면 `local_ai_coach`(규칙 기반)로 답합니다. 인증키/토큰이 없어도 동작은 계속됩니다.
+  - ⚠️ 2026-10-20 정정: 이 줄은 한때 「local → gemini → vertex」로 적혀 있었다. 코드는 `coach = vertex_ai_coach(...) or gemini_ai_coach(...)` 뒤 `local_ai_coach` 다(`git show c3cb905:src/server.py` 2846 · 2849행 · 슬라이드 v09 story-architect r0 지적).
 - 🔴 **질문창(`/api/ask`)의 공매 제도·용어 설명은 서버 상수가 정본입니다. 모델이 풀어 쓴 답이 아닙니다**(2026-10-19 · 브랜치 `agentic-board-layout-20261019`).
   - 정본은 두 가지입니다.
     - `ONBID_GUIDE_TERMS`: 온비드 이용안내·FAQ·준수규칙에서 옮긴 절차 용어 45개입니다. 근거 인용 137건은 `team-reports/2026-10-19-coach-onbid-terms/researcher-onbid-terms.md` 에 있습니다.
