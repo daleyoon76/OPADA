@@ -5,16 +5,27 @@ const { test, expect } = require("@playwright/test");
 const hasApiKey = Boolean(process.env.ONBID_API_SERVICE_KEY);
 
 test("analyzes a real OnBid URL and renders source notes", async ({ page }) => {
-  await page.goto("http://127.0.0.1:8975/");
+  // baseURL(playwright.config.js 의 use.baseURL)을 따라간다 — 절대 URL 로 8975 를 박아 두면
+  // 다른 포트로 띄워 돌릴 때 이 테스트만 운영 서버로 접속해 영원히 타임아웃이 난다
+  // (screen.spec.js 가 같은 이유로 이미 상대 경로를 쓴다).
+  await page.goto("/");
+  // #asset-focus는 마법사 1단계(목적 선택) 화면에 있고, #notice-url은 #profile-next로 넘어간
+  // 2단계 화면에 있다(src/index.html Step 1-1/1-2). #asset-focus 선택은 #profile-next 클릭
+  // «전에» 해야 한다 — 클릭 뒤에는 1단계 화면이 숨겨져 타임아웃이 난다(2026-10-19 확인).
+  const profileNext = page.locator("#profile-next");
+  if (await profileNext.isVisible().catch(() => false)) {
+    await page.locator("#asset-focus").selectOption("sale");
+    await profileNext.click();
+  }
   await page.locator("#notice-url").fill("https://www.onbid.co.kr/shortcut.do?code=q8ddH9CdE4E7");
-  await page.locator("#asset-focus").selectOption("sale");
   await page.locator("#analyze").click();
 
   // 원문 분석 결과 (인증키 유무와 무관하게 항상 표시)
   await expect(page.locator("#report-hero")).toContainText("경기도 용인시 수지구 신봉동 202", {
     timeout: 30000,
   });
-  await expect(page.locator("#quick-facts")).toContainText("205,575,000");
+  // 2026-10-19 3팀 묶음 C(U10 ⑴): 2-1 공고 요약에서 최저입찰가격 칸을 뺐다. 값은 「마감·비용」 탭 비용 행에 남는다.
+  await expect(page.locator("#deadline-cost-list")).toContainText("205,575,000");
   // 2026-09-08 변경: 온비드 「제출서류」 표의 구분명(공동입찰서류·대리입찰서류)은 실제
   // 서류명이 아니므로 체크리스트에 서류명으로 싣지 않는다. 본문에서 뽑은 실제 서류명을 쓴다.
   await expect(page.locator("#task-list")).toContainText("농지취득자격증명");

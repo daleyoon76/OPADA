@@ -21,6 +21,37 @@ from pathlib import Path
 HOST = "127.0.0.1"
 PORT = 8975
 ROOT = Path(__file__).resolve().parent
+
+
+def code_revision(root: Path | None = None) -> dict[str, object]:
+    """화면 머리에 띄울 코드 판을 git 에서 읽는다. git 이 없거나 저장소가 아니면 commit 이 빈 값이다.
+
+    번호(number)는 HEAD 까지의 누적 커밋 수다. 같은 브랜치에서는 커밋할수록 커지므로
+    「r352 가 떠 있다」처럼 판을 사람 눈으로 견줄 수 있다(2026-10-19 동원님 요청).
+    dirty 는 src/ 에 커밋하지 않은 변경이 있는지다. 화면 코드는 src/ 만 쓴다.
+    """
+    base = root or ROOT.parent
+
+    def git(*args: str) -> str:
+        try:
+            result = subprocess.run(["git", "-C", str(base), *args], capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    return {
+        "commit": git("rev-parse", "--short", "HEAD"),
+        "number": git("rev-list", "--count", "HEAD"),
+        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+        "committedAt": git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M"),
+        "dirty": bool(git("status", "--porcelain", "--", "src")),
+    }
+
+
+# server.py 는 기동할 때의 판으로 메모리에 올라 있다. 그 뒤 파일이 바뀌어도 재시작 전까지는
+# 옛 판으로 돈다(known-pitfalls: 포트 18982 재시작). 그래서 기동 시점 판을 따로 들고 있다.
+SERVER_STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S")
+SERVER_REVISION = code_revision()
 _VERTEX_TOKEN = ""
 _VERTEX_TOKEN_EXPIRES_AT = 0.0
 # 스킴은 `https` 다. 참고문서 6종의 「서비스URL · 운영환경」이 전부 `https://apis.data.go.kr/B010003/…`
@@ -270,7 +301,7 @@ DOC_SOURCE_PROFILES = {
     "B": {
         "code": "B",
         "label": "서류 목록이 첨부파일에 있을 가능성이 큰 유형입니다",
-        "detail": "이용기관이 직접 작성하는 공고라 본문은 요약만 두고 목록을 첨부 공고문에 담는 경우가 많습니다. 아래 첨부파일을 함께 확인하십시오.",
+        "detail": "이용기관이 직접 작성하는 공고라 본문은 요약만 두고 목록을 첨부 공고문에 담는 경우가 많습니다. 첨부파일도 함께 확인하십시오.",
     },
     "C": {
         "code": "C",
@@ -334,6 +365,8 @@ DOC_NAME_PATTERNS: tuple[tuple[str, str], ...] = (
     ("제안서 접수조서", r"제안서\s*접수\s*조서"),
     ("입찰참가신청서", r"입찰\s*참가\s*신청서"),
     ("임차신청서", r"임차\s*신청서"),
+    # 이용기관 입주 공고의 신청서(2026-10-19 · 판교 글로벌R&D센터 「다. 입주신청서 1부」 · 수원 바이오센터 서식).
+    ("입주신청서", r"입주\s*신청서"),
     ("제소전화해 신청동의서", r"제소전화해\s*신청\s*동의서"),
     ("시설물설치 이용승낙신청서", r"시설물\s*설치\s*이용\s*승낙\s*신청서"),
     ("재직증명서", r"재직\s*증명서"),
@@ -356,9 +389,467 @@ DOC_NAME_PATTERNS: tuple[tuple[str, str], ...] = (
 # 「갖추」는 넣지 않는다 — 「대항요건을 갖추고 있는 임차인」 같은 설명 문장이 걸린다(표본 01 실측).
 DOC_REQUEST_RE = re.compile(r"제출|지참|구비|첨부|발급받아|제시")
 
+# 「…를 제출한 것으로 간주함」은 따로 낼 것이 없다는 뜻이다(2026-10-19 · 청렴계약서 2건).
+# 이 구절을 지운 나머지에 제출 동사가 또 있어야 요구로 본다 — 「간주하며, 낙찰자로 결정된 자는
+# 계약 체결 시 … 제출하여야」처럼 같은 문장에 진짜 요구가 이어지는 경우를 지우지 않기 위해서다.
+DEEMED_SUBMITTED_RE = re.compile(r"제출\s*(?:한|된)\s*것으로\s*(?:간주|본다|봅니다)")
+
+# 「10. 낙찰(예정)자 제출서류」·「3. 증빙서류 목록」처럼 절 제목 자체가 제출 요구인 경우. 그 아래
+# 나열 항목(「라. 사업계획서 1부」)에는 제출 동사가 없다(2026-10-19 · 판교 공고 실측).
+SUBMISSION_LIST_HEADING_RE = re.compile(
+    r"(?:제출|구비|지참|등록|필요|증빙|부대|입증)\s*(?:서류|자료)|서류\s*(?:제출|목록)|제출\s*서류"
+)
+# 제출 목록 절 안에서 동사 없이도 요구로 보는 줄의 최대 길이. 나열 항목·표 칸은 짧고, 긴 줄은 설명 문단이다.
+SUBMISSION_LIST_ITEM_MAX_CHARS = 200
+
+
+# 서류명 바로 뒤가 「…를 제출한 것으로 간주」·「… 등의 각종 공부를 열람」·「… 참조」면 그 서류는 요구가 아니다.
+# 같은 줄의 다른 서류에 붙은 「제출」(「사업계획서를 작성, 제출하시기 바랍니다」)에 끌려 목록에 오르는 것을 막는다.
+# 「간주하며, 낙찰자로 결정된 자는 … 제출하여야」처럼 뒤에 다시 요구가 오면 막지 않는다(폐교 매각 · 청렴계약이행서약서).
+# 「위임장(참고⑧ 양식참조) 1부」처럼 서식을 가리키는 「참조」는 언급이 아니다(김해공항 · 측정 중 회귀 1건).
+# 「등기사항증명서상 근저당설정최고액」처럼 바로 뒤가 「상」이면 그 서류의 내용을 가리키는 말이다.
+DOC_MENTION_AFTER_RE = re.compile(
+    r"^[^.。\n]{0,15}?(?<!양식)(?<!서식)(?<!양식 )(?<!서식 )(?:열람|참조|참고하)|^상\s"
+)
+DOC_MENTION_AFTER_REACH = 25
+
+
+def doc_is_mention_only(line: str, end: int) -> bool:
+    after = line[end : end + DOC_MENTION_AFTER_REACH]
+    deemed = DEEMED_SUBMITTED_RE.search(after)
+    if deemed:
+        return not DOC_REQUEST_RE.search(DEEMED_SUBMITTED_RE.sub("", line[end + deemed.end() :]))
+    return bool(DOC_MENTION_AFTER_RE.search(after)) and not DOC_REQUEST_RE.search(after)
+
+
+def doc_request_in(text: str) -> bool:
+    """제출 동사가 있는가. 「제출한 것으로 간주」 구절은 빼고 본다."""
+    return bool(DOC_REQUEST_RE.search(DEEMED_SUBMITTED_RE.sub("", text)))
+
+
+# 한 줄짜리 첨부에서 서류명 하나가 속한 조항 구간을 자르는 경계. 「1. 」·「가. 」 같은 번호와 ■·※ 같은 기호다.
+# 날짜(「2026. 8. 3.」) 안의 「8. 」도 경계로 잡혀 구간이 짧아질 수 있다 — 짧아지는 쪽은 요구를 놓칠 뿐 지어내지 않는다.
+CLAUSE_BREAK_RE = re.compile(r"(?<![\d.])\d{1,2}\s*[.)]\s+|(?<![가-힣])[가-하]\s*\.\s+|[■◆※○●□▪]")
+CLAUSE_REACH = 300
+
+
+def doc_clause_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """서류명(start~end)이 든 조항 구간. 앞뒤 CLAUSE_REACH 자 안에서 가장 가까운 경계까지다."""
+    lo = max(0, start - CLAUSE_REACH)
+    hi = min(len(text), end + CLAUSE_REACH)
+    for match in CLAUSE_BREAK_RE.finditer(text, lo, start):
+        lo = match.start()
+    following = CLAUSE_BREAK_RE.search(text, end, hi)
+    if following:
+        hi = following.start()
+    return lo, hi
+
+
+def is_note_heading(line: str) -> bool:
+    """「※ 낙찰자의 계약체결 전 제출서류」처럼 ※ 로 시작하는 짧은 표제 줄인가.
+
+    ※ 줄 전부를 표제로 보면 ※ 문단의 문장 판정 분기(아래 SENTENCE_STAGE_RULES 로 표제 스택을 비우는 곳)가
+    죽어 입찰 전 서류가 빠진다(2026-10-19 리뷰 r1 P1-1 재현 · 원문 36건에 ※ 줄 301개). 그래서 서류명이 없고
+    표제 사전에 걸리는 INHERIT_ITEM_MAX_CHARS 이하 줄로 좁힌다.
+    """
+    stripped = line.strip()
+    # 제출 목록 제목(SUBMISSION_LIST_HEADING_RE)이어야 한다 — 「※ 실거래 신고가 … 매매계약 체결시까지」 같은 설명 문장이
+    # 「계약 체결」 규칙에 걸려 표제가 되는 것을 막는다(인천 남동구 공매 2건 · 측정 중 확인).
+    return (
+        stripped.startswith("※")
+        and len(stripped) <= INHERIT_ITEM_MAX_CHARS
+        and not find_doc_name_spans(stripped)
+        and not PREBID_WORD_RE.search(stripped)
+        and bool(SUBMISSION_LIST_HEADING_RE.search(stripped))
+        and any(heading_rule_search(pattern, stripped) for pattern, _stage in HEADING_STAGE_RULES)
+    )
+
+
+NOTE_ITEM_NUMBER_RE = re.compile(r"^\s*(\d{1,2})\s*[.)]")
+NOTE_ITEM_HANGUL_RE = re.compile(r"^\s*([가-하])\s*\.")
+
+
+def continues_note_scope(scope: dict[str, object], line: str) -> bool:
+    """※ 표제 아래 목록이 이어지는가. 번호는 1씩 늘어야 하고(다음 본 조항 「10.」에서 끊긴다), 긴 줄에서 끊긴다."""
+    if len(line) > SUBMISSION_LIST_ITEM_MAX_CHARS:
+        return False
+    for kind, pattern, to_num in (
+        ("number", NOTE_ITEM_NUMBER_RE, int),
+        ("hangul", NOTE_ITEM_HANGUL_RE, lambda ch: ord(ch) - ord("가")),
+    ):
+        match = pattern.match(line)
+        if match:
+            num = to_num(match.group(1))
+            if scope["kind"] in ("", kind) and (scope["num"] < 0 or num == scope["num"] + 1):
+                scope["kind"], scope["num"] = kind, num
+                return True
+            return False
+    return bool(SUB_ITEM_RE.match(line))
+
+
+# 제출 목록을 여는 짧은 안내 줄(「④ 제출서류 : … 아래 서류를 첨부하여야 하며」 · 「제출서류명」)이 지나간 뒤
+# 다음 목록 머리(번호 · ①~⑮ · ○ · ㅇ)가 나오기 전까지의 줄은 제출 목록 안으로 본다(인천공항 공고의 「A. 관광사업등록증」).
+SUBMISSION_CUE_MAX_CHARS = 200
+LIST_HEAD_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.|[①-⑮○ㅇ■◆])")
+
+# 첨부 PDF는 문장 하나가 여러 줄로 잘린다(「…인감증명서와 주민등록등본 원본을 입찰기간의 마⏎감일 17:00까지 … 제출」).
+# 그래서 첨부 줄의 제출 동사는 그 줄이 속한 문단(앞뒤로 다음 문단 머리까지 · PARAGRAPH_REACH 자 안)에서 찾는다.
+PARAGRAPH_REACH = 300
+
+
+def paragraph_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    """start~end 가 든 문단. 문단 머리는 PARAGRAPH_START_RE(번호 · 기호로 시작하는 줄)다."""
+    lo = max(0, start - PARAGRAPH_REACH)
+    for match in PARAGRAPH_START_RE.finditer(text, lo, start + 1):
+        lo = match.start() + 1
+    hi = min(len(text), end + PARAGRAPH_REACH)
+    following = PARAGRAPH_START_RE.search(text, end, hi)
+    if following:
+        hi = following.start()
+    return lo, hi
+
+
+# 한 줄짜리 첨부에서 서류명 앞쪽의 가장 가까운 본 조항 번호(「8. 」)부터 서류명까지에 제출 목록 표제가 있으면
+# 그 목록 안으로 본다(광양 공고 「8. 낙찰자 제출서류 (…) 1) 공유재산 사용허가 신청서 1부. 2) …」).
+TOP_CLAUSE_MARK_RE = re.compile(r"(?<![\d.])\d{1,2}\s*\.\s+")
+TOP_CLAUSE_REACH = 600
+
+
+def under_submission_heading_inline(text: str, start: int) -> bool:
+    lo = max(0, start - TOP_CLAUSE_REACH)
+    marks = list(TOP_CLAUSE_MARK_RE.finditer(text, lo, start))
+    head = marks[-1].start() if marks else lo
+    return bool(SUBMISSION_LIST_HEADING_RE.search(text, head, start))
+
+# 서류명 자체가 단계를 확정하는 사전. 조항 표제·문장 판정보다 먼저 본다 — 이 서류들은
+# 어느 공고에서도 "입찰기간 중에" 내는 신청서라, 공고문 작성자가 그 서류를 어느 조항
+# 아래 적어 놓았는지와 무관하게 단계가 고정된다(stage-classification-design.md §1-A-3·§2-A).
+#
+# 근거: 압류재산 인터넷공매 입찰참가자준수규칙 제7조(공동명의 입찰·대리입찰·미성년자 명의
+# 입찰의 신청서를 "입찰기간 중에" 제출), 전자자산처분시스템 적정최고가입찰참가자준수규칙
+# 제6조⑤⑥(공동입찰참가신청서·대리입찰신청서를 "입찰기간 중에" 제출) — 두 규칙 모두 온비드
+# 자료실 > 법령/규정에서 전문을 확보했다.
+#
+# 서식 자체는 재산유형별로 변형이 있다(docs/90_MVP개발/08_온비드자료실_오픈API28종_조사_20260907.md
+# 191~206행, 온비드 서식자료 71건 전수조사) — 공동입찰참가신청서 5종(국유재산·이용기관
+# 입찰용·캠코 공유재산·수탁재산·유입자산/수탁담보주택), 대리입찰신청서 5종(동일 구성),
+# 미성년자입찰참가동의서 2종(이용기관 입찰용·캠코 공유재산). 합치면 12개의 변형 문자열이다.
+# 🔴 설계 문서(§1-A-4)는 이 묶음을 "9건"이라 적었지만 바로 다음 문장이 실제로 나열한
+# 변형은 5+5+2=12개다 — 설계 문서 자체의 집계와 본문이 어긋나 있어서, 추측으로 9개로
+# 줄이지 않고 근거 문서(08번 조사)가 실제로 나열한 12개를 그대로 반영했다. 다만
+# DOC_NAME_PATTERNS 가 기관명 접두어("(이용기관 입찰용)"·"(캠코 공유재산)"·"유입자산"
+# 등)를 흡수해 12개 변형이 전부 아래 3개 표준 이름 중 하나로 뽑히므로, 사전은 변형별이
+# 아니라 표준 이름 3개로 충분하다.
+FORM_NAME_STAGE_RULES: dict[str, str] = {
+    "공동입찰참가신청서": "입찰 전",
+    "대리입찰신청서": "입찰 전",
+    "미성년자 입찰참가 동의서": "입찰 전",
+}
+
+# 조건부 서류이면서 온비드 공통 가이드·준수규칙·법령 어디에도 일반 근거가 없는 서류명.
+# 이 서류는 사전을 더 채워도 영구히 "미분류"가 아니라 "별도 문의 필요"로 다르게 보여준다 —
+# "미분류"는 "사전을 넓히면 언젠가 찾을 수 있다"는 뜻인데, 이 서류는 전 재산유형에 적용되는
+# 일반 규정이 없어(기관·공고마다 요구 여부와 시점이 다르다, 표본 21의 "컨소시엄 협정서"가
+# 그 사례다) 사전을 넓혀도 못 찾는다. 추가하려면 §2-A 규정 근거 사전에 없는 서류인지
+# 먼저 확인한다 — 있으면 미분류로 남겨 사전을 채울 대상으로 삼아야 한다.
+NO_GENERAL_BASIS_DOC_NAMES: frozenset[str] = frozenset({"컨소시엄 협정서"})
+NEEDS_INQUIRY_STAGE = "별도 문의 필요"
+
 # 이 절/문장이 입찰 전 준비물인지 낙찰 후 계약 서류인지 표시한다.
-# 표본 6건의 목록이 계약 단계 서류였다(표본조사 §4-7).
-CONTRACT_STAGE_RE = re.compile(r"계약\s*(?:체결|시|을)|낙찰\s*(?:자|후|일)|사용\s*허가\s*(?:신청|일)|매매계약")
+#
+# 🔴 옛 CONTRACT_STAGE_RE(자유 서술문 어디서나 키워드를 찾는 방식)는 폐기했다 — 블록
+# 전체에서 계약/낙찰 키워드를 찾아 그 블록의 모든 서류를 끌고 가는 방식이라, 서류와
+# 무관한 문장(예: 계약보증금 안내)이 뒤에 나오는 서류까지 전부 오염시켰다
+# (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§4 ·
+# 23개 표본 재현에서 41.9% 불일치). 대신 세 단계로 판정한다.
+#
+# ⑴ FORM_NAME_STAGE_RULES 에 있는 서식명이면 그 즉시 확정한다(위 사전).
+# ⑵ 조항 표제(번호·문자·■ 로 시작하는 줄)를 만나면 그 표제 문자열 자체를 들고 가서
+#    HEADING_STAGE_RULES 사전과 대조한다. 사전에 없는 표제는 판정하지 않는다.
+# ⑶ 표제가 없거나 사전에 없으면, 그 서류명이 «속한 그 줄 하나»만 보고
+#    SENTENCE_STAGE_RULES 결정적 문구를 찾는다. 다른 줄의 단어는 참조하지 않는다.
+# ⑷ 셋 다 못 정하면 NO_GENERAL_BASIS_DOC_NAMES 서류는 "별도 문의 필요", 그 밖은
+#    "미분류" — 추측으로 입찰 전/낙찰 후 어느 쪽으로도 밀어 넣지 않는다.
+#
+# 신호는 설계 문서 §2 신호표·§2-A 규정 근거 사전·appendix 160행 전건 재대조(§5-2)에서
+# 왔다. 아래 10개 항목 각각 appendix의 "근거" 칸에 인용된 조항 표제 원문 그대로다 —
+# 인용에 없는 표제는 상상해서 넣지 않았다(설계 문서 §555행 "사전 항목 수는 최소 10종").
+# 넓은 규칙 「계약 체결」은 표제의 첫 줄 안에서만 본다(heading_rule_search).
+CONTRACT_HEAD_RE = re.compile(r"계약\s*체결")
+
+HEADING_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # 입찰 전 (2개) — appendix 표본 04~08, 21.
+    # 🔴 표본11의 "입찰 전" 판정은 이 표제가 아니라 "3) 제출서류" 조항의 SENTENCE_STAGE_RULES
+    # "입찰 시 무효" 문구가 근거다(appendix 60행 — "사업계획서를…제출하지 않으면 입찰 시 무효").
+    # 전에는 여기 "표본07·08·11"로 적었는데, appendix에 표본11을 "입찰참가자격" 표제로 인용한
+    # 행이 없다 — 설계 대조 감사(2026-10-19)에서 확인한 인용 오류를 정정한다.
+    (re.compile(r"입찰\s*참가\s*자격"), "입찰 전"),  # "2. 입찰참가자격"(표본04~08) · "입찰참가자격"(표본07·08)
+    (re.compile(r"입찰\s*참가\s*등록\s*서류"), "입찰 전"),  # "4. 입찰참가 등록서류"(표본21)
+    # 낙찰 후·계약 시 (8개) — appendix 표본 11~13, 15~17, 20, 22.
+    (re.compile(r"구비\s*서류"), "낙찰 후·계약 시"),  # "다. 계약 체결 시 구비서류"(표본11) · "나. 구비서류"(표본12)
+    (re.compile(r"계약\s*체결\s*장소"), "낙찰 후·계약 시"),  # "다. 계약체결 장소"(표본12, 나.구비서류 바로 다음 조항)
+    # "8. 낙찰자 제출서류 (낙찰일로부터 30일 이내 제출)"(표본13) · "바. 낙찰자의 제출서류"(2026-10-19 실공고 909691 관측)
+    # · "10. 낙찰(예정)자 제출서류"(판교 글로벌R&D센터) · "12. 낙찰자의 사용허가 신청시 제출서류"(과천시민회관)
+    # · "※ 낙찰자의 계약체결 전 제출서류"(강남터미널 광고) — 2026-10-19 원문 36건 측정에서 앞 둘이 사전에 안 걸렸다.
+    (re.compile(r"낙찰\s*(?:\(\s*예정\s*\)\s*)?자\s*의?\s*(?:(?!선정|결정|위한)[^\n]){0,12}?제출\s*서류"), "낙찰 후·계약 시"),
+    (re.compile(r"낙찰\s*일\s*로\s*부터"), "낙찰 후·계약 시"),  # 표본13 괄호 안 "낙찰일로부터 30일 이내" · 표본20 "낙찰일로부터"
+    (re.compile(r"계약\s*체결\s*시\s*필요\s*서류"), "낙찰 후·계약 시"),  # "계약체결시 필요서류"(표본15~17)
+    (re.compile(r"계약\s*체결\s*시\s*지참\s*서류"), "낙찰 후·계약 시"),  # "14. 계약체결 시 지참 서류"(표본22)
+    (
+        re.compile(r"제출\s*서류\s*\(\s*방문\s*시\s*계약서\s*날인용\s*도장\s*지참\s*\)"),
+        "낙찰 후·계약 시",
+    ),  # "■ 제출서류(방문시 계약서 날인용 도장 지참)"(표본20 일부)
+    (CONTRACT_HEAD_RE, "낙찰 후·계약 시"),  # "7. 계약체결 ① 낙찰자는 낙찰일로부터…"(표본20 일부) 등 번호조항 변형
+)
+
+
+def heading_rule_search(pattern: re.Pattern[str], heading: str) -> bool:
+    """표제 사전 한 항목이 그 표제에 걸리는가.
+
+    넓은 규칙 「계약 체결」(CONTRACT_HEAD_RE)만은 표제의 «첫 줄» 안에서만 본다.
+    표제 조각(최대 80자)이 줄을 넘어 표 칸까지 삼키면 「1. 입찰개요 ⏎ … 계약기간 ⏎ 계약체결일 ~ 5년」 같은
+    표 내용이 걸려, 입찰 전 서류(예술의전당 「제안서」)가 낙찰 후로 갔다(2026-10-19 원문 36건 측정).
+    처음에는 번호 뒤 20자로 좁혔는데, 그러면 「3) 이행보증보험증권 제출- … 계약체결 시」 같은 한 줄 표제의
+    낙찰 후 판정 3건이 미분류로 떨어졌다(같은 측정). 그래서 폭이 아니라 줄 경계로 자른다.
+    """
+    if pattern is not CONTRACT_HEAD_RE:
+        return bool(pattern.search(heading))
+    first_line = heading.split("\n", 1)[0]
+    # 「라. 입찰 절차 : 입찰공고 → 입찰서 및 제안서 제출 → … → 계약 체결」 같은 흐름 설명은 이 조항의 시점이 아니다(예술의전당).
+    if "→" in first_line:
+        return False
+    return bool(pattern.search(first_line))
+
+# 표제가 없거나(예: 하이픈·ㅇ 로만 이어지는 공고문 본문) 사전에 없는 표제일 때, 서류명이
+# 속한 그 줄만 보고 찾는 결정적 문구. 다른 줄로 번지지 않는다.
+SENTENCE_STAGE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"입찰\s*(?:시\s*)?무효|입찰\s*참가\s*불승인"
+            r"|입찰.{0,10}(?:마감|기간).{0,15}(?:까지|중)"
+            r"|가격\s*개찰.{0,20}이전"
+        ),
+        "입찰 전",
+    ),
+    (re.compile(r"회송|매매계약.{0,30}회송"), "낙찰 후·계약 시"),
+)
+
+# 서류명 근처 문장 판정(doc_stage_at)에만 더 쓰는 낙찰 후 문구. 「낙찰자로 결정된 자가 … 10일 이내에 임차신청서를」
+# (김해공항) · 「낙찰자로 결정된 자는 계약 체결 시 [별지4]를 … 제출」(폐교 매각) — 2026-10-19 원문 36건 측정.
+# SENTENCE_STAGE_RULES 에 넣지 않은 이유: 그 목록은 서류명 없는 문단에서 표제 스택을 비우는 데도 쓰여(extract_doc_items),
+# 흔한 이 문구가 들어가면 뒤 목록의 표제가 통째로 지워진다.
+AWARDEE_SENTENCE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
+    # 「낙찰자로 결정합니다」(선정 방식 설명)는 빼고, 그렇게 정해진 «사람·날»을 가리킬 때만 쓴다(김해공항 「제안서 평가점수 … 합산하여」).
+    (
+        re.compile(r"(?:낙찰자|계약\s*대상자)\s*로\s*(?:결정|선정|통보)\s*(?:된|한|받은)\s*(?:자|날|업체)"),
+        "낙찰 후·계약 시",
+    ),
+)
+
+# 조항 표제로 볼 줄 — 번호·문자 조항(LINE_RESET_RE)과 같지만, "■" 같은 기호 머리글도
+# 표제로 본다(표본 20 「■ 제출서류(방문시 계약서 날인용 도장 지참)」가 숫자·문자로
+# 시작하지 않는다). 조건 물림(LINE_RESET_RE)과는 별개 — 그 쪽은 바꾸지 않는다.
+HEADING_LINE_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.|■|◆)")
+# 「원문 근거」 위치(sourceOutline)에 쓰는 표제 줄의 길이 상한과 화면 표시 길이. 번호로 시작해도 이보다 긴 줄은
+# 문단이라 위치 표제로 쌓지 않는다. 「604.41」(면적 표 칸) · 「2026. 10. 6.」(날짜)도 HEADING_LINE_RE 에 걸려 뺀다.
+OUTLINE_HEADING_MAX_CHARS = 120
+OUTLINE_HEADING_SHOW_CHARS = 40
+OUTLINE_NOT_HEADING_RE = re.compile(r"^\s*\d+\s*\.\s*\d")
+
+
+def shorten_outline_heading(line: str) -> str:
+    text = clean_text(line)
+    return text if len(text) <= OUTLINE_HEADING_SHOW_CHARS else text[:OUTLINE_HEADING_SHOW_CHARS].rstrip() + "…"
+
+# 조항 번호 체계별 층. 「10.」·「가.」·「1)」은 서로 다른 층이다. 표제를 «마지막 번호 줄
+# 하나»로만 들고 가면 「10. 최종낙찰자 제출서류」 아래 「가. 사업자등록증 …」 같은 항목 줄이
+# 표제를 덮어써, 사전에 있는 표제인데도 그 아래 서류가 전부 미분류로 떨어진다
+# (2026-10-19 실공고 관측 — 909445 「10. 최종낙찰자 제출서류」 · 909691 「바. 낙찰자의 제출서류」).
+# 그래서 층별로 쌓고, 안쪽 층부터 사전에 걸리는 표제를 찾는다. 「1)」을 「1.」보다 먼저 본다.
+HEADING_KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("paren", re.compile(r"^\s*\d+\s*\)")),
+    ("number", re.compile(r"^\s*\d+\s*\.")),
+    ("hangul", re.compile(r"^\s*[가-하]\s*\.")),
+    ("roman", re.compile(r"^\s*[IVX]+\s*\.")),
+    ("symbol", re.compile(r"^\s*[■◆]")),
+)
+
+
+# 바깥 표제를 물려받을 수 있는 목록 항목 줄의 최대 길이. 실공고 항목 줄은 60자 안팎이다
+# (909691 「1). 주민등록등본(법인의 경우 법인등기부등본) 1부」 · 909445 「가. 사업자등록증 및 법인등기부등본 각1부」).
+INHERIT_ITEM_MAX_CHARS = 100
+
+
+# 목록 항목으로 볼 때 번호 뒤에서 첫 서류명까지 허용하는 거리(글자). 「1). 주민등록등본」은 0~1자다.
+ITEM_NAME_OFFSET_MAX = 8
+
+
+PREBID_WORD_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전")
+# 입찰 때 함께 내는 서류를 말하는 줄(「입찰서 제출 시 … 사본을 함께 제출」). ※ 표제 범위와 중복 처리에서만 쓴다
+# (리뷰 d8378b6 r2 P0-A · P1-A). PREBID_WORD_RE 는 「입찰서」를 잡지 못한다.
+PREBID_COPY_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전|입찰\s*서")
+
+
+def can_inherit_outer_heading(line: str) -> bool:
+    """바깥 층 표제를 물려받아도 되는 줄인가 — 짧은 소제목(서류명 없음)이거나 번호 바로 뒤 서류명 목록 항목."""
+    marker = HEADING_LINE_RE.match(line)
+    if not marker or len(line) > INHERIT_ITEM_MAX_CHARS:
+        return False
+    starts = [start for _name, start, _end in find_doc_name_spans(line)]
+    return not starts or min(starts) - marker.end() <= ITEM_NAME_OFFSET_MAX
+
+
+def heading_kind(line: str) -> str:
+    for kind, pattern in HEADING_KIND_RULES:
+        if pattern.match(line):
+            return kind
+    return ""
+
+
+def push_heading(stack: list[tuple[str, str]], line: str) -> None:
+    """같은 층 번호가 다시 나오면 그 층과 그 아래 층을 걷어내고 바꾼다. 처음 보는 층이면 안쪽으로 쌓는다."""
+    kind = heading_kind(line)
+    for index, (existing, _line) in enumerate(stack):
+        if existing == kind:
+            del stack[index:]
+            break
+    stack.append((kind, line))
+
+
+def stage_heading_from_stack(stack: list[tuple[str, str]]) -> str:
+    """안쪽 층부터 HEADING_STAGE_RULES 에 걸리는 표제를 찾는다. 없으면 가장 안쪽 표제를 준다(옛 동작)."""
+    for _kind, line in reversed(stack):
+        if any(heading_rule_search(pattern, line) for pattern, _stage in HEADING_STAGE_RULES):
+            return line
+    return stack[-1][1] if stack else ""
+
+
+def resolve_doc_stage(current_heading: str, window: str, name: str = "") -> str:
+    if name in FORM_NAME_STAGE_RULES:
+        return FORM_NAME_STAGE_RULES[name]
+    for pattern, stage in HEADING_STAGE_RULES:
+        if current_heading and heading_rule_search(pattern, current_heading):
+            return stage
+    for pattern, stage in SENTENCE_STAGE_RULES:
+        if pattern.search(window):
+            return stage
+    return NEEDS_INQUIRY_STAGE if name in NO_GENERAL_BASIS_DOC_NAMES else "미분류"
+
+
+# PDF/HWP 첨부는 줄바꿈이 없어 "한 줄"이 문서 전체(최대 89,290자 실측)일 수 있다. 그 안에도
+# "8.  낙찰자  제출서류" 같은 조항 표제가 실려 있지만 줄 시작이 아니라 줄 «중간»에 있어
+# HEADING_LINE_RE(^로 시작) 가 못 잡는다. 그래서 줄 중간의 번호·문자 마커도 찾는다.
+# 🔴 [가-하] 단독 글자 뒤에 마침표(「다.」「나.」류)는 한국어 평서문이 거의 전부 「~합니다.」
+# 「~한다.」로 끝나기 때문에, 앞 글자를 가리지 않으면 문장 종결마다 가짜 조항 표제로 오인한다
+# (표본 07 "...제출하여야 합니다.\n또한..." 의 "다."가 그 사고였다 — 뒤 문장 전체를
+# "조항 표제"로 끌어왔다). 그래서 바로 앞이 한글 음절이 «아닌» 경우만 조항 마커로 본다 —
+# 진짜 「다. 계약체결 장소」같은 마커는 줄바꿈·공백·문자열 시작 뒤에 오지 한글 글자 뒤에 오지 않는다.
+EMBEDDED_HEADING_MARKER_RE = re.compile(r"\d+\s*[.)]\s+|(?<![가-힣])[가-하]\s*\.\s+|■\s*|◆\s*")
+HEADING_SNIPPET_MAX = 80
+STAGE_WINDOW_BEFORE = 150
+STAGE_WINDOW_AFTER = 220
+
+
+def governing_heading(text: str, pos: int, carried_heading: str, section_start: int) -> str:
+    """서류명 바로 앞(같은 조항 구간 안)에서 사전에 걸리는 조항 표제를 가까운 것부터 찾는다.
+
+    section_start 는 LINE_RESET_RE 로 가른 "그 조항이 시작한 자리" 다 — 그 앞(다른 조항)으로는
+    넘어가지 않는다. 이 구간 안에 없으면 이전 실제 줄에서 캡처해 들고 온 carried_heading 으로
+    떨어진다.
+    """
+    markers = [m for m in EMBEDDED_HEADING_MARKER_RE.finditer(text, section_start, pos)]
+    for marker in reversed(markers):
+        snippet = text[marker.start() : min(pos, marker.start() + HEADING_SNIPPET_MAX)]
+        for pattern, _stage in HEADING_STAGE_RULES:
+            if heading_rule_search(pattern, snippet):
+                return snippet
+    return carried_heading
+
+
+# 새 문단을 여는 줄 머리. 줄바꿈만 있고 이 머리가 없으면 앞 문장이 이어지는 것(PDF 줄 넘김)으로 본다.
+PARAGRAPH_START_RE = re.compile(r"\n\s*(?:[※\-‐–▪·○ㅇ①-⑮■◆]|\(\d+\)|\d+\s*[.)]|[가-하]\s*\.)")
+
+
+PREBID_CONFLICT_RE = re.compile(r"사전\s*확인\s*후\s*(?:응찰|입찰)")
+
+
+def same_clause_has_prebid_phrase(text: str, start: int, end: int, section_bounds: tuple[int, int]) -> bool:
+    """서류명이 든 문장(다음 문단 머리 전까지)과 그 앞 창에 입찰 전 결정 문구가 있는가.
+
+    창 끝을 다음 문단 머리에서 끊는다. 끊지 않으면 바로 아래 「※ 입찰 참가 시에는 … 입찰 마감일까지」 같은
+    다른 문단의 문구가 위 목록까지 미분류로 만든다(2026-10-19 리뷰 r1 T2 반영 중 관측).
+    """
+    lo = max(section_bounds[0], start - STAGE_WINDOW_BEFORE)
+    hi = min(section_bounds[1], end + STAGE_WINDOW_AFTER)
+    next_paragraph = PARAGRAPH_START_RE.search(text, end, hi)
+    if next_paragraph:
+        hi = next_paragraph.start()
+    return bool(PREBID_CONFLICT_RE.search(text, lo, hi)) or any(pattern.search(text, lo, hi) for pattern, stage in SENTENCE_STAGE_RULES if stage == "입찰 전")
+
+
+def doc_stage_at(
+    text: str,
+    start: int,
+    end: int,
+    carried_heading: str,
+    section_bounds: tuple[int, int],
+    name: str = "",
+    inherited: bool = False,
+) -> tuple[str, bool, str]:
+    """단계·확정 여부와 함께 "어느 조항 표제를 근거로 썼는가"(source_heading)도 돌려준다.
+
+    같은 서류명이 같은 문서 안에 여러 번 나올 수 있다(표본 20의 「신분증」은 대리입찰
+    서류 안내에서 한 번, 「■ 제출서류」 낙찰 후 목록에서 또 한 번 나온다). 호출부가 먼저
+    나온 쪽만 쓰면 더 확정적인 뒤쪽 조항 표제 판정을 놓친다 — confident 로 그 우선순위를
+    판단하게 한다.
+
+    name 이 FORM_NAME_STAGE_RULES 에 있으면(공동입찰참가신청서 등 서식명 자체가 단계를
+    확정하는 서류) 조항 표제보다 먼저 보고 그 즉시 확정한다 — 이때는 근거가 표제가 아니라
+    서식명 자체이므로 source_heading 은 빈 문자열이다.
+
+    source_heading 은 HEADING_STAGE_RULES 가 매칭한 표제 원문 그대로다(§3-A-2의
+    "표제 문자열을 그 자체로 들고 간다" 설계) — SENTENCE_STAGE_RULES 로 정해졌거나
+    미분류/별도 문의 필요로 떨어지면 표제가 근거가 아니므로 빈 문자열로 둔다.
+    """
+    if name in FORM_NAME_STAGE_RULES:
+        return FORM_NAME_STAGE_RULES[name], True, ""
+    section_start, section_end = section_bounds
+    embedded = governing_heading(text, start, "", section_start)
+    heading = embedded or carried_heading
+    if heading:
+        for pattern, stage in HEADING_STAGE_RULES:
+            if heading_rule_search(pattern, heading):
+                # 🔴 바깥 층에서 «물려받은» 낙찰 후 표제가 서류가 든 문장의 입찰 전 결정 문구와 부딪히면 표제를
+                # 버리고 아래 문장 판정으로 내려간다. 더 가까운 근거가 이긴다. 입찰 전 서류를 4단계로만 보내면
+                # 사용자가 그 서류를 놓친다 — 가장 비싼 오배치다(2026-10-19 리뷰 r1 F1·T1·T3 · 표본 07·08
+                # 「사전확인 후 응찰」). 리뷰어는 미분류를 권했고, 팀장은 문장 근거(입찰 전)를 택했다. 둘 다 2단계에 보인다.
+                if inherited and not embedded and stage == "낙찰 후·계약 시" and same_clause_has_prebid_phrase(
+                    text, start, end, section_bounds
+                ):
+                    break
+                return stage, True, heading
+    # 창이 넓어지면(표본 20) "회송"(낙찰 후, 같은 줄)과 "입찰무효"(입찰 전, 다음 문장)가
+    # 한 창에 같이 걸릴 수 있다. 목록 순서가 아니라 «서류명과의 실제 거리»로 더 가까운
+    # 결정적 문구를 우선한다 — 멀리 있는 문구가 가까운 문구를 이기면 안 된다.
+    lo = max(section_start, start - STAGE_WINDOW_BEFORE)
+    hi = min(section_end, end + STAGE_WINDOW_AFTER)
+    center = (start + end) / 2
+    best_stage: str | None = None
+    best_dist: float | None = None
+    deemed_here = bool(DEEMED_SUBMITTED_RE.search(text, end, min(len(text), end + DOC_MENTION_AFTER_REACH)))
+    for pattern, stage in SENTENCE_STAGE_RULES + AWARDEE_SENTENCE_RULES:
+        for match in pattern.finditer(text, lo, hi):
+            if (pattern, stage) in AWARDEE_SENTENCE_RULES and not deemed_here and (
+                match.end() > start or "\n" in text[match.end() : start] or "다." in text[match.end() : start]
+            ):
+                continue
+            dist = min(abs(match.start() - center), abs(match.end() - center))
+            if best_dist is None or dist < best_dist:
+                best_dist, best_stage = dist, stage
+    if best_stage:
+        return best_stage, False, ""
+    return (NEEDS_INQUIRY_STAGE if name in NO_GENERAL_BASIS_DOC_NAMES else "미분류"), False, ""
+
 
 # 조건 축은 아래 10개다(`len(CONDITION_AXES) == 10` 으로 셀 것).
 # 표본조사 §3-4 표의 8행에서 왔고, 그중 「개인 / 법인」 1행을 `corp`·`person` 2축으로 나눠 9개가 된다.
@@ -417,15 +908,26 @@ DOC_HOWTO = {
 }
 
 
-def find_doc_names(line: str) -> list[str]:
-    names: list[str] = []
+def find_doc_name_spans(line: str) -> list[tuple[str, int, int]]:
+    """서류명과 그 위치(시작·끝 오프셋)를 함께 낸다. 위치는 단계 판정이 "그 서류명 근처"만
+    보게 하는 데 쓴다(resolve_doc_stage) — PDF/HWP 첨부는 줄바꿈이 없어 한 줄이 문서 전체일
+    때가 있고, 그때는 위치 없이는 "근처"를 정의할 수 없다."""
+    spans: list[tuple[str, int, int]] = []
     masked = line
     for label, pattern in DOC_NAME_PATTERNS:
         for match in re.finditer(pattern, masked):
             name = label or clean_text(match.group(0))
-            if name and name not in names:
-                names.append(name)
+            if name:
+                spans.append((name, match.start(), match.end()))
             masked = masked[: match.start()] + ("\x00" * (match.end() - match.start())) + masked[match.end() :]
+    return spans
+
+
+def find_doc_names(line: str) -> list[str]:
+    names: list[str] = []
+    for name, _start, _end in find_doc_name_spans(line):
+        if name not in names:
+            names.append(name)
     return names
 
 
@@ -469,9 +971,97 @@ LINE_RESET_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.)")
 SUB_ITEM_RE = re.compile(r"^\s*(?:[-‐–▪·※○ㅇ①-⑮]|\(\d+\)|\d+\s*\))")
 
 
+# 2026-10-19 · 표제·문장으로 단계를 못 정한(미분류) 서류에만 쓰는 보강 판정 둘. 확정된 판정은 덮지 않는다.
+UNRESOLVED_STAGES = frozenset({"미분류", NEEDS_INQUIRY_STAGE})
+
+# ⑴ 입찰 전 표지. 서류가 든 본 조항(표제 스택 가장 바깥 층의 한 조항) 안에 있을 때만 쓴다. 공고 전체에서
+# 찾으면 안 된다 — 「입찰 마감」 문구는 온비드 툴팁 상용구라 원문 36건 전부에 있다(구현 계획 F2).
+PREBID_MARKER_RES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("제출 기간", re.compile(r"제출\s*(?:기간|기한|일시)\s*[:：]?\s*(?:20\d\d|\d{1,2}\s*[./월])")),
+    ("입찰 마감과 묶은 기한", re.compile(r"입찰\s*(?:서\s*)?(?:제출\s*)?마감\s*(?:일시|일|시간|시)?\s*(?:\([^)]{0,15}\)\s*)?(?:까지|전)")),
+    ("입찰참가 등록·신청", re.compile(r"입찰\s*참가\s*(?:등록|신청)\s*(?:서류|기간|및|·|/)|참가\s*신청\s*(?:및|·|/)?\s*제안서")),
+    ("입찰 제재", re.compile(r"입찰\s*시\s*무효|사전\s*판정에서\s*배제|입찰\s*참가\s*불승인")),
+)
+# 서류가 든 줄 자체가 입찰 뒤 시점을 말하면(「매각결정기일 전에 … 제출」) 같은 조항의 입찰 전 표지를 빌려 쓰지 않는다.
+# 압류재산 공고 「16. 주의사항 · 다. 농지취득자격증명」이 같은 조항의 대리입찰 문장(「입찰마감 시간 전까지」)에 끌려
+# 입찰 전이 된 것을 측정에서 확인했다(2026-10-19 · 5건 × 3종).
+POST_BID_TIMING_RE = re.compile(r"매각\s*결정\s*기일|낙찰|계약\s*체결|잔금|소유권\s*이전|사용\s*허가\s*(?:신청|일)")
+# ⑴-⒝ 는 입찰보증금 문맥이면 서류 기한이 아니다(「보증금은 입찰 마감 전까지 입금」).
+PREBID_DEPOSIT_RE = re.compile(r"보증\s*(?:금|서|보험)")
+PREBID_DEPOSIT_REACH = 40
+# 한 줄짜리 첨부에서는 서류명 앞뒤로 본 조항 번호(「8. 」) 사이를 한 조항으로 보되, 이보다 길면 쓰지 않는다.
+INLINE_BLOCK_MAX_CHARS = 1500
+
+
+def prebid_marker_in(text: str) -> str:
+    """입찰 전 표지가 있으면 그 이름, 없으면 빈 문자열."""
+    for label, pattern in PREBID_MARKER_RES:
+        for match in pattern.finditer(text):
+            if label == "입찰 마감과 묶은 기한":
+                near = text[max(0, match.start() - PREBID_DEPOSIT_REACH) : match.end() + PREBID_DEPOSIT_REACH]
+                if PREBID_DEPOSIT_RE.search(near):
+                    continue
+            return label
+    return ""
+
+
+def inline_block_bounds(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """한 줄짜리 첨부에서 서류명이 든 본 조항(앞뒤 TOP_CLAUSE_MARK_RE 사이). 너무 길면 None."""
+    lo = 0
+    for match in TOP_CLAUSE_MARK_RE.finditer(text, max(0, start - INLINE_BLOCK_MAX_CHARS), start):
+        lo = match.start()
+    following = TOP_CLAUSE_MARK_RE.search(text, end, min(len(text), end + INLINE_BLOCK_MAX_CHARS))
+    hi = following.start() if following else len(text)
+    if hi - lo > INLINE_BLOCK_MAX_CHARS:
+        return None
+    return lo, hi
+
+
+# ⑵ 온비드 준수규칙이 «입찰 마감 전 · 입찰기간 중» 제출을 정한 대리·공동·미성년 서류(구현 계획 3단계 · 검증
+# team-reports/2026-10-19-bid-stage-sot/researcher-verify-sot-r1.md §2·H1~H3). 조문에 이름이 있는 서류만 넣었다.
+# 이용기관(공유·기타일반) 공고는 넣지 않는다 — 최고가 입찰참가자 준수규칙 제6조 단서 「이용기관회원이 별도로 정하는
+# 경우에는 그에 따릅니다」가 시점을 늦추는 것도 막지 않는다(H3).
+SOT_PREBID_CONDITION_DOCS: dict[str, dict[str, frozenset[str]]] = {
+    # 압류재산 인터넷공매 입찰참가자 준수규칙 제7조①②③ 「입찰 마감시간 전까지 … 공사에 제출」
+    "압류재산": {
+        "joint": frozenset({"공동입찰참가신청서", "인감증명서", "본인서명사실확인서"}),
+        "proxy": frozenset({"대리입찰신청서", "인감증명서", "본인서명사실확인서"}),
+        "minor": frozenset({"미성년자 입찰참가 동의서", "인감증명서", "본인서명사실확인서", "주민등록등본", "가족관계증명서"}),
+    },
+    # 국유재산 준수규칙 제7조①②③ 「입찰기간 중에」. 미성년 서류는 기본증명서(특정)라 가족관계증명서·등본을 넣지 않는다.
+    "국유재산": {
+        "joint": frozenset({"공동입찰참가신청서", "위임장", "인감증명서", "본인서명사실확인서"}),
+        "proxy": frozenset({"대리입찰신청서", "위임장", "인감증명서", "본인서명사실확인서"}),
+        "minor": frozenset({"미성년자 입찰참가 동의서", "인감증명서", "본인서명사실확인서"}),
+    },
+    # 수탁재산 준수규칙 제5조② 「입찰기간 중에 … 공동입찰신청서 … 또는 대리입찰신청서」(첨부 인감증명). 미성년 조항 없음.
+    "수탁재산": {
+        "joint": frozenset({"공동입찰참가신청서", "위임장", "인감증명서"}),
+        "proxy": frozenset({"대리입찰신청서", "위임장", "인감증명서"}),
+    },
+}
+SOT_PREBID_SOURCE = {
+    "압류재산": "온비드 압류재산 입찰참가자 준수규칙 제7조(입찰 마감시간 전까지 제출)",
+    "국유재산": "온비드 국유재산 입찰참가자 준수규칙 제7조(입찰기간 중 제출)",
+    "수탁재산": "온비드 수탁재산 입찰참가자 준수규칙 제5조(입찰기간 중 제출)",
+}
+
+
+def sot_prebid_source(asset_type: str, name: str, condition_keys: set[str]) -> str:
+    """대리·공동·미성년 문맥에 묶인 서류를 준수규칙으로 「입찰 전」 확정할 수 있으면 그 근거 문구."""
+    table = SOT_PREBID_CONDITION_DOCS.get(asset_type.strip())
+    if not table:
+        return ""
+    for key in ("joint", "proxy", "minor"):
+        if key in condition_keys and name in table.get(key, frozenset()):
+            return SOT_PREBID_SOURCE[asset_type.strip()]
+    return ""
+
+
 def extract_doc_items(
     sections: dict[str, str],
     attachment_chunks: list[tuple[str, str]] | None = None,
+    asset_type: str = "",
 ) -> list[dict[str, object]]:
     """공고문·제출서류 절과 첨부 텍스트에서 조건별 서류 항목을 뽑는다.
 
@@ -481,7 +1071,13 @@ def extract_doc_items(
     본문/첨부 출처를 구분할 수 있다.
     """
     items: list[dict[str, object]] = []
-    seen: set[tuple[str, str]] = set()
+    # 값은 (items 안의 위치, 그 단계가 조항 표제로 확정됐는가). 같은 서류명이 같은 문서
+    # 안에 단계가 다른 두 자리에서 나올 수 있다(표본 20 「신분증」). 2026-10-19 전까지는 주석과 달리 먼저 나온
+    # 쪽만 남았다(리뷰 r1 F7). 지금은 앞이 미분류이고 뒤가 입찰 전이면 바꾸고, 뒤가 낙찰 후면 둘 다 남기고,
+    # 둘 다 확정이고 단계가 다르면 둘 다 남긴다(아래 key 분기 · 리뷰 d8378b6 r1 P0-1).
+    seen: dict[tuple[str, str], tuple[int, bool]] = {}
+    # 같은 (서류명, 조건)이 단계를 달리해 두 번 남을 때 같은 단계가 세 번째로 쌓이지 않게 막는다.
+    seen_stage: set[tuple[str, str, str]] = set()
     chunks = [(title, sections.get(title, "")) for title in DOC_SEARCH_SECTIONS]
     chunks.extend(attachment_chunks or [])
     for title, chunk in chunks:
@@ -490,32 +1086,152 @@ def extract_doc_items(
         # 첨부는 온비드 공고 절과 문장 구조가 다르다(표·서식·PDF 텍스트화 결과라 「제출」·「지참」
         # 같은 동사가 그 줄에 없을 때가 많다). DOC_REQUEST_RE 게이트를 그대로 걸면 실측
         # 재현율이 어휘 그대로 매칭한 것보다 낮아진다(2026-09-12 측정 · 배선 38% vs 첨부모의 59%).
-        # 그래서 첨부 줄은 서류명이 잡히면 그 자체로 요구로 본다 — 조건 태깅(carried 로직)은 그대로 살린다.
+        # 그래서 2026-09-12 부터 첨부 줄은 서류명이 잡히면 그 자체로 요구로 봤다. 2026-10-19 부터는 첨부에도
+        # 게이트를 다시 걸되, 제출 목록 절 안의 나열 항목(in_submission_list)을 요구로 인정해 그 재현율을 지킨다.
+        # 검사 생략이 「등기사항증명서 참조」 같은 언급을 목록에 올렸기 때문이다(원문 36건 측정 · 언급 6건).
         is_attachment = title not in DOC_SEARCH_SECTIONS
         carried: list[dict[str, str]] = []
         # 「라. 계약체결시 필요서류」처럼 단계를 밝히는 줄은 제목뿐이고, 그 아래 표 행(「개인
         # 주민등록초본, 인감증명서…」)에는 단계 단어가 없다. 조건 물림과 같은 구조라 같은
-        # 방식으로 물린다 — 안 물리면 표 아래 항목이 전부 기본값 「입찰 전」으로 오분류된다
-        # (2026-09-12 · #15 실측).
-        carried_stage = False
-        for raw_line in block_text(strip_tooltips(chunk)).split("\n"):
+        # 방식으로 물린다 — 표제 문자열 자체를 들고 가서 HEADING_STAGE_RULES 와 대조한다
+        # (resolve_doc_stage). 안 물리면 표 아래 항목의 단계를 알 길이 없다(2026-09-12 · #15 실측).
+        current_heading = ""
+        heading_stack: list[tuple[str, str]] = []
+        # 「※ 낙찰자의 계약체결 전 제출서류」 아래 번호 목록(is_note_heading · continues_note_scope).
+        # 그 목록의 「1.」이 번호 층을 새로 열어 표제 스택에서 앞 표제를 걷어내므로, 표제 스택과 따로 든다.
+        note_scope: dict[str, object] | None = None
+        # 제출 목록 안내 줄(SUBMISSION_LIST_HEADING_RE · 서류명 없음)을 지나왔는가.
+        submission_cue = False
+        # 단계 판정 창(doc_stage_at)은 줄바꿈이 실제로 있는 공고문에서도 "그 줄 하나"가 아니라
+        # «전체 절 텍스트 안에서의 실제 위치»를 기준으로 본다 — 결정적 문구가 서류명과 같은
+        # 줄이 아니라 몇 줄 뒤(예: 「ㅇ 공동입찰의 경우…」 다음에 번호 목록, 그 뒤에야 「입찰
+        # 기간 마감일까지 제출」)에 있는 경우가 실제로 있다(표본 04~08). 그래서 `full_text` 와
+        # 그 안에서의 절대 오프셋을 들고 간다. 창은 LINE_RESET_RE 조항 경계를 넘지 않게
+        # section_bounds() 로 자른다 — 안 자르면 다음 조항의 결정적 문구를 빌려 쓰게 된다.
+        full_text = block_text(strip_tooltips(chunk))
+        heading_boundaries: list[int] = []
+        heading_marks: list[tuple[int, str]] = []
+        # heading_stack 과 같은 규칙으로 쌓는 (층, 표제 줄 위치). parent_block 이 조항 범위를 자르는 데 쓴다.
+        pos_stack: list[tuple[str, int]] = []
+        # 화면 「원문 근거」에 「공고문 > 10. 낙찰(예정)자 제출서류」처럼 위치를 보이려고 따로 쌓는 표제 스택(sourceOutline).
+        # heading_stack 은 단계 판정 때문에 문단 표지에서 비워지므로(아래 SENTENCE_STAGE_RULES 분기) 위치에 쓰지 않는다.
+        outline_stack: list[tuple[str, str]] = []
+        _cursor = 0
+        for _raw in full_text.split("\n"):
+            _stripped = _raw.strip()
+            if _stripped and LINE_RESET_RE.match(_stripped):
+                heading_boundaries.append(_cursor + (len(_raw) - len(_raw.lstrip())))
+            if _stripped and HEADING_LINE_RE.match(_stripped):
+                heading_marks.append((_cursor + (len(_raw) - len(_raw.lstrip())), heading_kind(_stripped)))
+            _cursor += len(_raw) + 1
+
+        def parent_block(pos: int, line_is_heading: bool) -> str:
+            """서류가 든 줄의 바로 위 조항(그 표제 줄부터 같은 층이나 바깥 층의 다음 표제 전까지)의 글.
+
+            처음에는 가장 바깥 층 조항을 봤는데, 압류재산 공고에서 「1. 입찰방법」 안의 「입찰 마감시간 전까지」가
+            같은 조항 아래 「다. 농지취득자격증명(매각결정기일 전)」까지 입찰 전으로 끌고 갔다(2026-10-19 측정 · 5건 × 3종).
+            그래서 바로 위 조항으로 좁힌다. 서류 줄 자체가 목록 표제(「3) 제출서류: …」)면 그 위 조항을 본다.
+            """
+            parents = pos_stack[:-1] if line_is_heading else pos_stack
+            if not parents:
+                return ""
+            kind, offset = parents[-1]
+            enclosing = {k for k, _off in parents}
+            end_bound = next((off for off, k in heading_marks if off > pos and k in enclosing), len(full_text))
+            return full_text[offset:end_bound]
+
+        def section_bounds(pos: int) -> tuple[int, int]:
+            start_bound = 0
+            end_bound = len(full_text)
+            for boundary in heading_boundaries:
+                if boundary <= pos:
+                    start_bound = boundary
+                else:
+                    end_bound = boundary
+                    break
+            return start_bound, end_bound
+
+        cursor = 0
+        for raw_line in full_text.split("\n"):
             line = raw_line.strip()
+            lstrip_len = len(raw_line) - len(raw_line.lstrip())
+            line_offset = cursor + lstrip_len
+            cursor += len(raw_line) + 1
             # 1200자 상한은 «지저분한 HTML»을 걸러내려는 것이다(공고 절 기준). PDF/HWP 첨부는
             # 줄바꿈 없이 문서 전체가 한 줄로 텍스트화될 때가 있어(실측 최대 89,290자) 상한을
             # 그대로 걸면 그 안의 서류명이 통째로 빠진다(2026-09-12 · 32건 실측). 첨부는 상한을 안 건다.
             if not line or (len(line) > 1200 and not is_attachment):
                 continue
+            # 조항 표제는 이름 유무와 무관하게 먼저 캡처한다 — 표제 줄 자체에 서류명이 실리는
+            # 경우는 없지만, 캡처를 이름 분기 뒤로 미루면 그 표제가 적용되는 첫 항목을 놓친다.
+            if note_scope is not None and not continues_note_scope(note_scope, line):
+                current_heading = str(note_scope["prev"])
+                note_scope = None
+            line_in_outline = (
+                len(line) <= OUTLINE_HEADING_MAX_CHARS
+                and bool(HEADING_LINE_RE.match(line))
+                and not OUTLINE_NOT_HEADING_RE.match(line)
+            )
+            if line_in_outline:
+                push_heading(outline_stack, line)
+            if is_note_heading(line):
+                note_scope = {"heading": line, "kind": "", "num": -1, "prev": current_heading}
+                current_heading = line
+            elif HEADING_LINE_RE.match(line):
+                push_heading(heading_stack, line)
+                line_kind = heading_kind(line)
+                for index, (existing_kind, _offset) in enumerate(pos_stack):
+                    if existing_kind == line_kind:
+                        del pos_stack[index:]
+                        break
+                pos_stack.append((line_kind, line_offset))
+                # 바깥 표제를 물려받는 것은 짧은 소제목(서류명 없음 · 「가. 입찰 참가 신청」)이나 번호 바로 뒤에
+                # 서류명이 오는 목록 항목일 때만이다. 「가. 입찰 시 유의사항 … 사업자등록증」 같은 문단이나 긴 줄이
+                # 물려받으면 쪽 전체가 낙찰 후로 끌려간다(리뷰 r1 T5). 그 밖은 옛 동작(그 줄 자체가 표제)이다.
+                if can_inherit_outer_heading(line):
+                    current_heading = stage_heading_from_stack(heading_stack)
+                    if (
+                        current_heading != line
+                        and resolve_doc_stage(current_heading, "") == "낙찰 후·계약 시"
+                        and PREBID_WORD_RE.search(line)
+                    ):
+                        current_heading = line
+                else:
+                    current_heading = line
+            elif not find_doc_name_spans(line) and any(pattern.search(line) for pattern, _ in SENTENCE_STAGE_RULES):
+                # 번호 없는 문단(※ 등)이 단계를 밝히면 그 아래 목록은 앞 표제를 물려받지 않는다. 충돌 검사 창은
+                # 조항 경계(「1)」 줄)에서 시작해 위 문단을 못 본다(리뷰 r1 T2 · 「※ 입찰 참가 시에는 … 입찰 마감일까지 제출」).
+                heading_stack.clear()
+                pos_stack.clear()
+                current_heading = ""
+            if note_scope is not None and not PREBID_COPY_RE.search(line):
+                current_heading = str(note_scope["heading"])
+            elif note_scope is not None and not HEADING_LINE_RE.match(line):
+                # 입찰 때 내는 사본을 말하는 「-」 줄은 ※ 표제를 씌우지 않고, 앞 줄이 씌운 표제도 걷어 범위 전 표제로 되돌린다
+                # (리뷰 d8378b6 r2 P1-A · 「※ 낙찰자 제출서류 / - 입찰참가 시 법인등기부등본 사본을 함께 제출」).
+                current_heading = str(note_scope["prev"])
+            # 다음 줄부터의 제출 목록 안내(submission_cue)를 이 줄 판정 «뒤»에 바꾸려고 값을 먼저 잡아 둔다.
+            cue_before = submission_cue
+            if re.match(r"첨부\s*[ː:]", line):
+                submission_cue = True
+            elif not find_doc_name_spans(line):
+                if len(line) <= SUBMISSION_CUE_MAX_CHARS and SUBMISSION_LIST_HEADING_RE.search(line):
+                    submission_cue = True
+                elif LIST_HEAD_RE.match(line):
+                    submission_cue = False
             conditions = [item for item in find_conditions(line) if not item["negative"]]
-            names = find_doc_names(line)
+            name_spans = find_doc_name_spans(line)
+            names: list[str] = []
+            first_span: dict[str, tuple[int, int]] = {}
+            for name, start, end in name_spans:
+                if name not in first_span:
+                    first_span[name] = (start, end)
+                    names.append(name)
             if not names:
                 if conditions and DOC_REQUEST_RE.search(line):
                     carried = conditions
                 elif LINE_RESET_RE.match(line):
                     carried = []
-                if CONTRACT_STAGE_RE.search(line):
-                    carried_stage = True
-                elif LINE_RESET_RE.match(line):
-                    carried_stage = False
                 continue
             carried_applies = bool(carried) and bool(SUB_ITEM_RE.match(line))
             # 첨부는 조건 물림 구조(번호·하위항목 서식)가 공고 절과 다르게 깨져 있어, 조건을
@@ -525,47 +1241,188 @@ def extract_doc_items(
             # 「업종·자격 요건」 축은 `등록증`·`면허` 같은 서류명 토큰으로 잡히므로
             # 그것만으로 제출 요구를 증명하지 못한다. authorizing 축에서 뺀다.
             authorizing = [item for item in conditions if item["key"] != "license"]
-            if not authorizing and not carried_applies and not DOC_REQUEST_RE.search(line) and not is_attachment:
-                # 조건 문맥도 제출 동사도 없으면 단순 언급이다(예: 「부동산의 표시는
-                # 등기사항증명서 기준」). 서류 요구로 세지 않는다. 첨부는 위에서 게이트를 뺐다.
+            # 제출 목록 절(「10. 낙찰(예정)자 제출서류」) 안의 짧은 나열 항목은 동사가 없어도 요구다.
+            in_submission_list = len(line) <= SUBMISSION_LIST_ITEM_MAX_CHARS and (
+                any(SUBMISSION_LIST_HEADING_RE.search(heading) for _kind, heading in heading_stack)
+                or bool(note_scope and SUBMISSION_LIST_HEADING_RE.search(note_scope["heading"]))
+                or cue_before
+            )
+            line_requested = doc_request_in(line)
+            if is_attachment and not line_requested and len(line) <= 1200:
+                para_lo, para_hi = paragraph_bounds(full_text, line_offset, line_offset + len(line))
+                line_requested = doc_request_in(full_text[para_lo:para_hi])
+            # 줄바꿈 없이 문서 전체가 한 줄인 첨부는 줄 단위로 보면 어디엔가 「제출」이 있어 언제나 통과한다.
+            # 그런 줄은 아래에서 서류명마다 그 조항 구간(doc_clause_bounds)만 보고 따로 판정한다.
+            long_line = len(line) > 1200
+            if (
+                not long_line
+                and not authorizing
+                and not carried_applies
+                and not in_submission_list
+                and not line_requested
+            ):
+                # 조건 문맥도 제출 동사도 제출 목록 절도 없으면 단순 언급이다(예: 「부동산의 표시는
+                # 등기사항증명서 기준」 · 첨부의 「등기사항증명서 참조」). 2026-10-19 부터 첨부에도 건다.
                 continue
             extras = doc_extras(line)
-            # 🔴 기본값이 「입찰 전」인 것은 «의도된 비대칭»이다. 뒤집지 말 것.
-            # 화면은 이 값으로 서류를 2단계(입찰 전 준비)와 4단계(낙찰 후 준비)에 물리적으로
-            # 나눠 담는다(app.js isPostAwardDoc). 두 방향의 오분류 비용이 같지 않다.
-            #   - 「낙찰 후」로 잘못 보내면: 사용자가 4단계를 지금 할 일로 보지 않아 그 서류를
-            #     놓치고, 입찰 마감 전 제출물이었다면 입찰 자체가 무효가 된다.
-            #   - 「입찰 전」으로 잘못 보내면: 서류 하나를 더 확인하는 비용에서 멈춘다.
-            # 그래서 CONTRACT_STAGE_RE 가 «확실히» 잡았을 때만 낙찰 후로 보내고, 판정이
-            # 불확실한 모든 줄은 입찰 전에 남긴다. 조건을 부정형으로 바꾸거나(「낙찰 후가
-            # 아닌 것만 입찰 전」) 기본값을 낙찰 후로 돌리면 미지의 줄이 4단계로 흘러
-            # 비싼 쪽 오류를 물게 된다(2026-10-18 ux-design-review P0-2).
-            stage = "낙찰 후·계약 시" if (CONTRACT_STAGE_RE.search(line) or carried_stage) else "입찰 전"
             labels = [item["label"] for item in active] or ["공통"]
             for name in names:
-                key = (name, " · ".join(labels))
-                if key in seen:
+                # 🔴 추측으로 입찰 전/낙찰 후 어느 한쪽에 밀어 넣지 않는다. 뒤집지 말 것.
+                # 화면은 이 값으로 서류를 2단계(입찰 전 준비)와 4단계(낙찰 후 준비)에 물리적으로
+                # 나눠 담는다(app.js isPostAwardDoc). doc_stage_at 가 조항 표제·결정적 문구
+                # 어느 쪽으로도 못 정하면 "미분류" — 그 서류명 «바로 근처»만 보고 판정하므로
+                # 멀리 떨어진 말에 더 이상 오염되지 않는다. PDF/HWP 첨부는 줄바꿈이 없어 한
+                # 줄이 문서 전체일 수 있어, 이름마다 그 위치 기준으로 따로 판정한다
+                # (team-reports/2026-10-18-bid-doc-timeline/stage-classification-design.md §0·§3).
+                start, end = first_span[name]
+                if long_line:
+                    for _n, s0, e0 in name_spans:
+                        if _n != name or doc_is_mention_only(line, e0):
+                            continue
+                        c_lo, c_hi = doc_clause_bounds(line, s0, e0)
+                        c = line[c_lo:c_hi]
+                        if (any(not it["negative"] and it["key"] != "license" for it in find_conditions(c))
+                                or doc_request_in(c) or under_submission_heading_inline(line, s0)):
+                            start, end = s0, e0
+                            break
+                # 제출 목록 절 안의 「위임장(별지 제2호 참조) 1부」는 서식 안내라 언급이 아니다(리뷰 d8378b6 r1 P1-6).
+                if not in_submission_list and doc_is_mention_only(line, end):
                     continue
-                seen.add(key)
-                howto, howto_url = DOC_HOWTO.get(name, ("", ""))
-                items.append(
-                    {
-                        "name": name,
-                        "conditions": labels,
-                        "conditionKeys": [item["key"] for item in active],
-                        "copy": extras.get("copy", ""),
-                        "validity": extras.get("validity", ""),
-                        "method": extras.get("method", ""),
-                        "due": extras.get("due", ""),
-                        "count": extras.get("count", ""),
-                        "stage": stage,
-                        "howto": howto,
-                        "howtoUrl": howto_url,
-                        "sourceSection": title,
-                        "evidence": line[:300],
-                    }
+                if long_line:
+                    clause_lo, clause_hi = doc_clause_bounds(line, start, end)
+                    clause = line[clause_lo:clause_hi]
+                    clause_authorizing = [
+                        item for item in find_conditions(clause) if not item["negative"] and item["key"] != "license"
+                    ]
+                    if (
+                        not clause_authorizing
+                        and not doc_request_in(clause)
+                        and not under_submission_heading_inline(line, start)
+                    ):
+                        continue
+                start_global, end_global = line_offset + start, line_offset + end
+                stage, _confident, source_heading = doc_stage_at(
+                    full_text,
+                    start_global,
+                    end_global,
+                    current_heading,
+                    section_bounds(start_global),
+                    name,
+                    inherited=bool(heading_stack) and current_heading != heading_stack[-1][1],
                 )
+                if stage in UNRESOLVED_STAGES:
+                    # 표제·문장으로 못 정했으면 ① 준수규칙(대리·공동·미성년 문맥) ② 같은 본 조항 안의 입찰 전 표지 순으로 본다.
+                    # 둘 다 「입찰 전」으로만 확정한다 — 낙찰 후로 보내는 보강 판정은 두지 않는다(구현 계획 D1).
+                    # 조건은 판정에만 쓴다. 첨부의 화면 조건 라벨(active)은 지금처럼 비운다(위 47%→59% 주석).
+                    decision_conditions = clause_authorizing if long_line else conditions
+                    decision_keys = {item["key"] for item in decision_conditions}
+                    if carried_applies:
+                        decision_keys |= {item["key"] for item in carried}
+                    sot_source = sot_prebid_source(asset_type, name, decision_keys)
+                    if long_line:
+                        bounds = inline_block_bounds(line, start, end)
+                        block = line[bounds[0] : bounds[1]] if bounds else ""
+                    else:
+                        block = parent_block(start_global, bool(HEADING_LINE_RE.match(line)))
+                    own_text = clause if long_line else line
+                    marker = "" if sot_source or POST_BID_TIMING_RE.search(own_text) else prebid_marker_in(block)
+                    if sot_source:
+                        stage, _confident, source_heading = "입찰 전", True, sot_source
+                    elif marker:
+                        stage, _confident, source_heading = "입찰 전", True, f"같은 조항의 입찰 전 표지: {marker}"
+                key = (name, " · ".join(labels))
+                howto, howto_url = DOC_HOWTO.get(name, ("", ""))
+                item = {
+                    "name": name,
+                    "conditions": labels,
+                    "conditionKeys": [item["key"] for item in active],
+                    "copy": extras.get("copy", ""),
+                    "validity": extras.get("validity", ""),
+                    "method": extras.get("method", ""),
+                    "due": extras.get("due", ""),
+                    "count": extras.get("count", ""),
+                    "stage": stage,
+                    "sourceHeading": source_heading,
+                    "howto": howto,
+                    "howtoUrl": howto_url,
+                    "sourceSection": title,
+                    # 서류 줄을 감싸는 가장 바깥 조항 표제. 서류 줄 자체가 그 표제면 빈 문자열이다.
+                    # 중간 층은 보이지 않는다 — 공고마다 번호 층 순서가 달라(「라. → 2) → 가.」) 스택의 중간 층이 틀린다.
+                    "sourceOutline": shorten_outline_heading(outline_stack[0][1])
+                    if outline_stack and not (line_in_outline and len(outline_stack) == 1)
+                    else "",
+                    "evidence": line[:300],
+                }
+                if key in seen:
+                    # 같은 서류가 다시 나왔다. 앞이 미분류였고 이번에 단계가 정해졌으면 이번 것으로 바꾼다.
+                    # 둘 다 정해졌는데 단계가 다르면 둘 다 남긴다 — 같은 서류를 입찰 전에 한 번(사본 · 자격 확인),
+                    # 계약 때 또 내는 공고가 있다(강남터미널 광고의 사업자등록증). 앞의 확정 판정은 덮지 않는다.
+                    # 한 줄짜리 첨부(long_line)의 판정은 조항 경계가 흐려 둘째 항목을 더하지 않는다(인천공항 제안요청서 · 측정 중 확인).
+                    at, _was_confident = seen[key]
+                    if items[at]["stage"] in UNRESOLVED_STAGES and stage == "입찰 전":
+                        items[at] = item
+                        seen[key] = (at, _confident)
+                    elif items[at]["stage"] in UNRESOLVED_STAGES and stage == "낙찰 후·계약 시":
+                        # 앞 미분류를 낙찰 후로 바꾸면 그 서류가 2단계에서 사라진다. 입찰 때 내는 사본일 수 있다
+                        # (리뷰 d8378b6 r1 P0-1 · 「입찰서 제출 시 사업자등록증 사본」 뒤 「10. 낙찰자 제출서류」). 둘 다 남긴다.
+                        # 한 줄짜리 첨부는 조항 경계가 흐려 둘째 항목도 더하지 않는다.
+                        if not long_line and (name, key[1], stage) not in seen_stage:
+                            seen_stage.add((name, key[1], stage))
+                            items.append(item)
+                    elif (
+                        items[at]["stage"] == "낙찰 후·계약 시"
+                        and stage in UNRESOLVED_STAGES
+                        and not long_line
+                        and PREBID_COPY_RE.search(line)
+                        and (name, key[1], stage) not in seen_stage
+                    ):
+                        # 거울 경로: 낙찰 후가 먼저 나오고(본문을 첨부보다 먼저 읽는다) 입찰 때 내는 사본이 뒤에 미분류로 나오면
+                        # 그 사본도 남긴다(리뷰 d8378b6 r2 P0-A). 입찰 때를 말하는 줄로 좁힌다 — 좁히지 않으면 잡음이 15건 는다.
+                        seen_stage.add((name, key[1], stage))
+                        items.append(item)
+                    elif (
+                        not long_line
+                        and items[at]["stage"] not in UNRESOLVED_STAGES
+                        and stage not in UNRESOLVED_STAGES
+                        and stage != items[at]["stage"]
+                        and (name, key[1], stage) not in seen_stage
+                    ):
+                        seen_stage.add((name, key[1], stage))
+                        items.append(item)
+                    continue
+                seen[key] = (len(items), _confident)
+                seen_stage.add((name, key[1], stage))
+                items.append(item)
+    link_form_attachment_stages(items)
     return items
+
+
+# 첨부 서식 파일(「붙임 3. 입주신청서_및_심의자료_서식.hwp」) 끝의 「첨부 ː 1. 사업계획서 …」 목록은 그 서식과 함께 낸다.
+# 본문이 그 서식(「다. 입주신청서 1부」)의 시점을 정했으면 서식의 첨부 서류도 같은 시점이다(판교 · 수원 공고).
+# 파일 이름에 서식·양식·신청서가 있고, 그 이름 속 서류명이 본문에서 단계가 정해진 항목일 때만 잇는다.
+FORM_FILE_RE = re.compile(r"서식|양식|신청서")
+
+
+def link_form_attachment_stages(items: list[dict[str, object]]) -> None:
+    body_stage: dict[str, str] = {}
+    for item in items:
+        if item["sourceSection"] in DOC_SEARCH_SECTIONS and item["stage"] not in UNRESOLVED_STAGES:
+            body_stage.setdefault(str(item["name"]), str(item["stage"]))
+    for item in items:
+        section = str(item["sourceSection"])
+        if item["stage"] not in UNRESOLVED_STAGES or section in DOC_SEARCH_SECTIONS:
+            continue
+        file_name = section.split(":", 1)[-1]
+        if not FORM_FILE_RE.search(file_name):
+            continue
+        form_names = find_doc_names(file_name)
+        if len({body_stage.get(n, "") for n in form_names}) != 1:
+            continue
+        for form_name in form_names:
+            if form_name != item["name"] and form_name in body_stage:
+                item["stage"] = body_stage[form_name]
+                item["sourceHeading"] = f"첨부 서식 「{form_name}」에 딸린 서류 · 본문 「{form_name}」 항목과 같은 시점"
+                break
 
 
 # 온비드 「제출서류」 표의 서류명 칸이 구분명 그대로이거나 「공고문 확인」이면
@@ -607,9 +1464,11 @@ def build_doc_checklist(
     asset_type: str,
     attachments: list[dict[str, str]],
     attachment_chunks: list[tuple[str, str]] | None = None,
+    contact: str = "",
+    attachment_reads: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
     profile = doc_source_profile(asset_type)
-    items = extract_doc_items(sections, attachment_chunks)
+    items = extract_doc_items(sections, attachment_chunks, asset_type)
     table_rows = extract_docs_table(sections)
     generic_only = bool(table_rows) and all(row["generic"] for row in table_rows)
 
@@ -680,6 +1539,14 @@ def build_doc_checklist(
         "tableGenericOnly": generic_only,
         "notes": notes,
         "reference": "이 목록은 참고용입니다. 빠진 항목이 있어도 진행은 막지 않으며, 최종 확인은 온비드 원문과 담당기관 기준입니다.",
+        # "별도 문의 필요" 서류(NO_GENERAL_BASIS_DOC_NAMES) 화면 안내에 쓴다 — 이미 build_notice
+        # 가 추출해 둔 담당부점/공고기관 값을 그대로 물려받는다. 못 찾았으면 빈 문자열이고,
+        # 화면은 빈 값일 때 "공고 원문에서 확인" 같은 대체 문구를 쓴다(app.js).
+        "contact": contact,
+        # 첨부별 읽기 결과(attachment_doc_reads). 화면은 read 가 아닌 것이 있으면 「첨부 N개를 읽지 못했습니다」를 보인다.
+        # None 이면 첨부를 읽으려 하지 않은 호출(테스트 · 첨부 없음)이라 빈 목록으로 둔다.
+        "attachmentReads": list(attachment_reads or []),
+        "attachmentUnread": sum(1 for read in (attachment_reads or []) if read.get("status") != "read"),
     }
 
 
@@ -758,23 +1625,62 @@ def attachment_text(data: bytes) -> str:
     return result.stdout.decode("utf-8", errors="replace")
 
 
-def attachment_doc_chunks(attachments: list[dict[str, str]]) -> list[tuple[str, str]]:
-    """첨부 목록을 내려받아 텍스트화하고, extract_doc_items 가 쓸 (label, text) 쌍으로 낸다."""
+# 첨부를 읽는 순서(2026-10-19 · 구현 계획 D2). 개수 상한(ATTACHMENT_MAX_COUNT)은 그대로 두고, 서류 목록이 있을
+# 만한 파일을 앞에 둔다. 원문 36건에서 감정평가서가 4자리 중 첫 자리를 차지하고(예술의전당), 변경 공지사항 9개가
+# 뒤로 밀려 열리지 않았다(인천공항). 같은 순위 안에서는 온비드 목록 순서를 지킨다.
+ATTACHMENT_DEFER_RE = re.compile(r"감정\s*평가|도면|평면도|위치도|지적도|등기부|등기사항|건축물\s*대장|사진|쉽게\s*풀어")
+ATTACHMENT_PRIORITY_RE = re.compile(r"공고|제안\s*요청서|현장\s*설명|공지|서식|양식|조건|유의\s*사항|신청서")
+
+
+def attachment_read_order(attachments: list[dict[str, str]]) -> list[dict[str, str]]:
+    def rank(doc: dict[str, str]) -> int:
+        name = str(doc.get("name", ""))
+        if ATTACHMENT_DEFER_RE.search(name):
+            return 2
+        return 0 if ATTACHMENT_PRIORITY_RE.search(name) else 1
+
+    return sorted(attachments, key=rank)
+
+
+def attachment_doc_reads(
+    attachments: list[dict[str, str]],
+) -> tuple[list[tuple[str, str]], list[dict[str, str]]]:
+    """첨부를 읽는 순서대로 내려받아 텍스트화하고, (label, text) 쌍과 첨부별 읽기 결과를 함께 낸다.
+
+    읽기 결과(status): read · not_tried(개수 상한) · too_large(크기 상한) · failed(다운로드 실패 · 빈 텍스트 · 파싱 실패).
+    지금까지는 실패를 조용히 건너뛰어, 화면이 첨부를 다 읽은 것처럼 보였다(원문 36건 중 18건이 일부를 못 읽음).
+    """
     chunks: list[tuple[str, str]] = []
-    for doc in attachments[:ATTACHMENT_MAX_COUNT]:
+    reads: list[dict[str, str]] = []
+    for position, doc in enumerate(attachment_read_order(attachments)):
+        name = str(doc.get("name", ""))
         url = doc.get("downloadUrl", "")
+        if position >= ATTACHMENT_MAX_COUNT:
+            reads.append({"name": name, "status": "not_tried"})
+            continue
         if not url:
+            reads.append({"name": name, "status": "failed"})
             continue
         try:
             data = fetch_attachment_bytes(url)
         except Exception:  # noqa: BLE001 — 첨부 하나 다운로드 실패가 전체를 막지 않는다
+            reads.append({"name": name, "status": "failed"})
             continue
-        if not data or len(data) > ATTACHMENT_MAX_BYTES:
+        if data and len(data) > ATTACHMENT_MAX_BYTES:
+            reads.append({"name": name, "status": "too_large"})
             continue
-        text = attachment_text(data)
+        text = attachment_text(data) if data else ""
         if text.strip():
-            chunks.append((f"첨부:{doc.get('name', '')}", text))
-    return chunks
+            chunks.append((f"첨부:{name}", text))
+            reads.append({"name": name, "status": "read"})
+        else:
+            reads.append({"name": name, "status": "failed"})
+    return chunks, reads
+
+
+def attachment_doc_chunks(attachments: list[dict[str, str]]) -> list[tuple[str, str]]:
+    """첨부 목록을 내려받아 텍스트화하고, extract_doc_items 가 쓸 (label, text) 쌍으로 낸다."""
+    return attachment_doc_reads(attachments)[0]
 
 
 # 공고문 절을 번호 제목 단위로 잘라 목차를 만든다. 첨부 파일(PDF·HWP) 내부는 열지 않는다.
@@ -811,6 +1717,21 @@ def extract_notice_outline(sections: dict[str, str]) -> list[dict[str, str]]:
     return outline
 
 
+def deposit_basis_note(deposit: str, minimum_bid_display: str) -> str:
+    """입찰보증금 원문 표시값이 무엇을 기준으로 계산되는지에 맞춰 note 를 고른다.
+
+    🔴 기준은 재산유형마다 다르다. 압류재산만 공매예정가격(최저입찰가) 기준이고, 국유·수탁·
+    이용기관 물건은 «입찰금액» 기준이다(온비드 준수규칙 — 압류 제8조① · 국유 제8조① · 수탁
+    제6조① · 최고가 제8조①). 옛 note 는 원문이 「입찰금액 X 5%」인데도 「기준이 되는
+    최저입찰가격은 …」이라고 붙여 기준을 잘못 안내했다(2026-10-19 정합성 대조).
+    """
+    if re.search(r"(?<!최저)(?<!최저 )입찰\s*금액", deposit):
+        return "온비드 원문 표시값입니다. 이 보증금은 최저입찰가격이 아니라 내가 써 내는 입찰금액을 기준으로 계산합니다."
+    if re.search(r"최저\s*입찰\s*가|예정\s*가", deposit):
+        return f"온비드 원문 표시값입니다. 기준이 되는 최저입찰가격은 {minimum_bid_display or '원문 확인'}입니다."
+    return "온비드 원문 표시값입니다. 계산 기준은 공고 원문에서 확인하십시오."
+
+
 def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> list[dict[str, str]]:
     """공고 원문에 적힌 비용 조건만 모은다. 세율·요율은 계산하지 않는다."""
     chunk = strip_tooltips(section_html(sections, "입찰방법"))
@@ -821,7 +1742,7 @@ def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> li
             {
                 "title": "입찰보증금",
                 "value": deposit,
-                "note": f"온비드 원문 표시값입니다. 기준이 되는 최저입찰가격은 {minimum_bid_display or '원문 확인'}입니다.",
+                "note": deposit_basis_note(deposit, minimum_bid_display),
                 "source": "온비드 상세 페이지 > 입찰방법",
             }
         )
@@ -832,7 +1753,9 @@ def extract_cost_terms(sections: dict[str, str], minimum_bid_display: str) -> li
                 {
                     "title": label,
                     "value": value,
-                    "note": "온비드 원문 표시값입니다.",
+                    # 온비드 화면 필드가 첨부 공고문 본문과 어긋난 사례가 있다(시연 공고 887335 —
+                    # 필드 「낙찰 후 7일 이내」 · 공고문 「계약 체결 후 30일 이내」 · 2026-10-19 관측).
+                    "note": "온비드 원문 표시값입니다. 첨부 공고문 본문의 기한과 다를 수 있으니 공고문도 확인하십시오.",
                     "source": "온비드 상세 페이지 > 입찰방법",
                 }
             )
@@ -1498,7 +2421,7 @@ def build_tasks(notice: dict[str, str], docs: list[str]) -> list[dict[str, objec
             "action": price_value,
             "due": "입찰 전",
             "detail": (
-                "최저입찰가격이 「비공개」이면 이용기관이 공개하지 않기로 선택한 것입니다. 보증금은 이 값에 이용기관이 정한 비율을 곱해 정해집니다."
+                "최저입찰가격이 「비공개」이면 이용기관이 공개하지 않기로 선택한 것입니다. 입찰보증금이 입찰금액 기준인지 최저입찰가격 기준인지는 공고마다 다르니 비용 항목의 원문 표시값을 확인하십시오."
                 if price_value == PRICE_UNDISCLOSED
                 else "가격, 보증금, 대부료, 납부 방식은 입찰 판단에 영향을 주지만 본 MVP는 수익성 판단을 제공하지 않습니다."
             ),
@@ -1614,6 +2537,18 @@ def local_ai_coach(notice: dict[str, object], docs: list[str]) -> dict[str, obje
             }
         )
         ask_agency.append("입찰 전 보증금과 낙찰 후 납부금의 납부 방식·기한을 각각 확인할 수 있나요?")
+        # 매각 공고에도 현장·실물 확인 질문을 둔다. 임대 분기에만 있어서 차량·동산 매각(사진·기재와
+        # 실물이 다른 사례)에서는 코치가 아무 말도 하지 않았다(2026-10-19 커뮤니티 조사 1-5 · 4-2 B).
+        # 상태가 좋다·나쁘다는 판단은 쓰지 않는다. 확인 가능 여부를 묻는 문장까지만이다.
+        unresolved_checks.append(
+            {
+                "title": "현장·실물 상태를 확인할 수 있는지",
+                "reason": "사진과 기재 내용만으로는 실물 상태, 보관 장소, 낙찰 후 인수 방법이 드러나지 않을 수 있습니다.",
+                "action": "현장 확인 가능 시간과 인수 방법을 담당기관에 묻고, 공고 원문의 현황 기재와 대조합니다.",
+                "source": "물건 상세/담당기관",
+            }
+        )
+        ask_agency.append("현장이나 실물을 확인할 수 있는 시간과 방법, 낙찰 후 인수 절차를 확인할 수 있나요?")
     else:
         headline = "AI 누락 점검: 임대 후 실제 사용 조건"
         plain_summary = "대부료나 기간보다 실제 사용 가능 조건, 현장 상태, 추가 비용이 빠지기 쉽습니다."
@@ -1980,13 +2915,16 @@ def question_prompt(
             "아직 끝내지 않은 첫 할 일(board.nextTaskId)부터 위에서 아래 순서로 진행하도록 권하고, "
             "안내하는 첫 할 일의 needsCheck 가 비어 있지 않으면 그 내용을 반드시 한 번 짚는다. "
             "board.tasks 가 비어 있으면 board 로 답하지 않는다. 모든 할 일이 끝났으면 원문과 담당기관 최종 확인을 안내한다. "
-            "(3) general: 이 공고에 한정되지 않은 일반적인 온비드 공매·입찰 절차에 대한 공개된 일반 지식을 묻는 질문"
-            "(전자입찰 진행 방식, 서류 제출 뒤 일반적인 절차 흐름, 입찰 보증금 일반 규정 등). notice 와 board 근거 없이도 "
-            "공매 절차에 대한 일반 지식만으로 확실히 답할 수 있을 때만 쓰고, sourceField 는 빈 문자열로 둔다. "
+            "(3) general: 이 공고에 한정되지 않은 온비드 공매 제도·절차·용어를 묻는 질문"
+            "(매각결정기일이 무엇인지, 전자입찰 진행 방식, 서류 제출 뒤 절차 흐름, 입찰 보증금 일반 규정 등). "
+            "onbidReference 는 온비드 이용안내·FAQ·준수규칙·용어사전에서 옮긴 설명이다. 질문한 용어가 onbidReference 에 "
+            "있으면 none 으로 답하지 않고, 그 text 를 근거로 쉬운 말로 풀어 답하며, text 에 없는 사실은 덧붙이지 않고, "
+            "sourceField 에 그 source 를 적는다. onbidReference 가 비어 있으면 공매 절차에 대한 일반 지식만으로 "
+            "확실히 답할 수 있을 때만 쓰고, sourceField 는 빈 문자열로 둔다. "
             "이 공고에만 해당하는 사실(가격·기간·기관 등)이나 notice 에 없는 이 물건 특정 내용은 general 로 답하지 않는다. "
             "(4) none: 위 근거로 답할 수 없거나 추측·해석이 필요한 질문. answerable 을 false, answer 를 빈 문자열로 둔다. "
             "notice, board, general 은 answerable 을 true 로 한다. 모르는데 지어내지 않는다. "
-            "general 로 답할 만한 일반 지식도 확신이 없으면 none 으로 남긴다. "
+            "onbidReference 가 비어 있고 general 로 답할 만한 일반 지식도 확신이 없으면 none 으로 남긴다. "
             "board 안내는 준비 순서에 대한 것이며 입찰 여부를 판단하는 말이 아니다. "
             "general 안내도 공매 절차에 대한 일반 지식일 뿐이며 이 공고에 대한 판단이 아니다. "
             "입찰 참여 권유, 가격 결정 권유, 수익성 판단, 법률/권리관계 판단은 어느 갈래로도 하지 않는다. "
@@ -2011,12 +2949,13 @@ def question_prompt(
             "proxyBidAnswer": notice.get("proxyBidAnswer", ""),
         },
         "board": board or {},
+        "onbidReference": find_onbid_references(question),
         "question": question,
         "schema": {
             "answerable": True,
-            "answerType": "notice | board | none",
-            "answer": "공고 내용 또는 준비 보드 상태에 근거한 답변, 또는 빈 문자열",
-            "sourceField": "근거로 쓴 notice 필드 이름 또는 task id, 또는 빈 문자열",
+            "answerType": "notice | board | general | none",
+            "answer": "공고 내용, 준비 보드 상태, 또는 onbidReference 에 근거한 답변, 또는 빈 문자열",
+            "sourceField": "근거로 쓴 notice 필드 이름, task id, onbidReference 의 source, 또는 빈 문자열",
         },
     }
 
@@ -2105,14 +3044,257 @@ def normalize_question_answer(result: dict[str, object], board: dict[str, object
     }
 
 
+# 초보자가 커뮤니티에서 자주 묻고 곤란해하는 질문에는 모델 대신 고정 문장으로 답한다(2026-10-19 동원님 지시:
+# 「입찰금액은 어떻게 정하면 좋을까요?」에 「담당기관에 문의」만 나왔다). 질문 갈래는
+# docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1절·3절에서 골랐고, 문장은 온비드 이용안내·FAQ·
+# 입찰참가자 준수규칙(team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md)과
+# ONBID_GUIDE_TERMS 에 있는 사실만 쓴다. 얼마를 쓸지·권리관계·수익성은 여기서도 판단하지 않고, 판단 대신
+# 「정하기 전에 확인할 것」을 적는다(CLAUDE.md 행동 규칙 · 커뮤니티 조사 4-3).
+# patterns 는 띄어쓰기를 지운 질문에 맞춘다. 목록 순서가 우선순위다 — 「낙찰되면 보증금은?」은 낙찰 뒤 절차,
+# 「보증금 몇 퍼센트?」는 보증금으로 가야 하므로 보증금을 입찰금액보다 앞에 둔다.
+# exclude 는 다른 경로가 이미 맞게 답하는 질문을 돌려보낸다. 「유찰되면 보증금은?」은 유찰 용어 설명이 답한다.
+COMMON_QUESTION_GUIDES: tuple[dict[str, object], ...] = (
+    {
+        "id": "after-award",
+        "title": "낙찰 뒤 절차",
+        "patterns": (
+            r"낙찰(후|뒤|되면|돼면|받으면|받고|받은|이후|다음|된다음|된뒤|된후)",
+            r"(잔금|잔대금)\S{0,6}(언제|어떻게|기한|납부|내야|내나|낼)",
+            r"(소유권이전|이전등기|등기)\S{0,6}(어떻게|절차|언제|하나|해야|하면)",
+            r"(낙찰|계약)\S{0,4}포기",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "bid-cancel",
+        "title": "입찰서 취소·수정",
+        "patterns": (
+            r"(입찰|입찰서|응찰)\S{0,4}(취소|철회|수정|변경|바꿀|바꾸|바꿔)",
+            r"(제출한|낸|넣은)\S{0,6}(취소|수정|변경|바꿀|바꾸|바꿔)",
+        ),
+        "exclude": (r"개찰결과", r"결과가취소"),
+    },
+    {
+        "id": "result-check",
+        "title": "입찰 결과 확인",
+        "patterns": (
+            r"(낙찰|입찰|개찰)결과\S{0,4}(확인|어디|언제|볼|알)",
+            r"낙찰(됐|되었|여부)\S{0,6}(확인|어디|알|볼)",
+            r"입찰자(수|가몇)",
+            r"누가낙찰",
+            r"몇명\S{0,4}(입찰|응찰)",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "certificate",
+        "title": "입찰에 쓰는 인증서",
+        "patterns": (r"인증서", r"간편인증", r"입찰버튼"),
+        "exclude": (),
+    },
+    {
+        "id": "qualification",
+        "title": "입찰 자격",
+        "patterns": (
+            r"(개인|사업자|법인|외국인|미성년)\S{0,6}(입찰|참여|참가|응찰)\S{0,4}(할수|가능|되|돼|있)",
+            r"(입찰|참가)자격",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "rights",
+        "title": "권리관계·명도",
+        "patterns": (r"권리", r"인수", r"임차인", r"세입자", r"(?<!설)명도", r"인도명령", r"떠안", r"선순위", r"가압류", r"근저당"),
+        "exclude": (),
+    },
+    {
+        "id": "deposit",
+        "title": "입찰보증금",
+        "patterns": (r"보증금(은|을|는|이)?(얼마|몇|언제|어떻게|어디|계좌|납부|내야|내나|내면|넣)",),
+        "exclude": (r"유찰", r"패찰", r"떨어지", r"떨어졌", r"탈락"),
+    },
+    {
+        "id": "bid-amount",
+        "title": "입찰금액을 정할 때 확인할 것",
+        "patterns": (
+            r"입찰(금액|가격|가)(은|는|을|를)?(어떻게|얼마|정하|정해|정할|써야|쓰면|적어|넣어|결정)",
+            r"얼마(를|에|로|정도)?(써|쓰|적|넣|입찰|응찰)",
+            r"몇(프로|퍼센트|%)",
+            r"(적정|적당한)(가|가격|금액|입찰)",
+            r"(시세|낙찰가율)",
+        ),
+        "exclude": (),
+    },
+    {
+        "id": "site-check",
+        "title": "사진·현장 확인",
+        "patterns": (r"사진", r"현장", r"실물", r"직접(가|볼|봐)", r"구경"),
+        "exclude": (),
+    },
+)
+
+
+def _notice_text(notice: dict[str, object], key: str) -> str:
+    value = str(notice.get(key) or "").strip()
+    return "" if value in ("", "-", NOTICE_VALUE_FALLBACK) else value
+
+
+def _deposit_rule_line(notice: dict[str, object]) -> str:
+    """재산유형별 입찰보증금 기준 한 문장. 근거는 ONBID_GUIDE_TERMS['입찰보증금'] 과 같은 준수규칙 조항이다."""
+    asset = str(notice.get("assetType") or "")
+    shown = _notice_text(notice, "bidDeposit")
+    shown_part = f" 이 공고의 표시는 「{shown}」입니다." if shown else ""
+    if "압류재산" in asset:
+        base = "압류재산의 입찰보증금(공매보증)은 내가 쓴 입찰금액이 아니라 공매예정가격의 10% 이상입니다."
+    elif "국유재산" in asset:
+        base = "국유재산의 입찰보증금은 내가 쓴 입찰금액의 5% 이상이라, 금액을 높여 쓰면 보증금도 함께 늘어납니다."
+    elif "수탁재산" in asset:
+        base = "수탁재산의 입찰보증금은 내가 쓴 입찰금액의 10% 이상이라, 금액을 높여 쓰면 보증금도 함께 늘어납니다."
+    else:
+        base = "이용기관 물건의 입찰보증금은 기관이 정한 「입찰금액의 일정률」 이상입니다. 입찰금액 기준이면 금액을 높여 쓸수록 보증금도 늘어납니다."
+    return base + shown_part
+
+
+def _is_lease_notice(notice: dict[str, object]) -> bool:
+    label = str(notice.get("dispositionLabel") or "")
+    return bool(re.search(r"임대|대부", label)) and not re.search(r"매각|공매", label)
+
+
+def common_question_lines(guide_id: str, notice: dict[str, object], board: dict[str, object] | None) -> tuple[list[str], str]:
+    """자주 묻는 질문 갈래마다 이 공고 값을 넣은 안내 문장과 출처를 돌려준다."""
+    minimum = _notice_text(notice, "minimumBidPrice")
+    appraisal = _notice_text(notice, "appraisalPrice")
+    asset = str(notice.get("assetType") or "")
+    if guide_id == "bid-amount":
+        if minimum == "비공개":
+            minimum_line = "이 물건의 최저입찰가격은 「비공개」입니다. 이용기관이 공개하지 않기로 한 값이라 담당기관에 문의하십시오."
+        elif minimum:
+            minimum_line = f"이 물건의 최저입찰가격은 {minimum}입니다. 이 회차에 입찰할 수 있는 가장 낮은 금액이라 이보다 낮게 쓸 수 없습니다."
+        else:
+            minimum_line = "최저입찰가격(이 회차에 입찰할 수 있는 가장 낮은 금액)은 공고 원문에서 확인하십시오."
+        lines = [
+            "얼마를 쓸지는 이 서비스가 정해 드리지 않습니다. 적정 가격·낙찰 가능성·수익성은 판단하지 않고, 금액을 정하기 전에 확인할 것만 정리합니다.",
+            minimum_line,
+            _deposit_rule_line(notice),
+        ]
+        if appraisal:
+            lines.append(f"감정평가금액({appraisal})은 최저입찰가격과 다른 값입니다. 둘의 관계는 공고마다 다르므로 공고 원문에서 확인하십시오.")
+        lines.append("제출한 입찰서는 수정·변경·취소할 수 없는 것이 원칙입니다. 제출 전에 금액의 자릿수(0의 개수)를 다시 확인하십시오.")
+        if _is_lease_notice(notice):
+            lines.append("낙찰되면 대부료·사용료를 공고문이 정한 기한 안에 내야 합니다. 기한과 금액 산정 방식은 공고 원문에서 확인하십시오.")
+        else:
+            lines.append("낙찰되면 잔대금을 공고문이 정한 기한 안에 내야 합니다. 취득세 같은 세금과 이전 비용은 이 서비스가 계산하지 않으니 관할 세무서와 담당기관에서 확인하십시오.")
+        lines.append("가격을 판단할 때 쓸 물건 상태와 이용 조건은 공고 첨부, 현장 확인, 담당기관 문의로 직접 확인하십시오.")
+        return lines, "온비드 용어 설명(최저입찰가격·입찰보증금·감정평가금액) · 온비드 FAQ 「입찰 및 개찰 일정」 · 입찰참가자 준수규칙 보증금 조항"
+    if guide_id == "deposit":
+        return [
+            _deposit_rule_line(notice),
+            "납부 계좌는 입찰서를 제출한 뒤 물건마다 따로 주어지는 1회용 가상계좌입니다.",
+            "입찰 마감 시각까지 보증금을 내지 않으면 입찰이 무효가 됩니다.",
+            "보증금이 1천만 원을 넘으면 마감 전까지 나눠 낼 수 있다고 온비드가 안내하지만, 분할 납부를 막는 공고도 있으니 공고문을 확인하십시오.",
+        ], "온비드 이용안내 「입찰참가 안내」 STEP04-5·STEP05 · 입찰참가자 준수규칙 보증금 조항"
+    if guide_id == "bid-cancel":
+        return [
+            "제출한 입찰서는 수정·변경·취소할 수 없는 것이 원칙입니다.",
+            "온비드에서 2회 이상 입찰서 제출이 가능하다고 안내된 물건이면 같은 회차에 다시 입찰할 수 있습니다.",
+            "입찰보증금을 마감 시각까지 내지 않으면 그 입찰은 무효가 됩니다. 무효가 된 입찰에 다른 불이익이 따르는지는 공고문과 담당기관에서 확인하십시오.",
+        ], "온비드 FAQ 「입찰 및 개찰 일정」 · 온비드 FAQ(같은 회차 재입찰) · 압류재산 입찰참가자 준수규칙 제8조②"
+    if guide_id == "result-check":
+        return [
+            "개찰일시는 공고기관이 개찰을 시작하는 시각입니다. 개찰이 끝난 뒤에 결과를 볼 수 있습니다.",
+            "내 입찰 결과는 온비드 「나의온비드 > 입찰관리 > 입찰결과내역」에서 직접 확인합니다. 결과 알림도 신청할 수 있습니다.",
+            "낙찰자가 누구인지는 공개되지 않습니다.",
+            "입찰 결과의 「유찰」은 내 입찰만 탈락한 경우와 물건 자체가 유찰된 경우, 두 가지 뜻이 있습니다.",
+        ], "온비드 이용안내 「입찰참가 안내」 STEP06 · 온비드 FAQ 「본인의 입찰결과를 확인하는 방법」·「입찰결과에서 '유찰'의 의미」 · 국유재산 입찰참가자 준수규칙 제12조③"
+    if guide_id == "certificate":
+        lines = [
+            "온비드 전자입찰에는 공동인증서나 간편인증서(개인회원만)가 필요합니다.",
+            "공동인증서는 전자거래범용인증서나 온비드전용인증서를 온비드에 등록해야 합니다. 은행용·증권용처럼 용도가 정해진 인증서는 등록할 수 없습니다.",
+            "유료 인증서 수수료(1년)는 개인 온비드전용 1,100원 · 범용 4,400원, 사업자·법인·단체 11,000원 · 88,000원입니다.",
+        ]
+        user_type = str((board or {}).get("userType") or "")
+        if user_type and user_type != "개인":
+            lines.append(f"지금 고른 사용자 유형은 「{user_type}」입니다. 사업자·법인 회원은 간편인증서 없이 공동인증서를 씁니다.")
+        return lines, "온비드 인증서 안내 · 온비드 이용안내 「입찰참가 안내」 STEP02"
+    if guide_id == "qualification":
+        lines = [
+            "누가 입찰할 수 있는지는 공고문의 참가자격 조항이 정합니다. 개인·사업자·법인 가운데 누가 입찰할 수 있는지는 공고마다 다릅니다.",
+            "조항에 괄호 안 표기(예: 일반사업자 또는 법인사업자)가 있으면 그 뜻은 공고 원문과 담당기관에서 확인하십시오.",
+        ]
+        user_type = str((board or {}).get("userType") or "")
+        if user_type:
+            lines.append(f"지금 고른 사용자 유형은 「{user_type}」입니다. 이 유형이 참가자격 조항에 해당하는지 확인하십시오.")
+        return lines, "공고문 참가자격 조항 · 공공데이터 온비드 물건 입찰정보(입찰 자격 조건)"
+    if guide_id == "rights":
+        lines = ["권리관계, 인수해야 할 권리, 명도 책임은 이 서비스가 판단하지 않습니다. 확인할 곳만 안내합니다."]
+        eviction = _notice_text(notice, "evictionResponsibility")
+        if eviction:
+            lines.append(f"이 공고의 명도책임 표시는 「{eviction} 부담」입니다.")
+        if "압류재산" in asset:
+            lines.append("압류재산은 권리 관련 사항을 공매재산명세서로 안내합니다. 입찰시작 7일 전부터 입찰마감 전까지 물건 상세페이지 [입찰정보] 탭에서 볼 수 있습니다.")
+        else:
+            lines.append("공고문의 유의사항·명도 조항과 등기사항증명서를 직접 확인하십시오.")
+        lines.append("확인한 내용의 뜻이 분명하지 않으면 입찰 전에 담당기관이나 법률 전문가에게 문의하십시오.")
+        return lines, "온비드 FAQ(압류재산 · 공매재산명세서) · 공고 원문"
+    if guide_id == "site-check":
+        return [
+            "온비드 사진과 기재 내용만으로 물건 상태를 판단하지 마십시오. 기재 내용이 실제와 달랐다는 이용자 후기가 있습니다.",
+            "현장을 볼 수 있는지, 언제 볼 수 있는지는 담당기관에 문의하십시오.",
+            "부동산은 등기사항증명서·건축물대장, 차량은 자동차등록원부 같은 공적 서류로 기재 내용을 다시 확인할 수 있습니다.",
+        ], "공고 원문과 담당기관 확인 원칙"
+    # after-award 는 재산유형별 절차 문장이 화면(postAwardProcessNote)에 있어 화면이 이어 붙인다.
+    return ["낙찰 뒤 절차와 기한, 입찰보증금 처리는 재산유형마다 다릅니다."], "온비드 이용안내 「낙찰절차 안내」"
+
+
+GUIDE_JUMPS = {
+    "after-award": (4, "2-4 낙찰 후 준비 보기"),
+    "qualification": (1, "2-1 입찰 자격 조건 보기"),
+    "bid-amount": (3, "2-3 입찰 참여 보기"),
+    "deposit": (3, "2-3 입찰 참여 보기"),
+}
+
+
+def match_common_question(
+    question: str, notice: dict[str, object] | None = None, board: dict[str, object] | None = None
+) -> dict[str, object] | None:
+    """자주 묻는 질문 갈래에 맞으면 고정 안내를 돌려준다. 맞는 갈래가 없으면 None 이다."""
+    compact = re.sub(r"\s+", "", question or "")
+    if not compact:
+        return None
+    for guide in COMMON_QUESTION_GUIDES:
+        if any(re.search(pattern, compact) for pattern in guide["exclude"]):
+            continue
+        if not any(re.search(pattern, compact) for pattern in guide["patterns"]):
+            continue
+        lines, source = common_question_lines(str(guide["id"]), notice or {}, board)
+        result: dict[str, object] = {"id": guide["id"], "title": guide["title"], "lines": lines, "source": source}
+        jump = GUIDE_JUMPS.get(str(guide["id"]))
+        if jump:
+            result["jump"], result["jumpLabel"] = jump
+        return result
+    return None
+
+
 def answer_notice_question(
     notice: dict[str, object], docs: list[str], question: str, board: dict[str, object] | None = None
 ) -> dict[str, object]:
+    # 자주 묻는 질문은 모델을 부르지 않고 고정 안내로 답한다. 모델이 붙지 않았으므로 connected 는 False 다.
+    guide = match_common_question(question, notice, board)
+    if guide:
+        return {
+            "connected": False, "answerable": True, "answerType": "guide", "answer": "",
+            "sourceField": str(guide["id"]), "guide": guide, "references": find_onbid_references(question),
+        }
     # 모델에 붙지 않았으면 「AI 가 확인했다」고 말하지 않는다(coach 의 llmStatus 와 같은 원칙).
     result = vertex_answer_question(notice, docs, question, board) or gemini_answer_question(notice, docs, question, board)
     if isinstance(result, dict) and isinstance(result.get("answerable"), bool):
-        return normalize_question_answer(result, board)
-    return {"connected": False, "answerable": False, "answerType": "none", "answer": "", "sourceField": ""}
+        answer = normalize_question_answer(result, board)
+    else:
+        answer = {"connected": False, "answerable": False, "answerType": "none", "answer": "", "sourceField": ""}
+    # 온비드 용어 설명은 모델 답과 따로 싣는다. 모델이 답하지 못했거나 연결되지 않았어도 화면이
+    # 「담당기관 문의 필요」 대신 이 설명을 보여 줄 수 있게 한다(2026-10-19 동원님 지시).
+    answer["references"] = find_onbid_references(question)
+    return answer
 
 
 def bid_deadline_passed(bid_period: str, bid_deadline: str) -> tuple[bool, str]:
@@ -2348,14 +3530,531 @@ ONBID_GLOSSARY_TERMS = {
 TERM_GLOSSARY.update(ONBID_GLOSSARY_TERMS)
 
 
-def build_glossary(*values: str) -> list[dict[str, str]]:
+# 질문 답변(/api/ask)이 근거로 쓰는 온비드 공매 제도·절차 용어 설명이다. 온비드 이용안내·낙찰절차 안내·
+# FAQ·입찰참가자준수규칙(2026-10-19 수집본)에서 옮겼고, 근거 원문과 위치는
+# team-reports/2026-10-19-coach-onbid-terms/researcher-onbid-terms.md 에 있다(인용 137건 원자료 대조).
+# text 는 그 표의 설명 칸을 글자 그대로 옮겼다(scratchpad 의 생성 스크립트로 만들었고 손으로 고치지 않았다).
+# 뜻과 절차만 적는다 — 입찰 여부·법률·권리관계·수익성 판단은 담지 않는다.
+# 사전(ONBID_GLOSSARY_TERMS)과 달리 손으로 고른 목록이라 2글자 용어(개찰·유찰·낙찰)도 둔다.
+# scope 는 용어 탭(build_glossary)이 공고 분류에 맞춰 고를 때 쓴다. 값은 common · sale · lease ·
+# 압류재산 · 국유재산 · 수탁재산 여섯 가지다(2026-10-19 용어 탭 작업 세션과 합의).
+ONBID_GUIDE_TERMS: dict[str, dict[str, object]] = {
+    '매각결정기일': {
+        "text": "매각결정기일은 최고가 매수신청인(낙찰자)이 있을 때 매각허가 또는 불허가 결정을 선고하는 날입니다. 캠코 압류재산은 개찰일로부터 7일 이내(통상 개찰일의 다다음주 월요일 14:00, 공휴일·대체공휴일·토·일요일 제외)입니다. 정확한 날짜는 공고문이나 해당 공고의 '공고물건입찰정보'에서 확인합니다.",
+        "source": '온비드 FAQ 「압류재산의 매각결정기일」 · 압류재산 인터넷공매 입찰참가자준수규칙 제12조③',
+        "scope": '압류재산',
+        "aliases": ('매각결정일', '매각결정일시'),
+    },
+    '인터넷공매': {
+        "text": '인터넷공매는 한국자산관리공사가 운영하는 온비드로 하는 공매입니다. 입찰은 온비드 입찰화면에서 입찰서를 제출하는 방법으로 하고, 인증서로 입찰서에 전자서명합니다.',
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제4조5호 · 제5조②④',
+        "scope": 'common',
+        "aliases": ('인터넷입찰', '전자입찰'),
+    },
+    '인증서': {
+        "text": "온비드 전자입찰에는 공동인증서나 간편인증서(개인회원만)가 필요합니다. 공동인증서는 '전자거래범용인증서'나 '온비드전용인증서'를 온비드에 등록해야 합니다. 은행용·증권용처럼 용도가 정해진 인증서는 등록할 수 없습니다. 간편인증서(무료)는 따로 등록하지 않고 바로 씁니다.",
+        "source": '온비드 인증서 안내 · 온비드 이용안내 > 입찰참가 안내 STEP02',
+        "scope": 'common',
+        "aliases": ('공동인증서', '간편인증서', '온비드전용인증서', '전자거래범용인증서', '공인인증서'),
+    },
+    '입찰참가자준수규칙': {
+        "text": '온비드 전자입찰에 참가해 입찰서를 제출할 때 지켜야 할 규칙입니다. 입찰서를 제출할 때 이 규칙에 동의합니다.',
+        "source": '전자자산처분시스템 적정최고가입찰참가자 준수규칙 제1조 · 온비드 FAQ 「입찰서 제출 후 취소 또는 수정이 가능한가요?」',
+        "scope": 'common',
+        "aliases": ('준수규칙',),
+    },
+    '입찰참가신청': {
+        "text": '입찰참가신청 절차를 거쳐 공고기관이 승인한 사람만 입찰에 참가할 수 있게 하는 방식입니다.',
+        "source": '온비드 공고·물건 상세 도움말(입찰참가신청)',
+        "scope": 'common',
+        "aliases": (),
+    },
+    '공동입찰': {
+        "text": "2인 이상이 함께 입찰에 참가하는 것입니다. 1인이 대표로 온비드에서 입찰서를 내고, 나머지는 '전자서명방식'이나 '서류제출방식'으로 참가합니다. 가능 여부는 공고기관이 정한 기준을 따릅니다.",
+        "source": '온비드 공고·물건 상세 도움말(공동입찰) · 온비드 이용안내 > 입찰참가 안내 STEP04 · 압류재산 인터넷공매 입찰참가자준수규칙 제7조①',
+        "scope": 'common',
+        "aliases": ('공동명의 입찰', '공동 매수신청'),
+    },
+    '대리입찰': {
+        "text": "회원이 입찰대리인이 되어 입찰자(본인)를 대신해 본인 명의로 입찰서를 제출하는 것입니다. 입찰서를 낸 뒤 '대리입찰신청서', '위임장' 등을 입찰마감시간 전까지 공고기관에 내야 유효한 입찰이 됩니다.",
+        "source": '온비드 FAQ 「대리입찰 참가 가능 여부」 · 온비드 공고·물건 상세 도움말(대리입찰)',
+        "scope": 'common',
+        "aliases": ('대리 매수신청',),
+    },
+    '공매예정가격': {
+        "text": '압류재산의 공매예정가격은 감정평가사 등이 감정평가한 금액을 기준으로 정하며, 공사가 임의로 정하지 않습니다.',
+        "source": '온비드 FAQ 「공매예정가격은 어떻게 정해지나요?」',
+        "scope": '압류재산',
+        "aliases": (),
+    },
+    '일반경쟁·제한경쟁·지명경쟁': {
+        "text": '국유재산 대부는 일반경쟁입찰이 원칙이고, 예외로 제한경쟁·지명경쟁·수의 방법을 허용합니다. 제한경쟁·지명경쟁은 인접 토지 소유자를 지명할 필요가 있을 때, 수의 대부 신청이 경합할 때, 대부계약자의 자격을 제한하거나 지명할 필요가 있을 때 씁니다.',
+        "source": '온비드 FAQ 「국유재산을 대부받기 위하여 반드시 입찰에 참여하여야 하나요?」(분류 국유재산)',
+        "scope": '국유재산',
+        "aliases": ('일반경쟁', '제한경쟁', '지명경쟁'),
+    },
+    '최고가입찰': {
+        "text": '최고가입찰 준수규칙은 입찰공고에서 정한 유효한 입찰참가자 가운데 가장 높은 가격을 낸 사람을 낙찰자로 정합니다.',
+        "source": '전자자산처분시스템 최고가입찰참가자 준수규칙 제10조① · 온비드 물건상세 「입찰방식」',
+        "scope": 'common',
+        "aliases": ('최고가방식',),
+    },
+    '적정최고가입찰': {
+        "text": '적정최고가입찰은 예비가격 추첨으로 정한 예정가격 이상으로 입찰한 사람 가운데, 예정가격에 가장 가까운 금액을 낸 사람을 낙찰자로 정하는 방식입니다. 예비가격은 이용기관이 정한 기준으로 고른 15개 가격입니다. 예정가격은 추첨 결과에 따라 이용기관이 정한 개수만큼의 예비가격을 산술 평균한 가격입니다.',
+        "source": '전자자산처분시스템 적정최고가입찰참가자 준수규칙 제2조1~3호',
+        "scope": 'common',
+        "aliases": ('예비가격',),
+    },
+    '입찰보증금': {
+        "text": '입찰보증금 납부계좌는 입찰서를 제출할 때 건별로 주어지고, 입찰 마감시간까지 내야 합니다. 압류재산(공매보증)은 공매예정가격의 10% 이상, 국유재산은 입찰금액의 5% 이상, 수탁재산은 입찰금액의 10% 이상입니다. 이용기관 물건은 기관이 정한 입찰금액의 일정률 이상입니다. 마감시간까지 내지 않으면 입찰이 무효입니다.',
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제8조①② · 국유재산 입찰참가자 준수규칙 제8조① · 인터넷공매입찰참가자준수규칙(수탁재산) 제6조① · 전자자산처분시스템 최고가입찰참가자 준수규칙 제8조① · 온비드 FAQ 「여러 개의 물건에 입찰참가시 보증금 입금방법」',
+        "scope": 'common',
+        "aliases": ('공매보증', '공매보증금'),
+    },
+    '입찰보증금 분할납부': {
+        "text": '입찰보증금은 납부기한까지 전액을 한 번에 내야 합니다. 1천만 원을 넘으면 납부기한 전까지 나눠 낼 수 있습니다.',
+        "source": '온비드 이용안내 > 입찰참가 안내 STEP05',
+        "scope": 'common',
+        "aliases": ('분할납부', '분납'),
+    },
+    '입찰참가수수료': {
+        "text": '입찰참가수수료가 있는 물건은 입찰보증금과 수수료를 합한 금액을 한 번에 냅니다. 캠코가 집행하는 압류재산·국유재산 안내에는 입찰참가수수료가 없다고 적혀 있습니다.',
+        "source": '온비드 FAQ 「보증금 외 참가수수료가 있는 경우 입금방법」 · 「입찰보증금과 수수료는 얼마인지?」',
+        "scope": 'common',
+        "aliases": ('참가수수료',),
+    },
+    '전자보증서': {
+        "text": '입찰보증금을 현금 대신 보증보험증권으로 내기 위해 SGI서울보증에서 발급받는 증권입니다. 공고기관이 허용한 경우에만 쓸 수 있습니다. 온비드로 발급을 신청하는 것은 입찰마감일 전 영업일 18시 전까지만 됩니다.',
+        "source": '온비드 공고·물건 상세 도움말(전자보증서) · 온비드 FAQ 「전자보증서비스 이용방법」',
+        "scope": 'common',
+        "aliases": ('입찰보증보험', '전자보증서비스'),
+    },
+    '환급계좌': {
+        "text": '환급계좌는 낸 입찰보증금을 돌려받을 계좌입니다. 낙찰받지 못했거나 입찰이 취소된 경우처럼 환급 사유가 생기면 이 계좌로 돌려받습니다.',
+        "source": '온비드 이용안내 > 입찰참가 안내 STEP04 · 온비드 모의입찰 입찰서 작성 화면',
+        "scope": 'common',
+        "aliases": ('환불계좌', '환불예금계좌'),
+    },
+    '입찰서 제출 뒤 취소·변경': {
+        "text": '제출한 입찰서는 수정·변경·취소할 수 없습니다. 다만 같은 물건에 2회 이상 입찰서를 낼 수 있는 물건이면 같은 회차에 다시 입찰할 수 있습니다.',
+        "source": '온비드 이용안내 > 입찰참가 안내 STEP04 · 온비드 FAQ 「입찰서 제출 후 취소 또는 수정이 가능한가요?」 · 전자자산처분시스템 최고가입찰참가자 준수규칙 제7조④',
+        "scope": 'common',
+        "aliases": ('입찰서 취소', '입찰서 수정', '입찰서 변경', '입찰 취소', '입찰 수정', '입찰 변경'),
+    },
+    '동일물건 2회 이상 입찰': {
+        "text": '같은 회차의 같은 물건에 한 사람이 2회 이상 입찰할 수 있는지를 나타내는 항목입니다. 수탁재산은 한 사람이 여러 번 내면 가장 높은 가격의 입찰만 낙찰자 결정 대상으로 봅니다.',
+        "source": '온비드 공고·물건 상세 도움말(동일물건 2회 이상 입찰) · 인터넷공매입찰참가자준수규칙(수탁재산) 제7조③',
+        "scope": 'common',
+        "aliases": ('2회 이상 입찰',),
+    },
+    '입찰 무효': {
+        "text": '입찰 마감시간까지 입찰보증금을 내지 않으면 입찰이 무효입니다. 공동·대리입찰 서류를 마감 전에 내지 않거나 거짓으로 써서 낙찰받으면 낙찰이 무효입니다. 수탁재산은 보증금이 입찰금액의 10%에 못 미쳐도 무효입니다.',
+        "source": '온비드 FAQ 「입찰보증금 납부시 유의사항」 · 압류재산 인터넷공매 입찰참가자준수규칙 제7조④ · 인터넷공매입찰참가자준수규칙(수탁재산) 제6조② · 온비드 FAQ 「「개인회원」의 입찰참여시 유의사항」',
+        "scope": 'common',
+        "aliases": ('낙찰 무효',),
+    },
+    '개찰': {
+        "text": '개찰일시는 공고기관이 개찰을 시작하는 시각이며, 개찰이 끝난 뒤에 입찰결과를 볼 수 있습니다. 통상 캠코 국유재산은 목요일 09:30, 캠코 압류재산은 목요일 11:00에 개찰합니다. 그 밖의 이용기관 물건은 공고문에서 확인합니다.',
+        "source": '온비드 이용안내 > 입찰참가 안내 STEP06 · 온비드 FAQ 「입찰 및 개찰 일정」 · 전자자산처분시스템 최고가입찰참가자 준수규칙 제9조',
+        "scope": 'common',
+        "aliases": ('개찰일시',),
+    },
+    '낙찰': {
+        "text": "최고가 방식에서는 기준가격 이상으로 가장 높은 금액을 낸 유효한 입찰자가 낙찰자입니다. 기준가격은 압류재산 공매예정가격, 국유재산 대부(매각)예정가격, 수탁재산 공사 최저매매가격(공매공고가격)입니다. 이용기관 물건은 입찰공고가 정한 유효 입찰자 가운데 최고가격 입찰자입니다. 압류재산에서는 낙찰자를 '최고가 매수신청인'이라 하며, 매각결정을 거쳐 매수인이 됩니다.",
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제11조①1호 · 국유재산 입찰참가자 준수규칙 제13조①1호 · 인터넷공매입찰참가자준수규칙(수탁재산) 제9조① · 전자자산처분시스템 최고가입찰참가자 준수규칙 제10조①',
+        "scope": 'common',
+        "aliases": ('낙찰자', '최고가 매수신청인', '최고가 낙찰자'),
+    },
+    '무작위 추첨': {
+        "text": '최고가 입찰자가 2인 이상이면, 온비드의 난수발생기로 입찰자마다 난수를 만들어 비교해 낙찰자를 자동으로 추첨합니다.',
+        "source": '온비드 FAQ 「온비드에 설치된 난수발생기에 의한 자동추첨이란?」 · 압류재산 인터넷공매 입찰참가자준수규칙 제11조②',
+        "scope": 'common',
+        "aliases": ('자동추첨', '난수발생기', '동점'),
+    },
+    '1인 입찰': {
+        "text": "캠코의 압류재산·국유재산·유입자산·국유증권은 예정가격 이상의 유효한 입찰이 있으면 그중 최고가 입찰자를 낙찰자로 정하므로 1인이 입찰해도 됩니다. 이용기관 물건은 법령과 기관 내규에 따라 다르니 물건상세의 '입찰 방법 및 입찰 제한 정보'와 공고문을 확인합니다. 2인 이상이 참가해야 유효한 입찰로 보는 물건에 1인만 참가하면 유찰됩니다.",
+        "source": '온비드 FAQ 「온비드에서 1인이 입찰하면 어떻게 되나요?」 · 「공공기관에서 공고한 국유재산물건에 단독 입찰참가 하였는데 유찰된 이유」',
+        "scope": 'common',
+        "aliases": ('단독입찰', '혼자 입찰', '입찰 성립'),
+    },
+    '유찰': {
+        "text": "온비드 입찰결과의 '유찰'은 내 입찰이 유찰됐다는 뜻이고, 두 경우가 있습니다. 물건은 다른 사람에게 낙찰되고 내가 떨어진 경우와, 물건 자체가 유찰돼 모든 입찰자의 입찰이 유찰된 경우입니다. 2인 이상 유효입찰자가 필요한 공매에 입찰자가 2인이 안 되거나, 입찰금액이 모두 예정가격 미만이면 물건이 유찰될 수 있습니다.",
+        "source": "온비드 FAQ 「입찰결과에서 '유찰'의 의미」",
+        "scope": 'common',
+        "aliases": ('유찰자',),
+    },
+    '입찰금액 공개여부': {
+        "text": "온비드는 공개여부와 상관없이 최종 낙찰자의 입찰금액을 공개합니다. '공개'면 낙찰자와 유효한 입찰자 모두의 금액이, '비공개'면 낙찰자 금액만 공개됩니다.",
+        "source": '온비드 공고·물건 상세 도움말(입찰금액 공개여부)',
+        "scope": 'common',
+        "aliases": ('입찰금액 공개',),
+    },
+    '보증금 반환': {
+        "text": '낙찰받지 못한 입찰자(입찰 무효·취소 포함)의 보증금은 지정한 환급계좌로 이자 없이 돌려줍니다. 개찰 완료 뒤 보통 당일 중 환불하지만, 계좌 오류나 은행 전산 사정으로 늦어질 수 있습니다.',
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제14조① · 국유재산 입찰참가자 준수규칙 제14조② · 전자자산처분시스템 최고가입찰참가자 준수규칙 제11조① · 온비드 FAQ 「유찰된 경우 환불 일시」',
+        "scope": 'common',
+        "aliases": ('보증금 환불', '입찰보증금 환불', '입찰보증금 반환', '공매보증 환불'),
+    },
+    '매각결정': {
+        "text": '압류재산 공매에서 매각결정기일에 최고가 매수신청인을 매수인으로 정하는 결정입니다. 우선매수 신청, 매수인 제한 해당, 공매 취소·정지 사유 같은 사유가 있으면 하지 않습니다. 효력은 매각결정기일에 매각결정을 한 때 생깁니다.',
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제12조①③',
+        "scope": '압류재산',
+        "aliases": ('매각허가',),
+    },
+    '우선매수 신청': {
+        "text": '압류 공매재산의 공유자(부부 공유 동산·유가증권은 배우자)는 매각결정기일 전까지 공매보증을 내고 우선매수를 신청할 수 있습니다. 전세사기피해주택이 공매되면 그 전세사기피해자도 같은 방식으로 신청할 수 있습니다. 우선매수 신청이 있으면 최고가 매수신청인은 매각결정기일 전까지 지위를 유지할지 신청해야 하고, 신청한 뒤에는 철회할 수 없습니다.',
+        "source": '온비드 FAQ 「압류재산 우선매수 신청은 어떻게 하나요?」 · 압류재산 인터넷공매 입찰참가자준수규칙 제12조⑤',
+        "scope": '압류재산',
+        "aliases": ('우선매수', '공유자우선매수'),
+    },
+    '차순위 매수신청': {
+        "text": "최고가 매수신청인 외의 매수신청인은 매각결정기일 전까지 공매보증을 내고 차순위 매수신청을 할 수 있습니다. 최고가 매수신청인이 대금을 내지 않아 매각결정이 취소되면 '최고가 매수신청가격에서 공매보증을 뺀 금액' 이상으로 사겠다는 신청입니다. 그 경우 취소한 날부터 3일(토·일·공휴일 제외) 안에 차순위 매수신청인에게 매각결정합니다. 낙찰자가 대금을 완납할 때까지 보증금 환불을 요구할 수 없고, 중간에 취소할 수도 없습니다.",
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제13조①③ · 온비드 FAQ 「차순위 매수신고시 입찰보증금은?」(분류 압류재산)',
+        "scope": '압류재산',
+        "aliases": ('차순위 매수신고',),
+    },
+    '차순위 신청': {
+        "text": '최고가 낙찰자가 잔대금을 내지 않을 때 차순위 신청자가 낙찰자가 될 수 있도록, 입찰서를 낼 때 함께 신청하는 것입니다. 이용기관이 입찰공고에 적어 둔 경우에만 할 수 있습니다. 입찰서를 낸 뒤에는 취소할 수 없습니다. 압류재산은 국세징수법 절차를 따릅니다.',
+        "source": '온비드 공고·물건 상세 도움말(차순위 신청) · 전자자산처분시스템 최고가입찰참가자 준수규칙 제7조의2①',
+        "scope": 'common',
+        "aliases": (),
+    },
+    '매각결정기일 연기': {
+        "text": '최고가 매수신청인이나 우선매수신청인이 다른 법령상 매수 자격을 갖추지 못했다면, 매각결정기일을 1회에 한해 당초 기일부터 10일 이내로 연기할 수 있습니다. 차순위 매수신청인은 연기를 신청할 수 없습니다.',
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제12조② · 온비드 FAQ 「압류재산의 매각결정기일 연기」',
+        "scope": '압류재산',
+        "aliases": ('매각결정기일 연기신청',),
+    },
+    '매각결정통지서': {
+        "text": '매각결정 뒤 받는 통지서이며, 대금 납부기한이 여기에 적혀 있습니다. 온비드의 이 서비스는 캠코 압류재산에만 있고, 다른 재산은 각 기관이 직접 발급합니다.',
+        "source": '온비드 FAQ 「매각결정통지서 및 잔대금납부영수증은 어디서 출력하나요?」 · 온비드 이용안내 > 낙찰절차 안내(압류재산) STEP02',
+        "scope": '압류재산',
+        "aliases": (),
+    },
+    '대금납부기한': {
+        "text": '[압류재산] 매각결정통지서에 적힌 납부기한까지 잔대금납부계좌로 냅니다. 낙찰금액이 3,000만 원 미만이면 매각결정기일로부터 7일, 3,000만 원 이상이면 30일입니다. 공매공고 시점에 따라 기한이 다르니 입찰 전에 물건정보에서 확인합니다. [국유재산 매각] 매매계약을 맺은 날부터 60일 안에 전액을 냅니다. [국유재산 대부] 낙찰일로부터 5영업일 안에 공사 지정계좌로 냅니다. [수탁·유입재산] 매매계약서에 적힌 납부기일까지 중도금과 잔대금을 냅니다. [이용기관 물건] 낙찰 뒤 계약과 대금 납부 절차는 공고기관마다 정하므로 공고문을 확인합니다.',
+        "source": '온비드 이용안내 > 낙찰절차 안내(재산유형별 탭)',
+        "scope": 'common',
+        "aliases": ('잔대금', '잔금', '매수대금', '매각대금', '중도금', '대금 납부'),
+    },
+    '납부최고': {
+        "text": '압류재산 매수인이 매수대금을 기한까지 내지 못하면, 납부최고일로부터 10일 이내로 기한을 다시 정합니다. 촉구를 받고도 지정 기한까지 내지 않으면 매각결정이 취소됩니다(공고문 기준).',
+        "source": '온비드 FAQ 「압류재산 매수대금 납부기한을 연장해주세요」 · 온비드 압류재산 공매공고 1건(전북지역본부 2026년 제010차) 15-가④',
+        "scope": '압류재산',
+        "aliases": ('매수대금 납부의 촉구', '납부 촉구'),
+    },
+    '매각결정 취소': {
+        "text": '매각결정기일 전에 체납액 납부 같은 압류 해제 사유가 생겨 공매대행의뢰기관이 공매 취소를 요청하면 매각결정이 취소될 수 있습니다. 낙찰자가 대금을 내지 않아 취소되면 차순위 매수신고인에게 새로 매각결정합니다.',
+        "source": '온비드 이용안내 > 낙찰절차 안내(압류재산) STEP01 · 온비드 FAQ 「차순위 매수신고시 입찰보증금은?」',
+        "scope": '압류재산',
+        "aliases": (),
+    },
+    '보증금 귀속': {
+        "text": '[압류재산] 매수대금 촉구를 받고도 내지 않아 매각결정이 취소되는 경우 등에는, 매수인이 낸 공매보증을 돌려주지 않는다고 압류재산 공고문이 적고 있습니다. [국유재산] 낙찰자가 계약을 맺지 않으면 낙찰은 무효가 되고 입찰보증금은 국고에 귀속됩니다. 계약 뒤 잔대금을 내지 않아도 계약이 해제되고 계약보증금이 국고에 귀속됩니다. [수탁재산] 낙찰자가 계약을 맺지 않으면 낙찰은 무효가 되고 입찰보증금은 매도자에게 귀속됩니다. [이용기관 물건] 기한 안에 계약을 맺지 않았을 때 입찰보증금을 어떻게 처리할지는 이용기관이 정합니다.',
+        "source": '온비드 압류재산 공매공고 1건(전북지역본부 2026년 제010차) 15-나 · 국유재산 입찰참가자 준수규칙 제15조① · 제16조 · 인터넷공매입찰참가자준수규칙(수탁재산) 제11조① · 전자자산처분시스템 최고가입찰참가자 준수규칙 제13조',
+        "scope": 'common',
+        "aliases": ('보증금 몰수', '몰수', '국고 귀속', '매도자 귀속'),
+    },
+    '계약보증금': {
+        "text": '낙찰자(압류재산은 최고가 매수신청인)가 낸 입찰보증금은 계약보증금이 됩니다.',
+        "source": '압류재산 인터넷공매 입찰참가자준수규칙 제14조① · 국유재산 입찰참가자 준수규칙 제14조① · 인터넷공매입찰참가자준수규칙(수탁재산) 제10조①',
+        "scope": 'common',
+        "aliases": (),
+    },
+    '차액납부': {
+        "text": '차액납부 대상인 최고가 매수신청인은 매각결정기일 전까지, 매수대금에서 자신이 배분받을 금액을 뺀 금액만 내겠다고 신청할 수 있습니다. 허용되면 대금납부기한을 따로 정하지 않고 배분기일에 정해진 시간 전까지 냅니다.',
+        "source": '온비드 압류재산 공매공고 1건(전북지역본부 2026년 제010차) 14-가·다',
+        "scope": '압류재산',
+        "aliases": ('매수대금의 차액납부',),
+    },
+    '등기촉탁': {
+        "text": '압류재산 소유권이전은 공사의 등기촉탁으로만 할 수 있고, 매수인이 직접 등기소에 촉탁서를 접수할 수 없습니다. 매수인은 필요한 서류를 갖춰 물건 담당 부점에 우편이나 방문으로 내고 등기촉탁을 의뢰합니다.',
+        "source": '온비드 FAQ 「압류재산 소유권이전절차 및 유의사항」 · 온비드 이용안내 > 낙찰절차 안내(압류재산) STEP04',
+        "scope": '압류재산',
+        "aliases": ('소유권이전 등기촉탁',),
+    },
+    '명도책임': {
+        "text": '압류재산 공고문은 부동산 명도책임을 매수인이 지고, 동산은 보관 중인 곳에서 현 상태로 넘긴다고 적습니다. 수탁재산은 명도책임이 물건마다 다르며, 공사가 책임지는 경우 소송 등으로 늦어지면 그 사유가 끝난 때에 명도·인도합니다.',
+        "source": '온비드 압류재산 공매공고 1건(전북지역본부 2026년 제010차) 4-다 · 인터넷공매입찰참가자준수규칙(수탁재산) 제15조 · 온비드 수탁재산 공매공고 1건(2026년 제9회) 첨부',
+        "scope": 'sale',
+        "aliases": ('명·인도책임', '명도'),
+    },
+    '수의계약': {
+        "text": '국유재산 대부는 일반경쟁입찰이 원칙이고 수의 방법은 예외로 허용됩니다. 한 국유재산 대부 공고는 2회 이상 유찰된 물건만 같은 조건으로 수의계약을 신청할 수 있고, 개찰일 이후부터 다음 입찰일 전날 사이에 신청한다고 적습니다. 한 수탁재산 공고는 매각되지 않은 일부 물건을 다음 공매 공고 전까지 유찰(수의)계약으로 요청할 수 있되, 위임기관과 협의해 진행한다고 적습니다.',
+        "source": '온비드 FAQ 「국유재산을 대부받기 위하여 반드시 입찰에 참여하여야 하나요?」 · 온비드 국유재산 대부입찰 공고 1건(2026년 제13회) 첨부 12-가·나 · 온비드 수탁재산 공매공고 1건(2026년 제9회) 첨부 8-⑧',
+        "scope": 'common',
+        "aliases": ('유찰계약', '유찰(수의)계약'),
+    },
+    '공매재산명세서': {
+        "text": '압류재산의 권리 관련 사항을 안내하는 자료입니다. 입찰시작 7일 전부터 입찰마감 전까지 물건 상세페이지 [입찰정보] 탭에서 볼 수 있습니다. 배분요구와 채권신고 현황도 여기서 확인합니다.',
+        "source": '온비드 FAQ(압류재산) 2건',
+        "scope": '압류재산',
+        "aliases": ('공매재산명세',),
+    },
+    '배분요구의 종기': {
+        "text": '공매공고 등기·등록 전에 등기·등록되지 않은 채권자가 배분을 받으려면, 배분요구의 종기까지 채권신고 및 배분요구서를 서면으로 내야 합니다. 개별 공매재산의 종기는 공고의 표시목록에 적혀 있습니다.',
+        "source": '온비드 FAQ 「배분요구 종기일(언제까지 권리신고를 해야 하는지)」 · 온비드 압류재산 공매공고 1건(전북지역본부 2026년 제010차) 6',
+        "scope": '압류재산',
+        "aliases": ('배분요구 종기', '배분요구 종기일', '배분요구'),
+    },
+    '입찰 보류': {
+        "text": '체납자가 체납액 일부를 내거나 이의신청·심사청구·소송제기 같은 사유가 생겨 공매를 보류하고 입찰도 멈춘 상태를 말합니다.',
+        "source": '온비드 FAQ 「입찰 보류란?」',
+        "scope": '압류재산',
+        "aliases": ('공매 보류',),
+    },
+    '공매 취소·정지': {
+        "text": '체납자 등 이해관계인이 공매와 관계된 세금을 내면 공매를 취소합니다. 일부 납부·송달불능·이의신청 같은 사유로 취소된 경우, 그 사유가 풀리면 다시 공매합니다.',
+        "source": '온비드 FAQ 「압류재산의 매각절차 중지 및 취소」',
+        "scope": '압류재산',
+        "aliases": ('공매 취소', '공매 정지', '공매의 취소', '입찰의 취소'),
+    },
+    # ---- 아래 5건은 용어 탭 작업 세션(2026-10-19)이 더했다. 근거 정리본은
+    # team-reports/2026-10-19-onbid-journey-conformance/researcher-onbid-journey.md 와 커뮤니티 조사
+    # docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1·1-4 다. 뜻과 절차만 적고 판단은 담지 않는다.
+    '최저입찰가격': {
+        "text": "이 회차에 입찰할 수 있는 가장 낮은 금액입니다. 감정평가금액과 다를 수 있고, 회차가 여러 개인 공고는 회차마다 값이 다를 수 있습니다. 「비공개」로 표시되면 이용기관이 공개하지 않기로 한 것입니다(온비드 화면도 「비공개」로 표시합니다).",
+        "source": '온비드 물건 상세 가격 표시 규칙(최저입찰가격 비공개 구분) · 온비드 국유재산 대부 공고 회차별 입찰일정 표',
+        "scope": 'common',
+        "aliases": ('최저입찰가', '최저 입찰가격'),
+    },
+    '감정평가금액': {
+        "text": "감정평가업자가 평가한 재산의 가격입니다. 최저입찰가격과 다를 수 있고, 둘이 어떤 관계인지는 공고마다 다르므로 공고 원문에서 확인합니다.",
+        "source": '온비드 자료실 용어사전 「감정가격」 · 온비드 물건 상세 감정평가금액 표시값',
+        "scope": 'common',
+        "aliases": ('감정평가액',),
+    },
+    '입찰참가자격': {
+        "text": "공고가 정한 입찰 가능 조건입니다. 조건에 맞지 않으면 입찰이 무효가 될 수 있습니다. 괄호 안 표기(사업자 등)가 있으면 그 뜻은 참가자격 조항 원문과 담당기관에서 확인합니다.",
+        "source": '온비드 공고문 입찰참가자격 조항 · 공공데이터 온비드 물건 입찰상세(getCltrBidInf2) 자격·지역·기타 제한 필드',
+        "scope": 'common',
+        "aliases": ('참가자격', '입찰자격', '입찰 자격'),
+    },
+    '소유권이전': {
+        "text": "[압류재산] 잔대금을 낸 뒤 매수인이 서류·비용·우표를 준비해 캠코 관할 부점에 우편이나 방문으로 내고, 캠코가 등기를 촉탁합니다. 매수인이 등기소에 직접 낼 수는 없습니다. [국유재산 매각] 잔대금을 낸 뒤 이전서류를 받아 매수자가 직접 이전등기를 합니다. [수탁·유입재산] 위임기관에서 이전서류를 받아 매수자가 등기 신청합니다. [이용기관 물건] 절차와 비용은 공고문이 정합니다.",
+        "source": '온비드 FAQ 「압류재산 소유권이전절차 및 유의사항」 · 온비드 이용안내 > 낙찰절차 안내(압류재산 STEP03~05 · 국유재산 매각 STEP03 · 수탁재산 STEP03 · 기타 탭)',
+        "scope": 'sale',
+        "aliases": ('소유권이전등기', '이전등기', '등기 이전'),
+    },
+    '대부료': {
+        "text": "재산을 빌려 쓰는 대가로 내는 돈입니다. [국유재산 대부] 낙찰일로부터 5영업일 이내에 대부료 잔금을 공사 지정계좌에 내고, 신분증·주민등록등본·인장을 지참해 대부계약을 맺습니다. 계약을 맺지 않으면 낙찰이 무효가 되고 입찰보증금은 국고에 귀속됩니다. [이용기관 물건] 사용료·임대료의 납부 기한과 계약 절차는 공고기관마다 정하므로 공고문을 확인합니다.",
+        "source": '온비드 FAQ 「국유재산 대부계약 체결 방법은?」 · 온비드 이용안내 > 낙찰절차 안내(국유재산 대부 STEP01~02 · 기타 탭) · 국유재산 입찰참가자 준수규칙 제15조①',
+        "scope": 'lease',
+        "aliases": ('대부료 잔금', '연간대부료'),
+    },
+}
+
+# 질문 하나에 붙이는 용어 설명의 상한이다. 많이 붙이면 답보다 설명이 길어진다.
+ONBID_REFERENCE_LIMIT = 3
+
+
+def onbid_reference_entries() -> list[dict[str, object]]:
+    """질문에서 찾을 용어 목록. 손으로 고른 절차 용어를 먼저 두고, 같은 용어는 사전에서 다시 싣지 않는다.
+
+    사전 용어는 3글자 이상만 찾는다. 2글자(매각·임대·대부 등)는 어느 질문에나 우연히 들어맞아
+    「임대료는 언제 내나요?」에도 「임대」 뜻풀이가 붙는다(ONBID_GLOSSARY_TERMS 머리 주석과 같은 이유).
+    """
+    entries: list[dict[str, object]] = []
+    for term, item in ONBID_GUIDE_TERMS.items():
+        names = (term, *item.get("aliases", ()))
+        entries.append({
+            "term": term, "names": names, "text": item["text"], "source": item["source"],
+            "scope": item.get("scope", ""), "minLength": 1,
+        })
+    for term, meaning in TERM_GLOSSARY.items():
+        # TERM_GLOSSARY 의 처음 9건은 캠코 회의(2026-09-07)에서 받은 설명이고 나머지는 온비드 용어사전이다.
+        source = "온비드 자료실 용어사전" if term in ONBID_GLOSSARY_TERMS else "온비드 운영기관(캠코) 안내"
+        entries.append({"term": term, "names": (term,), "text": meaning, "source": source, "scope": "", "minLength": 3})
+    return entries
+
+
+def _word_positions(question: str) -> tuple[set[int], set[int]]:
+    """띄어쓰기를 지운 질문에서 낱말 자리를 모은다.
+
+    첫째는 낱말마다 앞 문장부호를 건너뛴 첫 글자 자리, 둘째는 낱말이 시작하는 자리(낱말 경계)다.
+    find_onbid_references 의 compact 와 같은 str.split() 으로 자르므로 두 자리는 compact 기준이다.
+    """
+    heads: set[int] = set()
+    bounds: set[int] = set()
+    offset = 0
+    for token in (question or "").split():
+        bounds.add(offset)
+        # 문장부호만 있는 낱말이면 다음 낱말의 시작 자리가 들어갈 뿐이라 따로 거르지 않는다.
+        heads.add(offset + re.match(r"[^\w]*", token).end())
+        offset += len(token)
+    return heads, bounds
+
+
+def find_onbid_references(question: str, limit: int = ONBID_REFERENCE_LIMIT) -> list[dict[str, str]]:
+    """질문에 나온 온비드 용어를 찾아 설명·출처·scope 를 질문 속 순서대로 돌려준다.
+
+    띄어쓰기를 지우고 비교하므로 「매각 결정 기일」도 찾는다. 긴 이름부터 보고, 이미 고른 이름과
+    자리가 겹치는 짧은 이름은 버린다. 「매각결정기일」을 찾았으면 그 안의 「매각결정」은 따로 싣지 않는다.
+    겹치는 자리 말고 다른 자리에 또 나오면 그 자리를 쓴다.
+    """
+    compact = "".join((question or "").split())
+    if not compact:
+        return []
+    word_starts, word_bounds = _word_positions(question)
+    candidates: list[tuple[str, dict[str, object]]] = []
+    for entry in onbid_reference_entries():
+        for name in entry["names"]:
+            key = re.sub(r"\s+", "", str(name))
+            if key and len(key) >= int(entry["minLength"]):
+                candidates.append((key, entry))
+    # 길이가 같으면 entries 순서대로 절차 용어가 앞에 선다(안정 정렬). 그래서 사전에 같은 이름이 있으면
+    # 그 사전 용어는 자리가 겹쳐 버려진다. 사전의 「공유자우선매수」·「계약보증금」은 법원 경매나 일반 사전
+    # 기준이라, 온비드 공매 절차 설명과 함께 내면 서로 어긋난다.
+    candidates.sort(key=lambda pair: -len(pair[0]))
+    taken: list[tuple[int, int]] = []
+    found: list[tuple[int, dict[str, str]]] = []
+    for key, entry in candidates:
+        if len(found) >= limit:
+            break
+        if any(item["term"] == entry["term"] for _start, item in found):
+            continue
+        span = None
+        for match in re.finditer(re.escape(key), compact):
+            start, end = match.start(), match.end()
+            # 2글자 이름은 낱말 첫머리에서 시작하고 낱말 경계를 넘지 않을 때만 받는다. 낱말 가운데(「설명도」의
+            # 「명도」)나 띄어쓰기를 건넌 자리(「공동 점유」의 「동점」·「두 명 도장」의 「명도」)에서 잡으면
+            # 엉뚱한 설명이 붙는다(2026-10-19 리뷰 r1 P1-1 · r2 P2-a).
+            if len(key) <= 2 and (start not in word_starts or any(start < b < end for b in word_bounds)):
+                continue
+            if any(start < t_end and t_start < end for t_start, t_end in taken):
+                continue
+            span = (start, end)
+            break
+        if span is None:
+            continue
+        taken.append(span)
+        found.append((span[0], {
+            "term": str(entry["term"]), "text": str(entry["text"]), "source": str(entry["source"]),
+            "scope": str(entry["scope"]),
+        }))
+    return [item for _start, item in sorted(found, key=lambda pair: pair[0])]
+
+
+
+# 용어 탭에 올리는 절차 용어 — ONBID_GUIDE_TERMS(질문창과 같은 사전) 가운데 커뮤니티 조사에서 초보자가
+# 뜻을 물은 용어만 고른 목록이다(docs/60_본선준비/24_공매초보_어려움_커뮤니티조사_20261019.md 1-1~1-4).
+# 사전 전부를 올리면 공통 용어만 30건이 넘어 탭이 읽히지 않는다. 뜻풀이는 사전에서 읽으므로 여기에는 키만 둔다.
+# 항목의 scope 가 공고 분류와 맞을 때만 보여 준다. 사전에 실제로 쓰인 scope 값은 common · sale · lease ·
+# 압류재산 · 국유재산 다섯이다(2026-10-19 실측 · 「수탁재산」 scope 항목은 아직 없다).
+# 순서: 재산유형 전용 → 매각/임대 전용 → 공통. 초보자가 가장 찾는 유형별 용어(매각결정기일 · 차순위 · 명세서)가
+# 공통 용어 10여 건 뒤에 묻히지 않게 한다(리뷰 r3 제안).
+GLOSSARY_TAB_TERMS: tuple[str, ...] = (
+    "최저입찰가격",
+    "감정평가금액",
+    "입찰보증금",
+    "입찰참가자격",
+    "입찰서 제출 뒤 취소·변경",
+    "개찰",
+    "유찰",
+    "낙찰",
+    "보증금 반환",
+    "입찰 무효",
+    "대금납부기한",
+    "보증금 귀속",
+    "소유권이전",
+    "명도책임",
+    "대부료",
+    "매각결정기일",
+    "매각결정통지서",
+    "차순위 매수신청",
+    "공매재산명세서",
+    "배분요구의 종기",
+    "등기촉탁",
+    "공매 취소·정지",
+)
+
+# 사전 text 가 「[압류재산] … [국유재산 매각] … [수탁·유입재산] … [이용기관 물건] …」처럼 재산유형 머리표로
+# 묶여 있으면, 공고 분류에 맞는 조각만 남긴다. 머리표가 없거나 맞는 조각이 없으면 원문 그대로다.
+# 머리표는 어휘로 잠근다. 사전 text 에는 산문 대괄호(「물건 상세페이지 [입찰정보] 탭」)도 있어, 대괄호를
+# 전부 머리표로 보면 그 뒤 본문이 잘려 나갈 수 있다(리뷰 r3 R3-3 · 2026-10-19 사전 50건 전수에서 머리표 7종).
+GUIDE_TEXT_HEAD_RE = re.compile(r"\[(압류재산|국유재산(?: 매각| 대부)?|수탁(?:·유입)?재산|이용기관 물건)\]\s*")
+
+
+def _guide_text_for(text: str, asset_type: str, disposition_label: str) -> str:
+    parts = GUIDE_TEXT_HEAD_RE.split(text)
+    # 머리표가 없으면 heads 가 비어 picked 도 비므로 아래 「not picked」 한 곳에서 원문으로 돌아간다.
+    lead = parts[0].strip()
+    heads = parts[1::2]
+    bodies = [body.strip() for body in parts[2::2]]
+    asset_type = asset_type or ""
+    # 매각·임대 판정은 _notice_scopes 와 한 곳에서만 한다(둘이 갈리면 용어 선택과 머리표 선택이 어긋난다).
+    scopes = _notice_scopes(asset_type, disposition_label)
+    is_lease = "lease" in scopes
+    is_sale = "sale" in scopes
+    # exact 는 머리표와 글자까지 같아야 하고, prefix 는 머리표가 그 낱말로 시작하면 된다(「수탁·유입재산」 · 「이용기관 물건」).
+    exact: list[str] = []
+    prefix: list[str] = []
+    if "압류재산" in asset_type:
+        exact = ["압류재산"]
+    elif "국유재산" in asset_type:
+        # 「국유재산」 하나로만 묶인 글(보증금 귀속)과 매각·대부로 갈라 묶인 글(대금납부기한)이 둘 다 있다.
+        # 임대와 매각 낱말이 함께 있는 라벨(「임대/매각」)은 미상과 같이 둘 다 남긴다(리뷰 r3 R3-4).
+        if is_lease and not is_sale:
+            exact = ["국유재산 대부", "국유재산"]
+        elif is_sale and not is_lease:
+            exact = ["국유재산 매각", "국유재산"]
+        else:
+            exact = ["국유재산 매각", "국유재산 대부", "국유재산"]
+    elif "수탁재산" in asset_type:
+        prefix = ["수탁"]
+    elif "공유재산" in asset_type or "기타일반재산" in asset_type:
+        prefix = ["이용기관"]
+    picked = [body for head, body in zip(heads, bodies) if head in exact or any(head.startswith(w) for w in prefix)]
+    if not picked:
+        return text
+    return " ".join(part for part in [lead, *picked] if part)
+
+
+def _notice_scopes(asset_type: str, disposition_label: str) -> set[str]:
+    """이 공고에 보여 줄 절차 용어의 scope 집합.
+
+    매각·임대 판정은 처분방식 표기(와 압류재산 여부)만 본다. app.js 의 보드 판정은 공고명(title)도 보므로
+    둘은 비슷하되 같지 않다(리뷰 r1 #4).
+    """
+    asset_type = asset_type or ""
+    disposition_label = disposition_label or ""
+    scopes = {"common"}
+    if re.search(r"매각|공매", disposition_label) or "압류" in asset_type:
+        scopes.add("sale")
+    if re.search(r"임대|대부", disposition_label):
+        scopes.add("lease")
+    for name in KNOWN_ASSET_TYPES:
+        if name in asset_type:
+            scopes.add(name)
+    return scopes
+
+
+def build_glossary(asset_type: str = "", disposition_label: str = "", title: str = "") -> list[dict[str, str]]:
+    """기본 용어(group=basic · ONBID_GUIDE_TERMS 가운데 GLOSSARY_TAB_TERMS 에 든 것)를 앞에,
+    공고 표기에 든 사전 용어(group=match · TERM_GLOSSARY)를 뒤에 둔다."""
+    scopes = _notice_scopes(asset_type, disposition_label)
     entries: list[dict[str, str]] = []
+    # 재산유형 전용(0) → 매각/임대 전용(1) → 공통(2). 같은 등급 안에서는 GLOSSARY_TAB_TERMS 순서를 지킨다.
+    scope_rank = {"common": 2, "sale": 1, "lease": 1}
+    ordered = sorted(GLOSSARY_TAB_TERMS, key=lambda t: scope_rank.get(str(ONBID_GUIDE_TERMS.get(t, {}).get("scope")), 0))
+    for term in ordered:
+        item = ONBID_GUIDE_TERMS.get(term)
+        if not item or item.get("scope") not in scopes:
+            continue
+        entries.append(
+            {
+                "term": term,
+                "meaning": _guide_text_for(str(item["text"]), asset_type, disposition_label),
+                "source": str(item.get("source", "")),
+                "group": "basic",
+            }
+        )
     seen: set[str] = set()
-    for value in values:
+    for value in (asset_type, disposition_label, title):
         for term, meaning in TERM_GLOSSARY.items():
             if term in (value or "") and term not in seen:
                 seen.add(term)
-                entries.append({"term": term, "meaning": meaning})
+                entries.append({"term": term, "meaning": meaning, "group": "match"})
     return entries
 
 
@@ -2498,8 +4197,8 @@ def build_notice(raw_url: str) -> dict[str, object]:
     )
     sections = split_sections(text)
     related_docs = extract_related_docs(text, final_url)
-    attachment_chunks = attachment_doc_chunks(related_docs)
-    doc_checklist = build_doc_checklist(sections, asset_type, related_docs, attachment_chunks)
+    attachment_chunks, attachment_reads = attachment_doc_reads(related_docs)
+    doc_checklist = build_doc_checklist(sections, asset_type, related_docs, attachment_chunks, contact, attachment_reads)
     required_docs = [str(item["name"]) for item in doc_checklist["items"]]
     notice_outline = extract_notice_outline(sections)
     countdown = bid_countdown(bid_period, bid_deadline)
@@ -2567,7 +4266,15 @@ def build_notice(raw_url: str) -> dict[str, object]:
             }
         )
     if appraisal:
-        price_candidates.append({"title": "감정평가금액", "value": appraisal, "note": "온비드 상세 페이지 표시값"})
+        price_candidates.append(
+            {
+                "title": "감정평가금액",
+                "value": appraisal,
+                # 공매는 최저입찰가격이 감정평가금액보다 높게도 낮게도 정해진다(2026-10-19 커뮤니티 조사 3-4).
+                # 두 값의 관계는 계산하지 않고 다르다는 사실만 적는다.
+                "note": "온비드 상세 페이지 표시값입니다. 최저입찰가격과 다를 수 있고, 둘의 관계는 공고 원문에서 확인하십시오.",
+            }
+        )
     price_candidates.extend(extract_cost_terms(sections, minimum_bid))
     if not price_candidates:
         price_candidates.append({"title": "비용 후보", "value": "공고 원문 확인", "note": "보증금, 대부료, 납부 방식은 원문 기준 확인"})
@@ -2602,7 +4309,8 @@ def build_notice(raw_url: str) -> dict[str, object]:
         },
         {
             "title": "제출서류",
-            "value": required_docs[0] if required_docs else str(doc_checklist["headline"]),
+            # 첫 서류 이름 하나만 보이면 서류가 한 건뿐인 것처럼 읽힌다(2026-10-19 여정 점검 · 9건 중 1건 표시).
+            "value": str(doc_checklist["headline"]),
             "note": str(doc_checklist["profile"]["detail"]),
             "status": "check",
         },
@@ -2720,6 +4428,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/version":
+            # server 는 기동 시점 판, current 는 지금 디스크의 판이다. 둘이 다르면 화면이 재시작을 알린다.
+            self.send_json(200, {
+                "ok": True, "server": SERVER_REVISION, "startedAt": SERVER_STARTED_AT, "current": code_revision(),
+            })
+            return
         if parsed.path == "/api/analyze":
             query = urllib.parse.parse_qs(parsed.query)
             raw_url = (query.get("url") or [""])[0]
