@@ -1,0 +1,75 @@
+{
+ "overlap": null,
+ "perSlide": [
+  {
+   "slide": 1,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 2,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 3,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 4,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 5,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 6,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 7,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 8,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 9,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  },
+  {
+   "slide": 10,
+   "escapes": 0,
+   "orphanLines": 0,
+   "height": 720,
+   "scrollH": 720
+  }
+ ]
+}

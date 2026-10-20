@@ -1,0 +1,41 @@
+<section class="slide">
+    <div class="eyebrow">04 · 차별점</div>
+    <h1 class="title" style="font-size:34px;">링크만 받은 범용 AI는 물건 정보를 지어냅니다</h1>
+    <div class="accent-rule"></div>
+    <div class="body">
+      <div class="solve-top">온비드 물건 4건에 같은 질문을 던졌습니다. 「어떤 서류를 언제까지 준비해야 하는가」입니다. 참값 16개(재산유형 · 공고기관 · 마감 · 보증금)는 물건 페이지 원문에서 따로 확인했습니다.</div>
+      <div class="arch-grid3">
+        <div class="arch-node ext">
+          <div class="arch-node-head"><span class="dot"></span><span class="arch-node-title">범용 AI · 링크만 전달</span></div>
+          <div class="arch-node-desc"><b>사실 16개 중 적중 0개</b><br>재산유형 4건 모두 다른 유형 명시<br>근거 출처 표기 없음</div>
+        </div>
+        <div class="arch-node ext">
+          <div class="arch-node-head"><span class="dot"></span><span class="arch-node-title">범용 AI · 페이지 본문까지 전달</span></div>
+          <div class="arch-node-desc"><b>사실 16개 중 적중 14개</b><br>사용자가 본문을 직접 긁어 넣어야 함<br>근거 출처 표기 없음 · 첨부 공고문 미반영</div>
+        </div>
+        <div class="arch-node srv">
+          <div class="arch-node-head"><span class="dot"></span><span class="arch-node-title">OPADA · 링크만 입력</span></div>
+          <div class="arch-node-desc"><b>사실 16개 중 적중 16개</b><br>첨부 공고문까지 읽어 서류 추출<br>항목마다 근거 조항 표기</div>
+        </div>
+      </div>
+      <div class="solve-top" style="margin-top:12px;margin-bottom:2px;">물건별 적중 (링크만 → 본문까지 · 사실 4항목 기준)</div>
+      <div class="badge-row" style="margin-bottom:12px;">
+        <span>공유재산 임대 · 중구 &nbsp;0/4 → 4/4</span>
+        <span>공유재산 임대 · 마곡 &nbsp;0/4 → 4/4</span>
+        <span>기타일반재산 매각 · 부산 &nbsp;0/4 → 3/4</span>
+        <span>기타일반재산 임대 · 상암 &nbsp;0/4 → 3/4</span>
+      </div>
+      <div class="warn-box">
+        <span class="ico">⚠</span>
+        <span class="txt">링크만 준 답의 실제 내용입니다. 서울 중구 구민회관 지하 식당을 <b>「경기도 안산시 아파트」</b>로, 2026년 10월 26일 마감을 <b>「2024년 5월 20일」</b>로, 입찰금액 5% 보증금을 <b>「10% 이상」</b>으로 답했습니다. 문장은 매끄러워 <b>사용자가 틀렸다는 것을 알아챌 단서가 없습니다.</b></span>
+      </div>
+      <div class="diff-box">차이는 답의 유려함이 아니라 <b>틀렸을 때 사용자가 알 수 있는지</b>입니다. OPADA는 근거가 없는 서류를 「단계를 확정하지 못함」과 「별도 문의 필요」로 남깁니다. 범용 AI 답 8건 모두 그 구분이 없었고, 공고에 없는 제출 기한을 4건에서 추측으로 적었습니다.</div>
+      <div class="note">실험 조건: 모델 gemini-3.1-flash-lite · 2026-10-20 · 물건 4건(공유재산 임대 2 · 기타일반재산 매각 1 · 임대 1). 챗지피티 브라우징과 더 큰 모델은 재지 않았습니다.</div>
+    </div>
+    <div class="pagefoot"><span class="mark">OPADA</span><span>6 / 10</span></div>
+  </section>
+
+  <!-- 5. 시스템 구조 -->
+
+  <!-- 5. 시스템 구조 -->
+  
