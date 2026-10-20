@@ -650,6 +650,16 @@ AWARDEE_SENTENCE_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
 # 표제로 본다(표본 20 「■ 제출서류(방문시 계약서 날인용 도장 지참)」가 숫자·문자로
 # 시작하지 않는다). 조건 물림(LINE_RESET_RE)과는 별개 — 그 쪽은 바꾸지 않는다.
 HEADING_LINE_RE = re.compile(r"^\s*(?:\d+\s*[.)]|[가-하]\s*\.|[IVX]+\s*\.|■|◆)")
+# 「원문 근거」 위치(sourceOutline)에 쓰는 표제 줄의 길이 상한과 화면 표시 길이. 번호로 시작해도 이보다 긴 줄은
+# 문단이라 위치 표제로 쌓지 않는다. 「604.41」(면적 표 칸) · 「2026. 10. 6.」(날짜)도 HEADING_LINE_RE 에 걸려 뺀다.
+OUTLINE_HEADING_MAX_CHARS = 120
+OUTLINE_HEADING_SHOW_CHARS = 40
+OUTLINE_NOT_HEADING_RE = re.compile(r"^\s*\d+\s*\.\s*\d")
+
+
+def shorten_outline_heading(line: str) -> str:
+    text = clean_text(line)
+    return text if len(text) <= OUTLINE_HEADING_SHOW_CHARS else text[:OUTLINE_HEADING_SHOW_CHARS].rstrip() + "…"
 
 # 조항 번호 체계별 층. 「10.」·「가.」·「1)」은 서로 다른 층이다. 표제를 «마지막 번호 줄
 # 하나»로만 들고 가면 「10. 최종낙찰자 제출서류」 아래 「가. 사업자등록증 …」 같은 항목 줄이
@@ -1103,6 +1113,9 @@ def extract_doc_items(
         heading_marks: list[tuple[int, str]] = []
         # heading_stack 과 같은 규칙으로 쌓는 (층, 표제 줄 위치). parent_block 이 조항 범위를 자르는 데 쓴다.
         pos_stack: list[tuple[str, int]] = []
+        # 화면 「원문 근거」에 「공고문 > 10. 낙찰(예정)자 제출서류」처럼 위치를 보이려고 따로 쌓는 표제 스택(sourceOutline).
+        # heading_stack 은 단계 판정 때문에 문단 표지에서 비워지므로(아래 SENTENCE_STAGE_RULES 분기) 위치에 쓰지 않는다.
+        outline_stack: list[tuple[str, str]] = []
         _cursor = 0
         for _raw in full_text.split("\n"):
             _stripped = _raw.strip()
@@ -1154,6 +1167,13 @@ def extract_doc_items(
             if note_scope is not None and not continues_note_scope(note_scope, line):
                 current_heading = str(note_scope["prev"])
                 note_scope = None
+            line_in_outline = (
+                len(line) <= OUTLINE_HEADING_MAX_CHARS
+                and bool(HEADING_LINE_RE.match(line))
+                and not OUTLINE_NOT_HEADING_RE.match(line)
+            )
+            if line_in_outline:
+                push_heading(outline_stack, line)
             if is_note_heading(line):
                 note_scope = {"heading": line, "kind": "", "num": -1, "prev": current_heading}
                 current_heading = line
@@ -1326,6 +1346,11 @@ def extract_doc_items(
                     "howto": howto,
                     "howtoUrl": howto_url,
                     "sourceSection": title,
+                    # 서류 줄을 감싸는 가장 바깥 조항 표제. 서류 줄 자체가 그 표제면 빈 문자열이다.
+                    # 중간 층은 보이지 않는다 — 공고마다 번호 층 순서가 달라(「라. → 2) → 가.」) 스택의 중간 층이 틀린다.
+                    "sourceOutline": shorten_outline_heading(outline_stack[0][1])
+                    if outline_stack and not (line_in_outline and len(outline_stack) == 1)
+                    else "",
                     "evidence": line[:300],
                 }
                 if key in seen:

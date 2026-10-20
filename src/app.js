@@ -2159,6 +2159,16 @@ function renderDocSourceNotice() {
   });
 }
 
+// 「원문 근거」의 출처. 서버 sourceSection(「공고문」·「제출서류」·「첨부:파일명」)에 가장 바깥 조항 표제(sourceOutline)를
+// 이어 「공고문 > 10. 낙찰(예정)자 제출서류」로 만든다. 화면이 만든 보충 항목은 sourceSection 이 비어 출처가 없다.
+function docSourceLocation(item) {
+  const section = String(item.sourceSection || "");
+  if (!section) return "";
+  const doc = section.startsWith("첨부:") ? `첨부 「${section.slice(3)}」` : section;
+  const outline = String(item.sourceOutline || "");
+  return outline ? `${doc} > ${outline}` : doc;
+}
+
 // 서류 체크박스 한 행. renderDocGroup(조건별 묶음)과 renderDocFlatSection(미분류·별도 문의
 // 구획)이 같은 마크업을 쓰도록 빼냈다 — 복사해 두면 한쪽만 고쳐질 때 체크박스 배선이 갈린다.
 function renderDocCheckRow(item, docState, locked, lockMsgId) {
@@ -2176,7 +2186,9 @@ function renderDocCheckRow(item, docState, locked, lockMsgId) {
         : `<span class="doc-howto">발급처: 공고 원문·첨부 서식 또는 담당기관 확인</span>`
     }
     ${isUnclassifiedDoc(item) && UPON_REQUEST_DOC_RE.test(String(item.evidence || "")) ? `<span class="doc-howto">${UPON_REQUEST_DOC_NOTE}</span>` : ""}
-    <details><summary>원문 근거</summary><p class="small-text">${item.evidence}</p>${
+    <details><summary>원문 근거</summary>${
+      docSourceLocation(item) ? `<p class="small-text doc-evidence-source">출처: ${escapeHtml(docSourceLocation(item))}</p>` : ""
+    }<p class="small-text">${item.evidence}</p>${
       item.sourceHeading ? `<p class="small-text">시점 근거: ${escapeHtml(item.sourceHeading)}</p>` : ""
     }</details>
   </li>`;
