@@ -164,5 +164,8 @@
   - 서버가 항목마다 `sourceOutline`(가장 바깥 조항 표제)을 싣는다. 소수·날짜 줄은 표제로 보지 않는다.
   - 첨부에서 뽑은 서류는 「출처: 첨부 「파일명」」으로 보인다.
 - **develop 을 main 에 머지했다(`2f38609` · origin/main push)**. 10-19 의 미분류 단계 판정 · improve-uiux · 용어 탭 · 보드 배치가 main 에 들어갔다. 라이브 재배포는 맥미니에서 따로 한다.
+- **결선 덱 v09 와 발표노트 v07 을 만들었다(main 화면 기준 · 6팀 · deck-reviewer r3 GO)**
+  - v08 에서 보류했던 서비스 디테일(단계 번호 · 데모 화면 · 시스템 구조)을 열어 라이브 화면과 맞췄다. 6장의 「세 소스 교차 대조」는 코드와 달라 지웠다.
+  - 산출물 `docs/60_본선준비/10_발표자료/17_발표슬라이드_v09_20261020/` · 기록 `team-reports/2026-10-20-slides-v09/`. 덱 · 노트 · 기록은 아직 커밋하지 않았다.
 
 <!-- arch-review: 2026-10-19: server.py 에 HEADING_STAGE_RULES·FORM_NAME_STAGE_RULES·SENTENCE_STAGE_RULES 사전과 resolve_doc_stage 신설. architecture.md 에 서류 단계 판정 절이 없어 갱신하지 않았다 -->
