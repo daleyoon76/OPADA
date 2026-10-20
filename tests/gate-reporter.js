@@ -33,7 +33,8 @@ const SCREEN_SPEC = "screen.spec.js";
 // 2026-10-19 커뮤니티 조사 반영: 33 → 35 (S14 · S14 음성). 두 작업을 합친 값이다(`grep -c '^test('` 로 셈).
 // 2026-10-19 저녁: 화면 머리 코드 판 표시 1건을 더했다(board-layout 2e2ad9a). develop 머지에서 35 → 36.
 // 2026-10-19 · 36 → 38(미분류 4단계 양성·음성 2개 · agentic-doc-stage-ui-20261019)
-const EXPECTED_TEST_COUNT = 38;
+// 2026-10-20 · 38 → 39(원문 근거 출처 1개 · agentic-evidence-source-20261020)
+const EXPECTED_TEST_COUNT = 39;
 
 class GateReporter {
   onBegin(config, suite) {

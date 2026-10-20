@@ -1779,6 +1779,31 @@ test("E2E 미분류 4단계 — 읽지 못한 첨부 · 요청 시 서류 · 시
   await expect(firstRow).toContainText("시점 근거: 온비드 압류재산 입찰참가자 준수규칙 제7조");
 });
 
+// 2026-10-20 · 「원문 근거」에 출처 문서와 가장 바깥 조항(sourceOutline)을 「공고문 > 10. …」로 보인다.
+// 서버가 sourceOutline 을 뽑는 규칙은 tests/test_docs_extraction.py A19 가 맡는다.
+test("E2E 원문 근거 출처 — 문서 이름과 바깥 조항을 이어 보이고, 출처가 없는 항목에는 줄이 없다", async ({ page }) => {
+  const notice = copyBase();
+  const base = { conditions: ["공통"], conditionKeys: [], copy: "", validity: "", method: "", due: "", count: "", sourceHeading: "", howto: "", howtoUrl: "" };
+  const body = { ...base, name: "㉠ 본문 서류", stage: "입찰 전", sourceSection: "공고문", sourceOutline: "10. 낙찰(예정)자 제출서류", evidence: "라. 본문 서류 1부" };
+  const attached = { ...base, name: "㉡ 첨부 서류", stage: "입찰 전", sourceSection: "첨부:붙임 3. 서식.hwp", sourceOutline: "", evidence: "2. 첨부 서류 1부" };
+  // 음성 대조 — 화면이 만든 보충 항목처럼 sourceSection 이 비면 출처 줄을 그리지 않는다. sourceOutline 을 일부러 채워
+  // 빈 출처 가드를 지우면 「출처:  > …」가 그려지게 했다(가드를 지워도 통과하던 처음 판 · 변이 W3).
+  const made = { ...base, name: "㉢ 출처 없는 서류", stage: "입찰 전", sourceSection: "", sourceOutline: "1. 남은 값", evidence: "화면 보충 항목" };
+  notice.docChecklist.items = [...notice.docChecklist.items, body, attached, made];
+  notice.docChecklist.groups.push({ condition: "공통", items: [body, attached, made] });
+  await analyzeWith(page, notice);
+  await page.locator("#prepare").click();
+  await page.locator('#board-top-stepper [data-board-stage="2"]').click();
+  await page.locator("#doc-checklist-details > summary").click();
+  const checklist = page.locator("#doc-checklist");
+  const row = (name) => checklist.locator("li", { hasText: name }).first();
+  for (const name of ["㉠ 본문 서류", "㉡ 첨부 서류", "㉢ 출처 없는 서류"]) await row(name).locator("details > summary").click();
+  await expect(row("㉠ 본문 서류").locator(".doc-evidence-source")).toHaveText("출처: 공고문 > 10. 낙찰(예정)자 제출서류");
+  // 음성 대조 — 바깥 조항이 없으면 「 > 」 없이 파일 이름만 보인다.
+  await expect(row("㉡ 첨부 서류").locator(".doc-evidence-source")).toHaveText("출처: 첨부 「붙임 3. 서식.hwp」");
+  await expect(row("㉢ 출처 없는 서류").locator(".doc-evidence-source")).toHaveCount(0);
+});
+
 test("E2E 미분류 4단계 음성 — 첨부를 다 읽었으면 읽지 못한 첨부 안내가 없다", async ({ page }) => {
   const notice = copyBase();
   notice.docChecklist.attachmentReads = [{ name: "1. 공고문.hwp", status: "read" }];

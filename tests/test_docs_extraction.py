@@ -134,6 +134,13 @@ AXES: tuple[tuple[str, str, str, str, str], ...] = (
         "Y",
     ),
     (
+        "A19",
+        "원문 근거 위치 sourceOutline (2026-10-20)",
+        "가장 바깥 조항 표제 · 소수·날짜 줄은 표제 아님 · 서류 줄 자체가 바깥 표제면 빈 값 · 표제 없는 첨부는 빈 값 · 긴 표제 줄임",
+        "소수·날짜 제외 삭제 · 자기 줄 제외 삭제 · [0] 을 [-1] 로 · 줄임 삭제",
+        "Y",
+    ),
+    (
         "E1",
         "API 플래그 거르기",
         "collbBidPsblYn=N 인데 기한 값이 남은 실제 응답 · Y 인 응답(음성 대조)",
@@ -1215,6 +1222,50 @@ def test_doc_stage_rules_20261019() -> None:
     # ⒀ 「낙찰자로 결정합니다」(선정 방식 설명)는 낙찰 후 문구가 아니다.
     method = att("나. 제안서 평가점수와 가격을 합산하여 고득점자를 낙찰자로 결정합니다. 제안서 제출\n")
     check("A17 음성 「낙찰자로 결정합니다」는 낙찰 후 아님", stage(method, "제안서") != "낙찰 후·계약 시", str(method))
+
+
+# ---------------------------------------------------------------------------
+# A19. 원문 근거 위치 — 화면이 「공고문 > 10. 낙찰(예정)자 제출서류」로 보이는 sourceOutline (2026-10-20)
+# 판교 공고(덤프 36) 모양을 줄였다. 「604.41」(면적 칸)과 「2026. 10. 6.」이 「1.」 표제를 덮던 것을 처음 구현에서 실측했다.
+# ---------------------------------------------------------------------------
+OUTLINE_NOTICE = (
+    "1. 입찰에 부치는 사항\n"
+    "나. 입찰대상 시설면적 및 임대금액\n"
+    "604.41\n"
+    "2026. 10. 6.\n"
+    "라. 임대조건\n"
+    "2) 임대료 납부방법 : 연간임대료 일시납\n"
+    "※ 분할납부 시 이행보증보험증권 제출 必\n"
+    "10. 낙찰(예정)자 제출서류\n"
+    "가. 사업자등록증명원 및 법인등기부등본 각1부\n"
+    "라. 사업계획서 1부(유효낙찰자에 한함)\n"
+    "11. 계약체결 및 입찰참가자 유의사항을 아주 길게 적은 표제 줄이라 화면에서 줄여야 하는 경우\n"
+    "가. 법인인감증명서 1부 제출\n"
+)
+
+
+def test_source_outline() -> None:
+    items = server.extract_doc_items({"공고문": OUTLINE_NOTICE})
+    by_name = {str(item["name"]): item for item in items}
+    def outline(name: str) -> str:
+        return str(by_name.get(name, {}).get("sourceOutline", "<없음>"))
+    check("A19 양성 제출서류 조항 아래 항목", outline("사업계획서") == "10. 낙찰(예정)자 제출서류", outline("사업계획서"))
+    # 음성 대조: 소수·날짜 줄이 「1.」을 덮으면 「2026. 10. 6.」이 나온다(OUTLINE_NOT_HEADING_RE 를 빼면 뒤집힌다).
+    check("A19 음성 소수·날짜 줄은 표제가 아니다", outline("보증보험증권") == "1. 입찰에 부치는 사항", outline("보증보험증권"))
+    # 음성 대조: 가장 안쪽 표제를 쓰면 「가. 사업자등록증명원…」의 위치가 자기 층이 아닌 「10.」 이어야 한다.
+    check("A19 음성 중간 층이 아니라 바깥 조항", outline("사업자등록증") == "10. 낙찰(예정)자 제출서류", outline("사업자등록증"))
+    long_heading = outline("법인인감증명서")
+    check(
+        "A19 긴 표제는 40자로 줄인다",
+        long_heading.endswith("…") and len(long_heading) == server.OUTLINE_HEADING_SHOW_CHARS + 1,
+        long_heading,
+    )
+    # 서류 줄 자체가 가장 바깥 표제면 위치는 문서 이름만 남는다(빈 값).
+    own = server.extract_doc_items({"공고문": "3. 제출서류: 사업자등록증 1부 제출\n"})
+    check("A19 서류 줄 자체가 바깥 표제면 빈 값", [i.get("sourceOutline") for i in own] == [""], str(own))
+    # 표제 없는 첨부(PDF 를 한 줄로 텍스트화)는 파일 이름만 남는다.
+    att = server.extract_doc_items({}, [("첨부:서식.hwp", "사업자등록증 1부를 제출하여야 합니다.")])
+    check("A19 표제 없는 첨부는 빈 값", [(i["sourceSection"], i.get("sourceOutline")) for i in att] == [("첨부:서식.hwp", "")], str(att))
 
 
 # ---------------------------------------------------------------------------
@@ -2739,6 +2790,7 @@ def main() -> int:
         test_attachment_wiring,
         test_heading_layers,
         test_doc_stage_rules_20261019,
+        test_source_outline,
         test_attachment_reads,
         test_generic_table_is_not_success,
         test_checklist_states,
