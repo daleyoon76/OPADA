@@ -797,7 +797,7 @@
   /* 6장 비교 표 (v11 신설 · 이 장에서만 쓴다) */
   .cmp{ display: grid; grid-template-columns: 200px 1fr 1fr; gap: 0; margin-top: 10px;
         border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-  .cmp > div{ padding: 26px 22px; border-bottom: 1px solid var(--line); }
+  .cmp > div{ padding: 17px 20px; border-bottom: 1px solid var(--line); }
   .cmp > div:nth-child(3n+1){ background: var(--panel); font-weight: 700; color: var(--green-dark);
         font-size: 20px; display: flex; align-items: center; }
   .cmp > div:nth-child(3n+2){ border-left: 1px solid var(--line); font-size: 20px; color: var(--green-dark); line-height: 1.5; }
@@ -805,7 +805,7 @@
         font-size: 20px; color: var(--green-dark); line-height: 1.5; }
   .cmp > div:nth-last-child(-n+3){ border-bottom: 0; }
   .cmp-head{ font-weight: 800; font-size: 23px !important; letter-spacing: -0.2px; }
-  .cmp-note{ margin-top: 18px; font-size: 15px; color: var(--muted); line-height: 1.6; }
+  .cmp-note{ margin-top: 14px; font-size: 15px; color: var(--muted); line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -985,26 +985,26 @@
     <div class="body">
       <div class="cmp">
         <div class="cmp-head"></div>
-        <div class="cmp-head">일반 LLM 서비스</div>
+        <div class="cmp-head">일반 LLM 서비스 (모델 1종)</div>
         <div class="cmp-head">OPADA</div>
 
         <div>물건 사실 정확도</div>
-        <div>공고 링크만 주면 <b>16개 중 0개</b> 적중</div>
-        <div><b>16개 모두</b> 공고 원문과 일치</div>
+        <div>링크만 주면 <b>16개 중 0개</b>. 본문을 복사해 붙이면 <b>14개</b></div>
+        <div>링크만으로 <b>16개 모두</b> 공고 원문의 값</div>
 
         <div>답의 근거</div>
         <div>표기 없음</div>
-        <div>서류마다 <b>공고문 조항</b>을 함께 표기</div>
+        <div><b>공고문 조항</b>을 함께 표기 (서류 21건 중 18건)</div>
 
         <div>모르는 것</div>
         <div>추측으로 채워 답함</div>
-        <div><b>단계를 확정하지 못함</b>과 <b>별도 문의 필요</b>로 구분</div>
+        <div><b>미확정</b> 또는 <b>별도 문의 필요</b>로 표시</div>
 
         <div>첨부 공고문</div>
         <div>사용자에게 열어 보라고 넘김</div>
         <div>직접 읽어 제출서류를 뽑음</div>
       </div>
-      <div class="cmp-note">실험: 온비드 물건 4건 · 사실 4항목(재산유형 · 공고기관 · 마감 · 보증금) · 2026-10-20. 비교 대상은 링크 열람 기능 없이 호출한 모델 1종입니다. 페이지 본문을 복사해 함께 주면 16개 중 14개까지 올라가지만, 근거 표기와 미확정 구분은 그래도 없습니다.</div>
+      <div class="cmp-note">실험: 온비드 물건 4건 · 사실 4항목(재산유형 · 공고기관 · 마감 · 보증금) · 2026-10-20. <b>정답 16개는 각 물건 공고 원문에서 확인한 값</b>입니다. 비교 대상은 링크 열람 기능 없이 호출한 모델 1종이고, 본문을 붙여 준 조건에서도 근거 표기와 미확정 구분은 없었습니다.</div>
     </div>
     <div class="pagefoot"><span class="mark">OPADA</span><span>6 / 10</span></div>
   </section>
