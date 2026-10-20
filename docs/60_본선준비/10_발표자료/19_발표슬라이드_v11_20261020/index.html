@@ -747,21 +747,14 @@
   .market-card .mc-value{ font-size: 17px; color: var(--ink); font-weight: 600; line-height: 1.5; }
 
   /* ===== slide 6 : 향후 계획 ===== */
-  /* v11 개정: 다음 단계 두 과제를 상자 둘로 나눈다.
-     1행 오른쪽 상자만 화살표를 받고, 2행 상자는 화살표와 이어지지 않는 별개 과제다. */
-  .plan-grid{
-    display: grid;
-    grid-template-columns: 1fr 44px 1fr;
-    column-gap: 18px;
-    row-gap: 14px;
+  .flow-wrap{
+    display: flex;
     align-items: center;
-    margin-bottom: 22px;
+    gap: 20px;
+    margin-bottom: 24px;
   }
-  .plan-grid > .flow-box.now{ grid-column: 1; grid-row: 1; }
-  .plan-grid > .arrow{ grid-column: 2; grid-row: 1; }
-  .plan-grid > .flow-box.next{ grid-column: 3; grid-row: 1; }
-  .plan-grid > .flow-box.aside{ grid-column: 3; grid-row: 2; }
   .flow-box{
+    flex: 1;
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 14px;
@@ -769,7 +762,6 @@
   }
   .flow-box.now{ border-color: var(--muted); }
   .flow-box.next{ border-color: var(--green); background: var(--soft-amber); }
-  .flow-box.aside{ border-style: dashed; }
   .flow-box .fb-tag{
     font-size: 13px;
     font-weight: 700;
@@ -779,6 +771,8 @@
   .flow-box.next .fb-tag{ color: var(--green-dark); }
   .flow-box h4{ font-size: 21px; color: var(--ink); margin-bottom: 8px; }
   .flow-box p{ font-size: 16px; color: var(--muted); line-height: 1.5; }
+  /* 향후 계획 장: 다음 단계 상자 안의 두 번째 단계 간격 (v08 팀장) */
+  .flow-box p + h4{ margin-top: 14px; }
   .backlog-title{ font-size: 16px; font-weight: 700; color: var(--green-dark); margin-bottom: 10px; }
 
   /* ===== slide 8 : 감사 인사 ===== */
@@ -1104,10 +1098,10 @@
   <!-- 7. 향후 계획 -->
   <section class="slide">
     <div class="eyebrow">07 · 향후 계획</div>
-    <h1 class="title" style="font-size:36px;">찾는 단계까지 넓히고, 유료 서비스 기반을 갖춥니다</h1>
+    <h1 class="title" style="font-size:36px;">로그인·결제를 붙인 뒤, 찾아주는 도구로 넓힙니다</h1>
     <div class="accent-rule"></div>
     <div class="body center">
-      <div class="plan-grid">
+      <div class="flow-wrap">
         <div class="flow-box now">
           <div class="fb-tag">현재 범위</div>
           <h4>링크를 가져와야 시작</h4>
@@ -1115,14 +1109,11 @@
         </div>
         <div class="arrow">→</div>
         <div class="flow-box next">
-          <div class="fb-tag">다음 단계 · 현재 범위를 넓힙니다</div>
-          <h4>검색 모듈도 AI 가이드로</h4>
-          <p>지역·가격대·재산유형을 말하면 AI가 후보 물건을 찾아 이 가이드로 연결합니다.</p>
-        </div>
-        <div class="flow-box aside">
-          <div class="fb-tag">다음 단계 · 별개 과제</div>
-          <h4>통합 로그인(SSO)·결제 모듈 연동</h4>
+          <div class="fb-tag">다음 단계</div>
+          <h4>① 통합 로그인(SSO)·결제 모듈 연동</h4>
           <p>회원 로그인과 요금제 결제를 붙여 유료 서비스로 운영합니다.</p>
+          <h4>② 검색 모듈도 AI 가이드로</h4>
+          <p>지역·가격대·재산유형을 말하면 AI가<br>후보 물건을 찾아 이 가이드로 연결합니다.</p>
         </div>
       </div>
       <div class="backlog-title">그 밖의 개선 과제</div>
