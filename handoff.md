@@ -4,7 +4,7 @@
 
 ---
 ## [원문 근거 출처 · develop→main 머지 · 배포 대기] 「공고문 > 10. 낙찰(예정)자 제출서류」 2026-10-20
-- 시각: 기능 커밋 243d1a4 09:03:03 · main 머지 2f38609 09:06:12(`git log --format=%ci`) · handoff 작성 `date` 09:07:00
+- 시각: 기능 커밋 243d1a4 09:03:03 · main 머지 2f38609 09:06:12(`git log --format=%ci`) · handoff 작성 `date` 09:07:00 · /handoff 갱신 09:27:38
 
 ### 완료
 - 동원님 요청: 「원문 근거」에 어느 문서의 어느 조항인지 보이게 했다. 브랜치 `agentic-evidence-source-20261020`(워크트리 `~/Documents/Dev/.hometest-wt/evidence-source`).
@@ -21,7 +21,8 @@
 - 120자 표제 상한 조각은 변이를 넣지 않았다.
 
 ### 다음 시작점
-1. 맥미니에 닿는 곳에서: `ssh mini` → 라이브 서버 작업 디렉터리에서 `git pull origin main` → `launchctl kickstart -k gui/501/com.dale.hometest-server` → 공개 주소 `/api/version` 의 server 가 2f38609 인지 확인
+- 🆕 09:27: 동원님이 맥미니에 직접 배포를 시키기로 했다. 아래 1 은 맥미니 쪽에서 할 순서다.
+1. 맥미니에 접속할 수 있는 곳에서: `ssh mini` → 라이브 서버 작업 디렉터리에서 `git pull origin main` → `launchctl kickstart -k gui/501/com.dale.hometest-server` → 공개 주소 `/api/version` 의 server 가 2f38609 인지 확인
    - 라이브 서버의 작업 디렉터리가 어디인지(운영 경로 · 작업 레포 · 포트 8975/18982)는 맥미니에서 `lsof` 로 먼저 확인한다(10-19 handoff 의 인프라 정정 참고).
 
 ### 불안정 영역

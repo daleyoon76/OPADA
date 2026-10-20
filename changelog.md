@@ -158,4 +158,11 @@
   - 서류 판정 세션의 미분류 서류 단계 판정 작업을 합쳤다. 판정 r2 GO · 단위 543/543 · E2E 39/39.
   - 산출물 `team-reports/2026-10-19-uiux-quality-improve-uiux/`. 커밋 `ee2ca95` ~ `ab9b77b`.
 
+## 2026-10-20
+
+- **서류 「원문 근거」에 출처 문서와 바깥 조항을 보인다(「출처: 공고문 > 10. 낙찰(예정)자 제출서류」 · `243d1a4`)**
+  - 서버가 항목마다 `sourceOutline`(가장 바깥 조항 표제)을 싣는다. 소수·날짜 줄은 표제로 보지 않는다.
+  - 첨부에서 뽑은 서류는 「출처: 첨부 「파일명」」으로 보인다.
+- **develop 을 main 에 머지했다(`2f38609` · origin/main push)**. 10-19 의 미분류 단계 판정 · improve-uiux · 용어 탭 · 보드 배치가 main 에 들어갔다. 라이브 재배포는 맥미니에서 따로 한다.
+
 <!-- arch-review: 2026-10-19: server.py 에 HEADING_STAGE_RULES·FORM_NAME_STAGE_RULES·SENTENCE_STAGE_RULES 사전과 resolve_doc_stage 신설. architecture.md 에 서류 단계 판정 절이 없어 갱신하지 않았다 -->
