@@ -21,7 +21,7 @@
   - 라이브는 공공데이터 키가 있어 2-1 할 일이 3개(입찰 자격 확인 추가) · 2-2 에 「입찰참가신청 · 불필요」 상자가 있다. 로컬 8979(키 없음)와 다르다.
 
 ### 미완료 / 이유
-- 🔴 **슬라이드 v08 · v09 · 노트 v06 · v07 · team-reports 는 커밋하지 않았다**(동원님 확인 대기 · 10:51 질문). 추적 문서(handoff · to-do · changelog · today · known-pitfalls)만 /handoff 로 커밋했다(맥미니 배포 기록 `c3cb905` 위로 rebase).
+- 슬라이드 v08 · v09 · 노트 v06 · v07 · 슬라이드 team-reports 두 폴더는 `e391ae6` 으로 커밋·push 했다(/handoff 는 추적 문서만 담아 처음에 빠졌다). `team-reports/2026-10-19-onbid-journey-conformance/` 두 파일은 다른 세션 것이라 넣지 않았다.
   - 처음에는 「여기서 main 에 커밋하면 라이브 경고가 다시 뜬다」고 보고 미뤘다. 성과 평가가 짚은 대로, 라이브 서버는 맥미니 작업 트리의 HEAD 와 비교하므로 여기서 커밋·push 해도 맥미니가 pull 하기 전에는 경고가 뜨지 않는다 [추론: `c3cb905` 가 맥미니 계정으로 만들어진 커밋 · `/api/version` 의 current 필드]. 맥미니에서 pull 하면 그때 서버를 다시 띄워야 한다.
 - 공개 주소가 둘이다(trycloudflare → 18982 · ngrok → 8975 · `git show c3cb905` 본문). 슬라이드에는 trycloudflare 주소가 있다. 시연 주소 확정은 동원님 결정.
 - 남은 P2(결선 막지 않음): 7장 각주 오른쪽 정렬 3줄 · 9.4pt(deck-reviewer) · eyebrow 「01 ·」 숫자와 쪽 번호 이중(prose F10).
