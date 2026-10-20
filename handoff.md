@@ -15,7 +15,7 @@
 - **발표노트 v07**: `16_발표평가_10분피치_초안_v07_20261020.md`(v06 보존 · 동원님 확정 뒤 리뷰 지적 r2 · r3 반영). 데모 240초 7구간 · 질문 2개(공고 사실 · 낙찰 가능성).
 - **6팀 소집**: r0 진단 4역할 → composer 2회 → designer 4회 → 최종 리뷰 r1~r3. deck-reviewer r3 **GO** · prose-editor r3 조건부 GO(남은 조건 nowrap 2곳은 팀장이 반영 · 글자 0 변경 확인).
   - 반환물 전부: `team-reports/2026-10-20-slides-v09/`(종합 `r0-synthesis.md` · 결정 6절)
-  - 성과 평가 평균 87.8(팀장 82 · prose-editor 83 · `team-performance-review.md`). 회고와 구조 대책(리뷰 역할 3종 Return Format 에 「수정안 자기 검사」 칸)은 helix-03 `b7a3767` · `b8b2c5f`(push 완료 · 전역 설치본은 미동기화).
+  - 성과 평가 평균 87.8(팀장 82 · prose-editor 83 · `team-performance-review.md`). 회고와 구조 대책(리뷰 역할 3종 Return Format 에 「수정안 자기 검사」 칸)은 helix-03 `b7a3767` · `b8b2c5f`(push 완료 · 11:25 helix `install-harness.py` 가 전역 agents 6개에 함께 반영).
 - `known-pitfalls.md` 「외부 API」의 AI 코치 폴백 순서를 코드대로 정정했다(vertex → gemini → 규칙 기반 · 성과 평가 지적).
 - **라이브 확인**: main `c3cb905` 를 같은 주소(trycloudflare)에 배포한 것을 확인. 시연 전 구간과 질문 2개 실측 · 「코드 바뀜」 경고는 서버 재기동으로 사라짐(`live-check-c520e34.md`).
   - 라이브는 공공데이터 키가 있어 2-1 할 일이 3개(입찰 자격 확인 추가) · 2-2 에 「입찰참가신청 · 불필요」 상자가 있다. 로컬 8979(키 없음)와 다르다.
