@@ -3573,12 +3573,17 @@ function startNewAnalysis() {
 
 // 화면 머리의 코드 판. 서버가 기동한 판(server)과 지금 디스크의 판(current)을 견준다.
 // 다르면 서버가 옛 코드로 돌고 있다는 뜻이라 재시작을 알린다(2026-10-19 동원님 요청).
+//
+// 다만 커밋 해시만 견주면 발표자료·team-reports·추적 문서를 커밋해도 경고가 떴다
+// (2026-10-21 동원님 지적). 재시작이 실제로 필요한 것은 src/ 가 바뀐 경우뿐이므로,
+// 서버가 srcChanged: false 로 「src/ 는 그대로」라고 알려 줄 때만 경고를 가린다.
+// 그 필드가 없는 옛 서버가 돌고 있으면 가리지 않는다 — 모르는 쪽에서는 알린다.
 function formatCodeRevision(payload) {
   const server = payload?.server || {};
   if (!server.commit) return "코드 판: git 정보를 읽지 못했습니다";
   const parts = [`코드 판 r${server.number} · ${server.commit} · ${server.branch} · 서버 기동 ${payload.startedAt}`];
   const current = payload.current || {};
-  if (current.commit && current.commit !== server.commit) {
+  if (current.commit && current.commit !== server.commit && payload.srcChanged !== false) {
     parts.push(`<strong class="code-revision-warn">서버 기동 뒤 코드가 ${current.commit} 로 바뀌었습니다. 서버를 다시 시작해야 합니다</strong>`);
   }
   if (server.dirty || current.dirty) {

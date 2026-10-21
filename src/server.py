@@ -48,6 +48,29 @@ def code_revision(root: Path | None = None) -> dict[str, object]:
     }
 
 
+def src_changed_since(base_commit: str, root: Path | None = None) -> bool:
+    """기동 판(base_commit)부터 지금 HEAD 까지 src/ 가 바뀌었는지 본다.
+
+    커밋 해시만 견주면 발표자료·team-reports·추적 문서를 커밋해도 재시작 경고가 떴다
+    (2026-10-21 동원님 지적). 재시작이 실제로 필요한 것은 src/ 가 바뀐 경우뿐이다.
+    git 을 실행하지 못하거나 base_commit 이 비면 True 를 돌려 경고를 유지한다 — 판정이
+    불가능할 때 경고를 지우면 옛 코드로 도는 것을 놓치므로, 모르는 쪽에서는 알린다.
+    """
+    if not base_commit:
+        return True
+    base = root or ROOT.parent
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(base), "diff", "--name-only", f"{base_commit}..HEAD", "--", "src"],
+            capture_output=True, text=True, timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True
+    if result.returncode != 0:
+        return True
+    return bool(result.stdout.strip())
+
+
 # server.py 는 기동할 때의 판으로 메모리에 올라 있다. 그 뒤 파일이 바뀌어도 재시작 전까지는
 # 옛 판으로 돈다(known-pitfalls: 포트 18982 재시작). 그래서 기동 시점 판을 따로 들고 있다.
 SERVER_STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -4429,9 +4452,11 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/version":
-            # server 는 기동 시점 판, current 는 지금 디스크의 판이다. 둘이 다르면 화면이 재시작을 알린다.
+            # server 는 기동 시점 판, current 는 지금 디스크의 판이다. 둘이 달라도 src/ 가
+            # 그대로면(문서만 커밋) 재시작은 필요하지 않다. 화면은 srcChanged 로 가린다.
             self.send_json(200, {
                 "ok": True, "server": SERVER_REVISION, "startedAt": SERVER_STARTED_AT, "current": code_revision(),
+                "srcChanged": src_changed_since(str(SERVER_REVISION.get("commit") or "")),
             })
             return
         if parsed.path == "/api/analyze":
