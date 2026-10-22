@@ -707,6 +707,21 @@ INHERIT_ITEM_MAX_CHARS = 100
 ITEM_NAME_OFFSET_MAX = 8
 
 
+# 제출 수량으로 끝나는 목록 항목 줄. 번호 뒤에 조건 설명이 길게 붙어 서류명이 뒤로 밀린 항목을
+# 「문단」이 아니라 「제출 목록 항목」으로 알아보는 표지다(2026-10-22 동원님 지적).
+#
+# 🔴 왜 필요한가 — 실공고 909691 「바. 낙찰자의 제출서류」 아래 여덟 항목 가운데 7)번만
+# 「7). 위탁료 분할납부시 낙찰가(연간사용료)의 50% 상당 이행보증금(지급보증보험증권) 1부.」처럼
+# 조건이 앞에 와서 서류명이 번호 끝에서 39자 떨어져 있다. ITEM_NAME_OFFSET_MAX(8자)를 넘어
+# 바깥 표제를 물려받지 못하고 그 줄 자체가 표제가 되어, 공고문이 낙찰 후라고 분명히 적은 서류가
+# 「미분류」로 떨어졌다(같은 목록의 나머지 여덟 건은 모두 「낙찰 후·계약 시」로 확정됐다).
+#
+# 거리 상한(8자)을 넓히는 쪽은 택하지 않았다 — 리뷰 r1 T5 가 막은 「가. 입찰 시 유의사항 …
+# 사업자등록증」 같은 문단까지 함께 통과해 쪽 전체가 낙찰 후로 끌려간다. 수량 표기는 제출
+# 목록에만 붙으므로 그 문단은 걸리지 않는다.
+SUBMISSION_ITEM_TAIL_RE = re.compile(r"(?:각\s*)?\d+\s*부\s*[.。]?\s*$")
+
+
 PREBID_WORD_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전")
 # 입찰 때 함께 내는 서류를 말하는 줄(「입찰서 제출 시 … 사본을 함께 제출」). ※ 표제 범위와 중복 처리에서만 쓴다
 # (리뷰 d8378b6 r2 P0-A · P1-A). PREBID_WORD_RE 는 「입찰서」를 잡지 못한다.
@@ -714,12 +729,18 @@ PREBID_COPY_RE = re.compile(r"입찰\s*참가|응찰|입찰\s*시|입찰\s*전|�
 
 
 def can_inherit_outer_heading(line: str) -> bool:
-    """바깥 층 표제를 물려받아도 되는 줄인가 — 짧은 소제목(서류명 없음)이거나 번호 바로 뒤 서류명 목록 항목."""
+    """바깥 층 표제를 물려받아도 되는 줄인가 — 짧은 소제목(서류명 없음)이거나 번호 바로 뒤 서류명 목록 항목.
+
+    수량 표기(「… 1부」)로 끝나는 번호 항목도 목록 항목으로 본다 — 조건이 번호 뒤에 길게
+    붙어 서류명이 밀린 항목을 놓치지 않으려는 것이다(SUBMISSION_ITEM_TAIL_RE 주석 참고).
+    """
     marker = HEADING_LINE_RE.match(line)
     if not marker or len(line) > INHERIT_ITEM_MAX_CHARS:
         return False
     starts = [start for _name, start, _end in find_doc_name_spans(line)]
-    return not starts or min(starts) - marker.end() <= ITEM_NAME_OFFSET_MAX
+    if not starts or min(starts) - marker.end() <= ITEM_NAME_OFFSET_MAX:
+        return True
+    return bool(SUBMISSION_ITEM_TAIL_RE.search(line))
 
 
 def heading_kind(line: str) -> str:
