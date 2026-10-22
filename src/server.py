@@ -3261,10 +3261,30 @@ def common_question_lines(guide_id: str, notice: dict[str, object], board: dict[
             lines.append(f"지금 고른 사용자 유형은 「{user_type}」입니다. 사업자·법인 회원은 간편인증서 없이 공동인증서를 씁니다.")
         return lines, "온비드 인증서 안내 · 온비드 이용안내 「입찰참가 안내」 STEP02"
     if guide_id == "qualification":
-        lines = [
+        # 이 공고의 자격 제한을 먼저 적고, 일반 안내는 그 뒤에 둔다. 종전에는 일반 안내만 보여 줘서
+        # 「사업자만 입찰 가능」처럼 bidLimits 에 이미 들어 있는 값을 사용자가 못 봤다(2026-10-22 동원님 지적).
+        #
+        # 🔴 해당 여부는 단정하지 않는다. 「사업자만 입찰 가능」과 사용자 유형 「개인사업자」처럼
+        # 표기가 겹쳐 보여도 기관이 뜻하는 범위가 다를 수 있다. 값을 그대로 보여 주고 확인을 권한다.
+        lines: list[str] = []
+        limits = [item for item in (notice.get("bidLimits") or []) if isinstance(item, dict)]
+        qualification = next((item for item in limits if item.get("key") == "qualification"), None)
+        qualification_value = str((qualification or {}).get("value") or "").strip()
+        if qualification_value and (qualification or {}).get("restricted"):
+            lines.append(
+                f"이 공고에는 자격 제한이 있습니다. 온비드 입찰정보의 표기는 「{qualification_value}」입니다. "
+                "이 조건에 해당하지 않으면 이 물건에는 입찰할 수 없습니다. 공고마다 조건이 다르므로 다른 물건은 그 공고문을 따로 확인하십시오."
+            )
+        elif qualification_value:
+            lines.append(f"이 공고의 자격 제한 표기는 「{qualification_value}」입니다.")
+        etc = next((item for item in limits if item.get("key") == "etc" and item.get("restricted")), None)
+        etc_value = str((etc or {}).get("value") or "").strip()
+        if etc_value:
+            lines.append(f"자격 제한과 별개로 기타 제한도 있습니다. 「{etc_value[:120]}」입니다. 전문은 공고 원문에서 확인하십시오.")
+        lines.extend([
             "누가 입찰할 수 있는지는 공고문의 참가자격 조항이 정합니다. 개인·사업자·법인 가운데 누가 입찰할 수 있는지는 공고마다 다릅니다.",
             "조항에 괄호 안 표기(예: 일반사업자 또는 법인사업자)가 있으면 그 뜻은 공고 원문과 담당기관에서 확인하십시오.",
-        ]
+        ])
         user_type = str((board or {}).get("userType") or "")
         if user_type:
             lines.append(f"지금 고른 사용자 유형은 「{user_type}」입니다. 이 유형이 참가자격 조항에 해당하는지 확인하십시오.")
