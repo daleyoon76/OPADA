@@ -3402,8 +3402,15 @@ function watchItemHtml(item, options = {}) {
   const action = item.sample
     ? `<span class="info-row-action text-action is-disabled" aria-disabled="true">예시 항목(원문 없음)</span>`
     : `<a class="info-row-action link-chip" href="${item.sourceUrl || "https://www.onbid.co.kr/"}" target="_blank" rel="noreferrer">원문 ↗</a>`;
+  // 제목을 누르면 그 공고를 바로 불러온다(2026-10-22 동원님 요청). 저장해 둔 sourceUrl 을
+  // 공고 가져오기 칸에 넣고 분석해 1-3 결과까지 데려간다. 예시 항목과 원문 주소가 없는
+  // 항목은 불러올 대상이 없으므로 종전처럼 글자로만 둔다.
+  const loadUrl = item.sample ? "" : String(item.sourceUrl || "");
+  const titleHtml = loadUrl
+    ? `<button type="button" class="info-row-title watch-row-load" data-load-notice="${escapeHtml(loadUrl)}" title="이 공고를 불러옵니다">${title}</button>`
+    : `<strong class="info-row-title">${title}</strong>`;
   return `<article class="info-row watch-row">
-    <div class="info-row-head">${favoriteButton}${headBadge}<strong class="info-row-title">${title}</strong>${action}</div>
+    <div class="info-row-head">${favoriteButton}${headBadge}${titleHtml}${action}</div>
     ${textParts.length ? `<p class="info-row-text">${textParts.join(" · ")}</p>` : ""}
     ${metaParts.length ? `<p class="info-row-meta">${metaParts.join(" · ")}</p>` : ""}
   </article>`;
@@ -3424,6 +3431,29 @@ function replaceNotice(nextNotice) {
     delete sampleNotice[key];
   });
   Object.assign(sampleNotice, nextNotice);
+}
+
+// 관심 공고·최근 공고에서 고른 공고를 「공고 가져오기」 칸에 넣고 바로 분석한다
+// (2026-10-22 동원님 요청). 사용자는 확인한 뒤 그 공고의 1-3 결과를 보게 된다.
+//
+// 직전 공고의 상태(분석 결과·보드 진행·코치 답)를 지우고 시작한다. 지우지 않으면 새 공고
+// 화면에 앞 공고의 답이 남는다. restartWizardToProfile 과 같은 순서를 쓰되, 유형·목적
+// 선택으로 되돌리지 않고 URL 을 채운 채 곧바로 분석한다.
+function loadNoticeFromWatchlist(url) {
+  analysisRequestId += 1;
+  setAnalysisInputsBusy(false);
+  clearCoachAnswer();
+  boardStageNum = null;
+  clearTimeout(transitionTimer);
+  analyzedInputValue = "";
+  analysisError = null;
+  boardGenerated = false;
+  currentStage = 0;
+  byId("notice-url").value = url;
+  byId("notice-url").removeAttribute("aria-invalid");
+  setView("input");
+  setInputStep("url");
+  runAnalysis();
 }
 
 async function runAnalysis() {
@@ -3834,6 +3864,16 @@ function init() {
     }
     if (event.target.closest("[data-coach-toggle]")) {
       setCoachCollapsed(!coachCollapsed);
+      return;
+    }
+    // 관심 공고·최근 공고의 제목을 누르면 그 공고를 불러온다. 분석은 되돌릴 수 없는 긴
+    // 작업이고 지금 보던 분석 결과를 덮으므로, 먼저 묻고 「예」일 때만 진행한다.
+    const loadTarget = event.target.closest("[data-load-notice]");
+    if (loadTarget) {
+      const url = loadTarget.dataset.loadNotice || "";
+      if (url && window.confirm("이 공고를 불러올까요?\n\n지금 화면의 분석 결과는 새 공고 결과로 바뀝니다.")) {
+        loadNoticeFromWatchlist(url);
+      }
       return;
     }
     const target = event.target.closest("[data-jump]");

@@ -3059,6 +3059,28 @@ button.mini-step {
   overflow-wrap: anywhere;
 }
 
+/* 관심 공고 제목을 누르면 그 공고를 불러온다(2026-10-22). 버튼이지만 옆의 strong 제목과
+   같은 글자로 보여야 줄 모양이 흐트러지지 않으므로, 버튼 기본 모양을 걷어내고 누를 수
+   있다는 표시만 밑줄로 남긴다. */
+.watch-row-load {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 3px;
+}
+
+.watch-row-load:hover {
+  text-decoration-color: currentColor;
+}
+
 /* I9 포커스 윤곽선을 주 버튼과 같은 3px 하나로 맞춘다. */
 .mini-step:focus-visible,
 .link-chip:focus-visible,
