@@ -1992,6 +1992,9 @@ async function askNoticeQuestion() {
           contact: sampleNotice.contact,
           bidDeposit: (sampleNotice.costs || []).find((item) => item.title === "입찰보증금")?.value || "",
           evictionResponsibility: sampleNotice.evictionResponsibility || "",
+          // 「개인도 입찰할 수 있나요?」 안내가 이 공고의 자격 제한을 읽는다. 여기서 빼면 서버가
+          // 값을 가지고 있어도 일반 안내만 돌려준다(2026-10-22 동원님 지적 · 실제로 그랬다).
+          bidLimits: sampleNotice.bidLimits || [],
           jointBidAnswer: conditionAnswers.joint === "yes" ? "공동입찰 예정" : "공동입찰 아님",
           proxyBidAnswer: conditionAnswers.proxy === "yes" ? "대리입찰 예정" : "대리입찰 아님",
         },
