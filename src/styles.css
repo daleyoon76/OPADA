@@ -3059,6 +3059,26 @@ button.mini-step {
   overflow-wrap: anywhere;
 }
 
+/* 2-4 맨 위 「낙찰을 받으셨나요?」. 「예」일 때 축하 문구를 한 단 띄우고 테두리로 묶어,
+   아래 서류 목록과 섞여 읽히지 않게 한다(2026-10-22). */
+.award-ask .doc-condition-options {
+  margin-top: 8px;
+}
+
+.award-result {
+  margin-top: 12px;
+}
+
+.award-result.is-won {
+  border-left: 3px solid var(--green);
+  padding-left: 12px;
+}
+
+.award-congrats {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
 /* 3단계 끝의 「온비드 입찰 화면 열기」는 새 창으로 나가는 링크라 button 이 아니라 a 다.
    .primary 는 min-height 를 쓰는데 a 는 기본이 inline 이라 높이가 먹지 않는다. 그래서
    이 자리만 inline-flex 로 세우고 글자를 가운데 맞춘다(2026-10-22). */

@@ -777,6 +777,20 @@ function setDocConditionAnswer(key, value) {
   writeJsonStorage(docConditionStorageKeyFor(sampleNotice), current);
 }
 
+// 2-4 맨 위에서 묻는 「낙찰을 받으셨나요?」의 답이다(2026-10-22 동원님 요청).
+// 공고별로 따로 저장한다 — 다른 공고를 보다 돌아왔을 때 앞 공고의 답이 남으면 안 된다.
+// 아직 답하지 않은 상태("")와 「아니오」("no")를 가른다. 안 물어본 것과 아니라고 한 것은 다르다.
+function getAwardAnswer() {
+  const saved = readJsonStorage(docConditionStorageKeyFor(sampleNotice), {});
+  return saved.awarded === "yes" ? "yes" : saved.awarded === "no" ? "no" : "";
+}
+
+function setAwardAnswer(value) {
+  const current = readJsonStorage(docConditionStorageKeyFor(sampleNotice), {});
+  current.awarded = value === "yes" ? "yes" : "no";
+  writeJsonStorage(docConditionStorageKeyFor(sampleNotice), current);
+}
+
 // 공동입찰·대리입찰에서 "예"로 답했을 때 추가로 안내하는 서류다. 이 공고 원문에서 추출한
 // 것이 아니라, server.py DOC_HOWTO가 이미 쓰는 공식 서식명을 그대로 재사용한 일반 안내다.
 const DOC_CONDITION_SUPPLEMENT = {
@@ -2929,6 +2943,37 @@ function postAwardProcessNote() {
   };
 }
 
+// 2-4 맨 위에서 「낙찰을 받으셨나요?」를 묻는다(2026-10-22 동원님 요청).
+// 「예」면 축하 문구와 함께 아래가 무엇인지 한 줄로 알린다. 「아니오」면 아직 준비 단계라는
+// 것만 적고 아래 목록은 그대로 둔다 — 낙찰 전에도 무엇을 내야 하는지 미리 볼 수 있어야 한다.
+function renderAwardAskPanel() {
+  const answer = getAwardAnswer();
+  const buttons = ["yes", "no"]
+    .map(
+      (value) =>
+        `<button type="button" class="secondary small-button${answer === value ? " is-active" : ""}" aria-pressed="${answer === value}" data-award-answer="${value}">${value === "yes" ? "예" : "아니오"}</button>`,
+    )
+    .join("");
+  const resultHtml =
+    answer === "yes"
+      ? `<div class="award-result is-won">
+          <p class="award-congrats">축하합니다. 이후에 준비하실 것들은 아래와 같습니다.</p>
+          <p class="small-text">기한이 있는 항목이 섞여 있습니다. 낙찰 뒤에는 기한을 넘기면 되돌리기 어려우니 날짜부터 확인하십시오.</p>
+        </div>`
+      : answer === "no"
+        ? `<div class="award-result">
+          <p class="small-text">아래 목록은 낙찰됐을 때 준비할 것입니다. 미리 보아 두시면 입찰 전에 가늠할 수 있습니다.</p>
+        </div>`
+        : "";
+  return `<div class="info-list award-ask">
+    <div class="info-row">
+      <div class="info-row-head"><strong class="info-row-title">낙찰을 받으셨나요?</strong></div>
+      <div class="doc-condition-options" role="radiogroup" aria-label="낙찰 여부">${buttons}</div>
+      ${resultHtml}
+    </div>
+  </div>`;
+}
+
 function renderPostAwardPanel() {
   const groups = getPostAwardDocGroups();
   const docState = getDocState();
@@ -3218,6 +3263,8 @@ function renderReport() {
       // 4단계는 build_tasks() 가 만드는 task 가 없고 서류 블록만 담는다. 그래서 「항목 0개면
       // 그리지 않는다」는 조기 반환을 그대로 두면 4단계가 통째로 사라지고, 상단 스테퍼에만
       // 남아 「목록에는 없는 단계」가 된다(P0-1의 다른 절반).
+      // 2-4 는 「낙찰을 받으셨나요?」를 먼저 묻고(맨 위) 그 아래에 낙찰 후 서류를 둔다.
+      const awardAskHtml = stage.num === 4 && !stage.locked ? renderAwardAskPanel() : "";
       const postAwardHtml = stage.num === 4 ? renderPostAwardPanel() : "";
       // 단계마다 페이지가 하나라, 할 일이 없는 단계도 빈 페이지 대신 그 사실을 적는다.
       // 단계 밖 task(알 수 없는 id)는 2-1 페이지 끝에 붙인다.
@@ -3273,6 +3320,7 @@ function renderReport() {
       return `<section class="stage-group ${stageCls}" data-stage-num="${stage.num}"${stage.num === activeStage.num ? "" : " hidden"}>
         ${renderStageHeading(stage)}
         ${restartWarningHtml}
+        ${awardAskHtml}
         ${bidLimitsHtml}
         ${bidApplyHtml}
         ${cardsHtml}
@@ -3860,6 +3908,12 @@ function init() {
     const docConditionButton = event.target.closest("[data-doc-condition]");
     if (docConditionButton) {
       setDocConditionAnswer(docConditionButton.dataset.docCondition, docConditionButton.dataset.docConditionValue);
+      renderReport();
+      return;
+    }
+    const awardButton = event.target.closest("[data-award-answer]");
+    if (awardButton) {
+      setAwardAnswer(awardButton.dataset.awardAnswer);
       renderReport();
       return;
     }
