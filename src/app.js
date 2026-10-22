@@ -472,6 +472,24 @@ const taskStorageKey = "onbid-public-asset-doc-agent-tasks-v1";
 const recentNoticeStorageKey = "onbid-public-asset-doc-agent-recent-v1";
 const favoriteNoticeStorageKey = "onbid-public-asset-doc-agent-favorites-v1";
 
+// 분석 결과 보관함. 관심 공고·최근 공고에서 다시 열 때 온비드를 다시 읽지 않고 이것을 꺼낸다
+// (2026-10-22 동원님 요청). 종전에는 주소만 들고 있다가 다시 분석해 40초쯤 걸렸고,
+// 분석이 실패하면 저장해 둔 공고를 아예 못 봤다.
+//
+// 체크 상태는 여기 넣지 않는다. 이미 공고별로 따로 저장되고(docStorageKeyFor) 분석 결과와
+// 수명이 다르다 — 결과를 다시 받아도 체크는 남아야 한다.
+//
+// 분석 결과 하나가 약 37KB 다(분당 물건 실측 23,782자). localStorage 한도를 생각해 최근
+// ANALYSIS_CACHE_MAX 건만 남긴다.
+const analysisCacheStorageKey = "onbid-public-asset-doc-agent-analysis-v1";
+const ANALYSIS_CACHE_MAX = 8;
+
+// 보관함에서 꺼내 온 결과일 때 그 저장 시각이다. 빈 문자열이면 방금 분석한 결과다.
+// 🔴 꺼내 온 값은 저장 시점의 것이라 마감 카운트다운처럼 시간이 지나면 어긋나는 값이 섞인다.
+// 사용자가 낡은 값을 보고 있다는 것을 모르면 날짜 하나로 신뢰가 무너진다. 화면에 적고
+// 다시 분석할 길을 함께 준다.
+let restoredAnalysisAt = "";
+
 // 준비 단계(공고 확인 → 입찰 전 준비 → 입찰 참여 → 낙찰 후 준비). currentStage/pipelineSteps(Step1 분석
 // 파이프라인, 1895·1903행 근처)와 겹치지 않게 prepStage 계열로 둔다(3팀 ux-audit §⑸ 제약).
 // 서버(server.py build_tasks())가 이미 4개 id를 고정 순서로 만들므로, 서버 응답 구조를
@@ -735,6 +753,39 @@ function getNoticeInput() {
   const raw = byId("notice-url").value.trim();
   const urlMatch = raw.match(/https?:\/\/\S+/i);
   return urlMatch ? urlMatch[0] : raw;
+}
+
+// 분석 결과 보관함 읽기·쓰기. 항목은 { key, url, savedAt, notice } 이고 최근 것이 앞에 온다.
+function readAnalysisCache() {
+  const saved = readJsonStorage(analysisCacheStorageKey, []);
+  return Array.isArray(saved) ? saved : [];
+}
+
+function saveAnalysisToCache(notice, url) {
+  const key = noticeKey(notice);
+  if (!key || !url) return;
+  const rest = readAnalysisCache().filter((item) => item && item.key !== key);
+  // url 은 사용자가 넣은 주소, sourceUrl 은 분석 결과가 들고 온 최종 주소다. 둘이 다를 수
+  // 있어 모두 적어 둔다(위 findAnalysisInCache 주석 참고).
+  const entry = { key, url, sourceUrl: notice.sourceUrl || "", savedAt: new Date().toISOString(), notice };
+  writeJsonStorage(analysisCacheStorageKey, [entry, ...rest].slice(0, ANALYSIS_CACHE_MAX));
+}
+
+// 🔴 주소만으로는 못 찾는다. 사용자가 넣는 주소(shortcut.do?code=…)와 분석 결과가 들고
+// 오는 sourceUrl(리다이렉트된 mvmnCltrDtl.do?…)이 다르기 때문이다. 관심 공고 카드는
+// sourceUrl 쪽을 들고 있어서, 주소만 맞춰 보면 언제나 어긋나 다시 분석하게 된다
+// (2026-10-22 실측 — 보관함에 있는데도 analyze 호출이 한 번 더 나갔다).
+//
+// 그래서 공고 키를 먼저 본다. 카드의 id 와 보관함 항목의 key 는 둘 다 noticeKey() 로
+// 만들어 같은 공고면 일치한다. 키가 없을 때만 주소 두 가지를 차례로 맞춰 본다.
+function findAnalysisInCache(url, key) {
+  const cache = readAnalysisCache();
+  if (key) {
+    const byKey = cache.find((item) => item && item.key === key);
+    if (byKey) return byKey;
+  }
+  if (!url) return null;
+  return cache.find((item) => item && (item.url === url || item.sourceUrl === url)) || null;
 }
 
 function noticeKey(notice) {
@@ -1608,6 +1659,25 @@ function renderUrlStepFeedback(fit) {
 // 3p(분석 결과) 화면. 사용자 피드백("분석결과 박스 안의 객체 배치나 구조가 너무 정신없다")에 따라
 // 서로 다른 배경·테두리를 가진 상자 여러 개를 쌓는 대신, "핵심 정보"·"확인 사항"·"온비드 연결"
 // 세 묶음으로만 나눈다. 묶음 안의 항목은 데이터·판정 로직을 그대로 쓰고 배치만 바꾼다.
+// 보관함에서 꺼내 온 결과일 때 그 사실과 저장 시각을 맨 위에 적는다(2026-10-22).
+// 마감 카운트다운처럼 시간이 지나면 어긋나는 값이 섞여 있어, 낡은 값을 보고 있다는 것을
+// 모르면 날짜 하나로 신뢰가 무너진다. 다시 받을 길(분석하기)도 같은 줄에서 알린다.
+function renderRestoredNotice() {
+  if (!restoredAnalysisAt) return "";
+  const when = formatSavedAt(restoredAnalysisAt);
+  return `<section class="block restored-notice">
+    <p class="info-row-text">${badge("저장해 둔 결과", "neutral")} ${when ? `${when}에 분석한 결과를 그대로 불러왔습니다.` : "앞서 분석해 둔 결과를 그대로 불러왔습니다."} 온비드를 다시 읽지 않았습니다.</p>
+    <p class="small-text">마감까지 남은 날짜처럼 시간이 지나면 달라지는 값이 섞여 있습니다. 최신 상태로 보시려면 위 1-2 에서 「분석하기」를 다시 누르십시오.</p>
+  </section>`;
+}
+
+function formatSavedAt(iso) {
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())} ${pad(when.getHours())}:${pad(when.getMinutes())}`;
+}
+
 function renderAnalysisResult() {
   const panel = byId("analysis-result");
   const fit = getFitMessage();
@@ -1628,6 +1698,7 @@ function renderAnalysisResult() {
   // 모든 절을 같은 블록 템플릿(.block · 제목 + 내용)으로 그린다. 판정·확인 사항은 정보 행,
   // 핵심 정보는 값 칸이다(2026-10-19 동원님 지시: 이 페이지의 UI가 통일되지 않았다).
   panel.innerHTML = `
+    ${renderRestoredNotice()}
     <section class="block result-status ${fit.type}">
       <h3 class="block-title">판정</h3>
       ${infoRow({
@@ -3487,7 +3558,7 @@ function watchItemHtml(item, options = {}) {
   // 항목은 불러올 대상이 없으므로 종전처럼 글자로만 둔다.
   const loadUrl = item.sample ? "" : String(item.sourceUrl || "");
   const titleHtml = loadUrl
-    ? `<button type="button" class="info-row-title watch-row-load" data-load-notice="${escapeHtml(loadUrl)}" title="이 공고를 불러옵니다">${title}</button>`
+    ? `<button type="button" class="info-row-title watch-row-load" data-load-notice="${escapeHtml(loadUrl)}" data-load-key="${escapeHtml(String(item.id || ""))}" title="이 공고를 불러옵니다">${title}</button>`
     : `<strong class="info-row-title">${title}</strong>`;
   return `<article class="info-row watch-row">
     <div class="info-row-head">${favoriteButton}${headBadge}${titleHtml}${action}</div>
@@ -3519,7 +3590,7 @@ function replaceNotice(nextNotice) {
 // 직전 공고의 상태(분석 결과·보드 진행·코치 답)를 지우고 시작한다. 지우지 않으면 새 공고
 // 화면에 앞 공고의 답이 남는다. restartWizardToProfile 과 같은 순서를 쓰되, 유형·목적
 // 선택으로 되돌리지 않고 URL 을 채운 채 곧바로 분석한다.
-function loadNoticeFromWatchlist(url) {
+function loadNoticeFromWatchlist(url, key = "") {
   analysisRequestId += 1;
   setAnalysisInputsBusy(false);
   clearCoachAnswer();
@@ -3529,9 +3600,24 @@ function loadNoticeFromWatchlist(url) {
   analysisError = null;
   boardGenerated = false;
   currentStage = 0;
+  restoredAnalysisAt = "";
   byId("notice-url").value = url;
   byId("notice-url").removeAttribute("aria-invalid");
   setView("input");
+
+  // 보관해 둔 분석 결과가 있으면 그대로 꺼낸다. 온비드를 다시 읽지 않으므로 바로 열리고,
+  // 분석이 실패할 일도 없다. 체크 상태는 공고별로 따로 저장돼 있어 함께 살아난다.
+  const cached = findAnalysisInCache(url, key);
+  if (cached && cached.notice) {
+    replaceNotice(cached.notice);
+    analyzedInputValue = url;
+    restoredAnalysisAt = cached.savedAt || "";
+    currentStage = pipelineSteps.length - 1;
+    renderAll();
+    setInputStep("result");
+    return;
+  }
+
   setInputStep("url");
   runAnalysis();
 }
@@ -3580,8 +3666,11 @@ async function runAnalysis() {
     replaceNotice(payload.notice);
     boardStageNum = null;
     analyzedInputValue = requestedInput;
+    restoredAnalysisAt = "";
     clearCoachAnswer();
     saveRecentNotice();
+    // 다음에 관심 공고에서 이 공고를 다시 열 때 온비드를 다시 읽지 않도록 결과를 보관한다.
+    saveAnalysisToCache(payload.notice, requestedInput);
     renderAll();
     setInputStep("result");
     // 분석 성공 뒤 포커스가 사라진 「분석하기」 자리(BODY)에 남지 않게 1-3 제목으로 옮긴다(I7).
@@ -3958,7 +4047,7 @@ function init() {
     if (loadTarget) {
       const url = loadTarget.dataset.loadNotice || "";
       if (url && window.confirm("이 공고를 불러올까요?\n\n지금 화면의 분석 결과는 새 공고 결과로 바뀝니다.")) {
-        loadNoticeFromWatchlist(url);
+        loadNoticeFromWatchlist(url, loadTarget.dataset.loadKey || "");
       }
       return;
     }
