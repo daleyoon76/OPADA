@@ -1,0 +1,83 @@
+[
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2069899&pbctCdtnNo=6246307&onbidPbancNo=909498&pbctNo=10102040",
+  "cltrNm": "인천광역시 강화군 하점면 창후리 860-7",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "909498"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=999105&pbctCdtnNo=6246473&onbidPbancNo=909498&pbctNo=10106059",
+  "cltrNm": "경기도 이천시 설성면 제요리 289-8",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612231700",
+  "onbidPbancNo": "909498"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1935822&pbctCdtnNo=6229326&onbidPbancNo=907782&pbctNo=10102040",
+  "cltrNm": "경상북도 영천시 대창면 대창리 386",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "907782"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2066202&pbctCdtnNo=6229062&onbidPbancNo=907782&pbctNo=10097269",
+  "cltrNm": "경기도 연천군 전곡읍 양원리 180, 179-3, 180-2",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202611251700",
+  "onbidPbancNo": "907782"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1935813&pbctCdtnNo=6211833&onbidPbancNo=906058&pbctNo=10102040",
+  "cltrNm": "경상남도 창원시 마산합포구 구산면 옥계리 600-16",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "906058"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1533619&pbctCdtnNo=6211830&onbidPbancNo=906058&pbctNo=10102040",
+  "cltrNm": "충청남도 홍성군 홍성읍 학계리 339",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "906058"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2055079&pbctCdtnNo=6190599&onbidPbancNo=904090&pbctNo=10097270",
+  "cltrNm": "전남광주통합특별시 해남군 옥천면 월평리 316",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612021700",
+  "onbidPbancNo": "904090"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1632997&pbctCdtnNo=6190557&onbidPbancNo=904090&pbctNo=10097270",
+  "cltrNm": "경상남도 김해시 진례면 초전리 16-3",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612021700",
+  "onbidPbancNo": "904090"
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2071238&pbctCdtnNo=6250028&onbidPbancNo=910161&pbctNo=10111339",
+  "cltrNm": "경기도 성남시 분당구 정자동 4-6 한국잡월드 문화및집회시설",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612011000",
+  "onbidPbancNo": "910161"
+ }
+]

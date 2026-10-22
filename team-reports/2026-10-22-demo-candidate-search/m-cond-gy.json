@@ -1,0 +1,1548 @@
+[
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2069899&pbctCdtnNo=6246307&onbidPbancNo=909498&pbctNo=10102040",
+  "cltrNm": "인천광역시 강화군 하점면 창후리 860-7",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "909498",
+  "ok": true,
+  "elapsed": 7.8,
+  "title": "인천광역시 강화군 하점면 창후리 860-7",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-09 17:00",
+  "docTotal": 15,
+  "prebidTotal": 13,
+  "prebidNoCondition": 0,
+  "prebidProxy": 3,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=999105&pbctCdtnNo=6246473&onbidPbancNo=909498&pbctNo=10106059",
+  "cltrNm": "경기도 이천시 설성면 제요리 289-8",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612231700",
+  "onbidPbancNo": "909498",
+  "ok": true,
+  "elapsed": 6.5,
+  "title": "경기도 이천시 설성면 제요리 289-8",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-23 17:00",
+  "docTotal": 15,
+  "prebidTotal": 13,
+  "prebidNoCondition": 0,
+  "prebidProxy": 3,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1935822&pbctCdtnNo=6229326&onbidPbancNo=907782&pbctNo=10102040",
+  "cltrNm": "경상북도 영천시 대창면 대창리 386",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "907782",
+  "ok": true,
+  "elapsed": 6.1,
+  "title": "경상북도 영천시 대창면 대창리 386",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-09 17:00",
+  "docTotal": 17,
+  "prebidTotal": 15,
+  "prebidNoCondition": 0,
+  "prebidProxy": 5,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2066202&pbctCdtnNo=6229062&onbidPbancNo=907782&pbctNo=10097269",
+  "cltrNm": "경기도 연천군 전곡읍 양원리 180, 179-3, 180-2",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202611251700",
+  "onbidPbancNo": "907782",
+  "ok": true,
+  "elapsed": 6.2,
+  "title": "경기도 연천군 전곡읍 양원리 180, 179-3, 180-2",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-11-25 17:00",
+  "docTotal": 17,
+  "prebidTotal": 15,
+  "prebidNoCondition": 0,
+  "prebidProxy": 5,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1935813&pbctCdtnNo=6211833&onbidPbancNo=906058&pbctNo=10102040",
+  "cltrNm": "경상남도 창원시 마산합포구 구산면 옥계리 600-16",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "906058",
+  "ok": true,
+  "elapsed": 9.5,
+  "title": "경상남도 창원시 마산합포구 구산면 옥계리 600-16",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-09 17:00",
+  "docTotal": 17,
+  "prebidTotal": 15,
+  "prebidNoCondition": 0,
+  "prebidProxy": 5,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1533619&pbctCdtnNo=6211830&onbidPbancNo=906058&pbctNo=10102040",
+  "cltrNm": "충청남도 홍성군 홍성읍 학계리 339",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612091700",
+  "onbidPbancNo": "906058",
+  "ok": true,
+  "elapsed": 6.5,
+  "title": "충청남도 홍성군 홍성읍 학계리 339",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-09 17:00",
+  "docTotal": 17,
+  "prebidTotal": 15,
+  "prebidNoCondition": 0,
+  "prebidProxy": 5,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2055079&pbctCdtnNo=6190599&onbidPbancNo=904090&pbctNo=10097270",
+  "cltrNm": "전남광주통합특별시 해남군 옥천면 월평리 316",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612021700",
+  "onbidPbancNo": "904090",
+  "ok": true,
+  "elapsed": 6.7,
+  "title": "전남광주통합특별시 해남군 옥천면 월평리 316",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-02 17:00",
+  "docTotal": 17,
+  "prebidTotal": 15,
+  "prebidNoCondition": 0,
+  "prebidProxy": 5,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1632997&pbctCdtnNo=6190557&onbidPbancNo=904090&pbctNo=10097270",
+  "cltrNm": "경상남도 김해시 진례면 초전리 16-3",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612021700",
+  "onbidPbancNo": "904090",
+  "ok": true,
+  "elapsed": 6.5,
+  "title": "경상남도 김해시 진례면 초전리 16-3",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-02 17:00",
+  "docTotal": 17,
+  "prebidTotal": 15,
+  "prebidNoCondition": 0,
+  "prebidProxy": 5,
+  "prebidJoint": 5,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 0,
+  "sotFallbackNames": [],
+  "postbid": 2,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [
+   "대리입찰신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "jointNames": [
+   "공동입찰참가신청서",
+   "본인서명사실확인서",
+   "인감증명서"
+  ],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "미성년자 입찰참가 동의서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ },
+ {
+  "group": "국유재산",
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=2071238&pbctCdtnNo=6250028&onbidPbancNo=910161&pbctNo=10111339",
+  "cltrNm": "경기도 성남시 분당구 정자동 4-6 한국잡월드 문화및집회시설",
+  "asset": "국유재산",
+  "disp": "임대",
+  "bidEnd": "202612011000",
+  "onbidPbancNo": "910161",
+  "ok": true,
+  "elapsed": 6.0,
+  "title": "경기도 성남시 분당구 정자동 4-6 한국잡월드 문화및집회시설",
+  "assetType": "국유재산",
+  "dispositionLabel": "임대",
+  "bidDeadline": "2026-12-01 10:00",
+  "docTotal": 15,
+  "prebidTotal": 11,
+  "prebidNoCondition": 0,
+  "prebidProxy": 0,
+  "prebidJoint": 0,
+  "prebidMinor": 0,
+  "prebidViaSotFallback": 1,
+  "sotFallbackNames": [
+   "위임장"
+  ],
+  "postbid": 0,
+  "unclassified": 4,
+  "needsInquiry": 0,
+  "noConditionNames": [],
+  "proxyNames": [],
+  "jointNames": [],
+  "minorNames": [],
+  "allItemDump": [
+   {
+    "name": "사업제안서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "사업자등록증",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "같은 조항의 입찰 전 표지: 입찰참가 등록·신청"
+   },
+   {
+    "name": "법인 등기사항증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "4. 입찰참가 등록서류"
+   },
+   {
+    "name": "주민등록등본",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "4. 입찰참가 등록서류"
+   },
+   {
+    "name": "신분증",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "같은 조항의 입찰 전 표지: 입찰참가 등록·신청"
+   },
+   {
+    "name": "주민등록증",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "같은 조항의 입찰 전 표지: 입찰참가 등록·신청"
+   },
+   {
+    "name": "운전면허증",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "같은 조항의 입찰 전 표지: 입찰참가 등록·신청"
+   },
+   {
+    "name": "위임장",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "온비드 국유재산 입찰참가자 준수규칙 제7조(입찰기간 중 제출)"
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "4. 입찰참가 등록서류"
+   },
+   {
+    "name": "사용인감계",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "4. 입찰참가 등록서류"
+   },
+   {
+    "name": "제안서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "4. 입찰참가 등록서류"
+   },
+   {
+    "name": "보증보험증권",
+    "stage": "미분류",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "입찰참가신청서",
+    "stage": "미분류",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "청렴계약이행서약서",
+    "stage": "미분류",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "확약서",
+    "stage": "미분류",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   }
+  ]
+ }
+]

@@ -1,0 +1,148 @@
+[
+ {
+  "url": "https://www.onbid.co.kr/op/cltrpbancinf/pbanc/pbancdtlinf/PbancDtlInqController/mvmnPbancDtl.do?onbidPbancNo=908297&pbctNo=10107437",
+  "title": "2026년도 제10회 수탁재산 공매공고",
+  "pageType": "공고 상세",
+  "bidDeadline": "2026-10-21 17:00",
+  "docTotal": 16,
+  "prebid": 8,
+  "noCond": 6,
+  "proxy": 2,
+  "joint": 2,
+  "postbid": 8,
+  "unclassified": 0,
+  "needsInquiry": 0,
+  "items": [
+   {
+    "name": "인감증명서",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "대리입찰",
+     "공동입찰"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "공동입찰참가신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "본인서명사실확인서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "첨부 서식 「대리입찰신청서」에 딸린 서류 · 본문 「대리입찰신청서」 항목과 같은 시점"
+   },
+   {
+    "name": "인감증명서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "온비드 수탁재산 입찰참가자 준수규칙 제5조(입찰기간 중 제출)"
+   },
+   {
+    "name": "대리입찰신청서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "전자보증서",
+    "stage": "입찰 전",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": ""
+   },
+   {
+    "name": "신분증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "■ 제출서류 (방문시 계약서 날인용 도장 지참) \n(1) 개인의 경우 주민등록등(초)본, "
+   },
+   {
+    "name": "법인인감증명서",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "■ 제출서류 (방문시 계약서 날인용 도장 지참) \n(1) 개인의 경우 주민등록등(초)본, 신분증\n(2) 법인의 경우 법인등기부등본, 사업자등록증"
+   },
+   {
+    "name": "법인 등기사항증명서",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "■ 제출서류 (방문시 계약서 날인용 도장 지참) \n(1) 개인의 경우 주민등록등(초)본, 신분증\n(2) 법인의 경우 "
+   },
+   {
+    "name": "사업자등록증",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "■ 제출서류 (방문시 계약서 날인용 도장 지참) \n(1) 개인의 경우 주민등록등(초)본, 신분증\n(2) 법인의 경우 법인등기부등본, "
+   },
+   {
+    "name": "위임장",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "■ 제출서류 (방문시 계약서 날인용 도장 지참) \n(1) 개인의 경우 주민등록등(초)본, 신분증\n(2) 법인의 경우 법인등기부등본, 사업자등록증"
+   },
+   {
+    "name": "재직증명서",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "■ 제출서류 (방문시 계약서 날인용 도장 지참) \n(1) 개인의 경우 주민등록등(초)본, 신분증\n(2) 법인의 경우 법인등기부등본, 사업자등록증"
+   },
+   {
+    "name": "전자보증서",
+    "stage": "낙찰 후·계약 시",
+    "conditions": [
+     "공통"
+    ],
+    "sourceHeading": "7. 계약체결 \n① 낙 찰 자 는 낙 찰 일 로 부 터 5영 업 일 기 준 (낙 찰 일 제 외 , 공 사 영 업 일 기 준 , 토 지 거 래 허"
+   }
+  ]
+ }
+]
