@@ -3059,6 +3059,15 @@ button.mini-step {
   overflow-wrap: anywhere;
 }
 
+/* 3단계 끝의 「온비드 입찰 화면 열기」는 새 창으로 나가는 링크라 button 이 아니라 a 다.
+   .primary 는 min-height 를 쓰는데 a 는 기본이 inline 이라 높이가 먹지 않는다. 그래서
+   이 자리만 inline-flex 로 세우고 글자를 가운데 맞춘다(2026-10-22). */
+.bid-go-panel a.primary {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 /* 관심 공고 제목을 누르면 그 공고를 불러온다(2026-10-22). 버튼이지만 옆의 strong 제목과
    같은 글자로 보여야 줄 모양이 흐트러지지 않으므로, 버튼 기본 모양을 걷어내고 누를 수
    있다는 표시만 밑줄로 남긴다. */

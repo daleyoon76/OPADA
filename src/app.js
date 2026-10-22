@@ -2046,6 +2046,31 @@ const ONBID_BID_RULES = [
 // 3단계(입찰 참여)에서 "담당기관에 물어볼 질문 정리"를 뺀 자리에 두는 정보 리스트다.
 // 새 추출 로직을 만들지 않고 1·3단계 task의 action(이미 서버가 계산한 값)을 그대로 보여준다.
 // 개찰일시는 notice에 그 값을 담는 필드가 없어 추출 로직이 생기기 전까지는 행 자체를 만들지 않는다.
+// 3단계 할 일을 마친 자리에 두는 「온비드에서 입찰하기」 버튼이다(2026-10-22 동원님 요청).
+//
+// 🔴 온비드에는 바로 열 수 있는 입찰 화면 주소가 없다. 물건 상세의 「입찰하기」 버튼은
+// fn_goBidLayerPop() 을 부르고, 그 함수가 로그인 여부와 실명확인·입찰가능 여부를 검사한 뒤에야
+// 입찰 단계로 넘어간다(2026-10-22 물건 상세 HTML 실측). 그래서 물건 상세 페이지를 새 탭으로 열어
+// 그 버튼 앞까지 데려다주는 데까지만 한다.
+//
+// 문구는 「입찰하십시오」가 아니라 「온비드에서 입찰하기」다. 이 서비스는 입찰 참여 여부를
+// 판단하지 않는다는 경계를 두고 있어(server.py 의 safeBoundary), 권유로 읽히는 말은 쓰지 않는다.
+function renderBidGoPanel(stage) {
+  const url = sampleNotice.sourceUrl || "";
+  if (!url || stage.locked) return "";
+  const closed = sampleNotice.countdown?.state === "closed";
+  const note = closed
+    ? "이 공고는 입찰 마감이 지난 것으로 표시됩니다. 온비드 원문에서 상태를 다시 확인하십시오."
+    : "온비드 물건 화면이 새 창으로 열립니다. 그 화면의 「입찰하기」를 누르면 온비드 로그인과 입찰 단계로 이어집니다.";
+  return `<div class="info-list bid-go-panel">
+    <div class="info-row">
+      <div class="info-row-head">${badge(closed ? "마감 확인 필요" : "준비 완료", closed ? "warn" : "safe")}<strong class="info-row-title">온비드에서 입찰하기</strong></div>
+      <p class="info-row-text">${note}</p>
+      <div class="actions"><a class="primary small-button" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">온비드 입찰 화면 열기 ↗</a></div>
+    </div>
+  </div>`;
+}
+
 function renderBidParticipationInfo(taskSummary) {
   const bidPeriodTask = taskSummary.tasks.find((task) => task.id === "bid-period");
   const priceTask = taskSummary.tasks.find((task) => task.id === "price");
@@ -3231,6 +3256,9 @@ function renderReport() {
       // 항상 보인다" 원칙과 동일). 이 단계 전용 질문창은 지웠다 — 아래 고정 AI 코치와 겹쳤다(2026-10-19 동원님 지시).
       // 대신 아래 코치가 이 단계의 자주 묻는 질문(입찰금액·취소·보증금·결과 확인)을 예시로 보인다.
       const bidParticipationHtml = stage.num === 3 ? renderBidParticipationInfo(taskSummary) : "";
+      // 3단계 할 일을 마치면 온비드로 건너가는 버튼을 둔다(2026-10-22 동원님 요청).
+      // 준비를 끝낸 사용자가 주소를 다시 찾지 않게 하는 것이고, 입찰을 권하는 것이 아니다.
+      const bidGoHtml = stage.num === 3 ? renderBidGoPanel(stage) : "";
       // 잠긴 단계는 기본으로 접는다 — 체크박스만 비활성화하고 카드 내용을 전부 펼쳐 두면
       // 아직 손댈 수 없는 두세 단계 분량이 한 화면에 그대로 쏟아져 "한 번에 너무 많다"는
       // 체감으로 이어진다(2026-10-11 사용자 지적). 눌러서 미리 볼 수 있는 길은 남긴다.
@@ -3248,6 +3276,7 @@ function renderReport() {
         ${bidLimitsHtml}
         ${bidApplyHtml}
         ${cardsHtml}
+        ${bidGoHtml}
         ${stageDoneHtml}
         ${emptyHtml}
         ${bidParticipationHtml}
