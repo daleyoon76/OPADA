@@ -14,6 +14,10 @@ Thumbs.db
 .env
 .env.local
 
+# AI 자연어 물건 검색 — 하루 1회 배치로 받는 물건 목록 캐시(생성 데이터, 매일 바뀐다)
+/data/cltr_cache.json
+/data/cltr_cache.tmp
+
 # Node / Playwright
 node_modules/
 test-results/

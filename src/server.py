@@ -4468,6 +4468,385 @@ def check_ask_rate_limit(client_ip: str) -> str | None:
         return None
 
 
+# ===== AI 자연어 물건 검색 =====
+# 핵심은 벡터 검색이 아니라 "자연어 → 구조화 필터" 파싱이다(2026-10-28 동원님 지시).
+# LLM 호출 한 번으로 질의를 필터 JSON으로 바꾸고, 그 필터로 하루 1회 캐시한 물건 목록
+# (getRlstCltrList2)을 거른다.
+#
+# 하이브리드 캐시(동원님 승인) — 목록 전체는 CLTR_CACHE_PATH 에 캐시해 두고, 검색 결과 상위
+# 몇 건만 refresh_top_items_live() 가 그 순간 item_bid_detail 로 한 번 더 조회해 마감일시를
+# 덮어쓴다. 매 검색마다 전부 실시간 조회하면 느리고, 전부 캐시만 쓰면 "모두의경매" 리뷰가
+# 지적한 마감일 신뢰성 부족이 재현된다. 캐시 자체의 하루 1회 배치 갱신은 이 서버가 아니라
+# scripts/refresh_cltr_cache.py 를 cron·launchd 로 돌려서 한다(검증 경계 — 스케줄 등록은
+# 아직 하지 않았다. handoff.md 참고).
+
+CLTR_CACHE_PATH = ROOT.parent / "data" / "cltr_cache.json"
+CLTR_CACHE_TTL_SECONDS = 24 * 3600
+CLTR_CACHE_ROWS_PER_PAGE = 500
+CLTR_CACHE_MAX_PAGES_PER_COMBO = 6  # 콤보당 최대 3,000건. 전체 10콤보 ≤ 60회 호출(개발계정 일 1,000건 한도 안).
+SEARCH_LIVE_REFRESH_LIMIT = 5
+
+# real_estate_list(getRlstCltrList2)는 prptDivCd·pvctTrgtYn이 필수다
+# (docs/60_본선준비/16_온비드API_참고문서_규격대조_20260908.md). 코드-이름 매핑은
+# team-reports/2026-10-22-demo-candidate-search/raw-cltr-list.json.gz(2,697건)에서 실측했다.
+CLTR_PROPERTY_DIV_CODES = (
+    ("0002", "공유재산"),
+    ("0004", "불용품"),
+    ("0005", "기타일반재산"),
+    ("0007", "압류재산"),
+    ("0010", "국유재산"),
+)
+CLTR_PROPERTY_DIV_NAMES = tuple(name for _, name in CLTR_PROPERTY_DIV_CODES)
+CLTR_DISPOSAL_METHOD_NAMES = ("매각", "임대")
+PVCT_TRGT_YN_VALUES = ("Y", "N")
+
+# 용도 소분류 닫힌 목록. 같은 표본(2,697건)에서 실측한 56개다. "상가" 같은 사용자 표현은
+# 이 목록에 그대로 없으므로, LLM에게 이 목록을 보여 주고 거기서 고르게 한다
+# (예: "상가" → "근린생활시설"·"판매시설"). 목록에 없는 값은 normalize_search_filter가 버린다.
+CLTR_USAGE_CATEGORY_NAMES = (
+    "가설건축물", "공공용시설", "공원", "공장시설", "공장용지", "과수원", "관광휴게시설",
+    "교육연구시설", "구거", "근린생활시설", "기타상가용및업무용", "기타용도복합건물",
+    "기타제조공장", "기타주거용건물", "기타토지", "노유자시설", "다가구주택", "다세대주택",
+    "단독주택", "답", "대지", "도로", "도시형생활주택", "목장용지", "묘지", "문화및집회시설",
+    "부속건축물", "빌라", "사무실", "상업용빌딩", "수도용지", "수련시설", "숙박시설", "시장",
+    "아파트", "업무시설", "연립주택", "오피스텔", "운동시설", "운수시설", "유원지",
+    "이동식주택", "임야", "자동차관련시설", "잡종지", "전", "주차장", "주택부지", "창고시설",
+    "체육용지", "콘도미니움", "토지", "특수용지", "판매시설", "하천", "학교용지",
+)
+
+
+def load_cltr_cache() -> dict[str, object]:
+    empty: dict[str, object] = {"fetchedAtEpoch": 0.0, "fetchedAt": "", "items": []}
+    if not CLTR_CACHE_PATH.exists():
+        return empty
+    try:
+        data = json.loads(CLTR_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return empty
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        return empty
+    return data
+
+
+def save_cltr_cache(items: list[dict[str, object]]) -> dict[str, object]:
+    cache: dict[str, object] = {
+        "fetchedAtEpoch": time.time(),
+        "fetchedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "items": items,
+    }
+    CLTR_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = CLTR_CACHE_PATH.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(CLTR_CACHE_PATH)
+    return cache
+
+
+def cltr_cache_is_stale(cache: dict[str, object], max_age_seconds: int = CLTR_CACHE_TTL_SECONDS) -> bool:
+    fetched_at = cache.get("fetchedAtEpoch")
+    if not isinstance(fetched_at, (int, float)) or fetched_at <= 0:
+        return True
+    return (time.time() - fetched_at) > max_age_seconds
+
+
+def fetch_cltr_list_combo(
+    service_key: str,
+    prpt_div_cd: str,
+    pvct_trgt_yn: str,
+    max_pages: int = CLTR_CACHE_MAX_PAGES_PER_COMBO,
+    rows_per_page: int = CLTR_CACHE_ROWS_PER_PAGE,
+) -> list[dict[str, object]]:
+    collected: list[dict[str, object]] = []
+    for page in range(1, max_pages + 1):
+        result = call_public_data(
+            "real_estate_list",
+            {
+                "prptDivCd": prpt_div_cd,
+                "pvctTrgtYn": pvct_trgt_yn,
+                "pageNo": str(page),
+                "numOfRows": str(rows_per_page),
+            },
+            service_key,
+        )
+        items = result.get("items", [])
+        if not result.get("ok") or not items:
+            break
+        collected.extend(item for item in items if isinstance(item, dict))
+        if len(items) < rows_per_page:
+            break
+    return collected
+
+
+def fetch_all_cltr_items(service_key: str) -> list[dict[str, object]]:
+    by_id: dict[object, dict[str, object]] = {}
+    for prpt_div_cd, _ in CLTR_PROPERTY_DIV_CODES:
+        for pvct_trgt_yn in PVCT_TRGT_YN_VALUES:
+            for item in fetch_cltr_list_combo(service_key, prpt_div_cd, pvct_trgt_yn):
+                key = item.get("onbidCltrno") or item.get("cltrMngNo")
+                if key is not None:
+                    by_id[key] = item
+    return list(by_id.values())
+
+
+def refresh_cltr_cache(force: bool = False) -> dict[str, object]:
+    cache = load_cltr_cache()
+    if not force and not cltr_cache_is_stale(cache):
+        return cache
+    service_key = public_data_service_key()
+    if not service_key:
+        cache["refreshError"] = "공공데이터 인증키가 없어 목록을 새로 받지 못했습니다. 기존 캐시를 그대로 씁니다."
+        return cache
+    try:
+        items = fetch_all_cltr_items(service_key)
+    except (urllib.error.URLError, TimeoutError) as exc:
+        cache["refreshError"] = f"목록 갱신 중 오류가 발생해 기존 캐시를 그대로 씁니다: {exc}"
+        return cache
+    if not items:
+        cache["refreshError"] = "목록 API 응답이 비어 있어 기존 캐시를 그대로 씁니다."
+        return cache
+    return save_cltr_cache(items)
+
+
+def build_search_filter_prompt(query: str) -> dict[str, object]:
+    return {
+        "role": "온비드 공매 물건 검색 조건 파서",
+        "instruction": (
+            "사용자의 한국어 자연어 질의를 아래 schema 형식의 구조화된 검색 필터 JSON으로 바꾼다. "
+            "언급되지 않은 조건은 null 또는 빈 배열로 둔다. "
+            "prptDivNm·dspsMthodNm·usageCategories는 반드시 availableValues 안의 값만 고른다. "
+            "가격·유찰 횟수는 숫자만 쓴다(단위: 원, 회). "
+            "반드시 JSON 객체만 반환한다."
+        ),
+        "query": query,
+        "availableValues": {
+            "prptDivNm": list(CLTR_PROPERTY_DIV_NAMES),
+            "dspsMthodNm": list(CLTR_DISPOSAL_METHOD_NAMES),
+            "usageCategories": list(CLTR_USAGE_CATEGORY_NAMES),
+        },
+        "schema": {
+            "sido": ["질의에 언급된 시도 문자열(예: '서울특별시'). 언급 없으면 빈 배열"],
+            "sigungu": ["질의에 언급된 시군구 문자열. 언급 없으면 빈 배열"],
+            "prptDivNm": ["availableValues.prptDivNm 중 일치하는 재산유형"],
+            "dspsMthodNm": ["availableValues.dspsMthodNm 중 일치하는 처분방식"],
+            "usageCategories": ["availableValues.usageCategories 중 질의의 용도를 가장 잘 나타내는 값들"],
+            "minLowestBidPrice": "최저입찰가 하한(원) 또는 null",
+            "maxLowestBidPrice": "최저입찰가 상한(원) 또는 null",
+            "minAppraisalPrice": "감정평가액 하한(원) 또는 null",
+            "maxAppraisalPrice": "감정평가액 상한(원) 또는 null",
+            "minFailedBidCount": "유찰 횟수 하한(회) 또는 null",
+            "maxFailedBidCount": "유찰 횟수 상한(회) 또는 null",
+            "keywords": ["물건명에서 추가로 포함되어야 하는 단어"],
+        },
+    }
+
+
+def parse_search_filter_payload(payload: object) -> dict[str, object] | None:
+    return parse_gemini_json(payload)
+
+
+def _clamp_enum_list(raw: object, allowed: tuple[str, ...], limit: int = 8) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    allowed_set = set(allowed)
+    out: list[str] = []
+    for value in raw:
+        if isinstance(value, str) and value in allowed_set and value not in out:
+            out.append(value)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _clamp_free_text_list(raw: object, limit: int = 8, max_len: int = 40) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for value in raw:
+        if isinstance(value, str) and value.strip():
+            out.append(value.strip()[:max_len])
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _clamp_amount(raw: object) -> int | None:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)) and raw >= 0:
+        return int(raw)
+    return None
+
+
+def _clamp_count(raw: object) -> int | None:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)) and 0 <= raw <= 99:
+        return int(raw)
+    return None
+
+
+def normalize_search_filter(raw: dict[str, object] | None) -> dict[str, object]:
+    raw = raw if isinstance(raw, dict) else {}
+    return {
+        "sido": _clamp_free_text_list(raw.get("sido"), limit=5, max_len=20),
+        "sigungu": _clamp_free_text_list(raw.get("sigungu"), limit=5, max_len=20),
+        "prptDivNm": _clamp_enum_list(raw.get("prptDivNm"), CLTR_PROPERTY_DIV_NAMES),
+        "dspsMthodNm": _clamp_enum_list(raw.get("dspsMthodNm"), CLTR_DISPOSAL_METHOD_NAMES),
+        "usageCategories": _clamp_enum_list(raw.get("usageCategories"), CLTR_USAGE_CATEGORY_NAMES),
+        "minLowestBidPrice": _clamp_amount(raw.get("minLowestBidPrice")),
+        "maxLowestBidPrice": _clamp_amount(raw.get("maxLowestBidPrice")),
+        "minAppraisalPrice": _clamp_amount(raw.get("minAppraisalPrice")),
+        "maxAppraisalPrice": _clamp_amount(raw.get("maxAppraisalPrice")),
+        "minFailedBidCount": _clamp_count(raw.get("minFailedBidCount")),
+        "maxFailedBidCount": _clamp_count(raw.get("maxFailedBidCount")),
+        "keywords": _clamp_free_text_list(raw.get("keywords"), limit=5, max_len=20),
+    }
+
+
+def gemini_parse_search_query(query: str) -> dict[str, object] | None:
+    api_key = gemini_api_key()
+    if not api_key:
+        return None
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
+    endpoint = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{urllib.parse.quote(model, safe='')}:generateContent?key={urllib.parse.quote(api_key, safe='')}"
+    )
+    prompt = build_search_filter_prompt(query)
+    request_body = {
+        "contents": [{"role": "user", "parts": [{"text": json.dumps(prompt, ensure_ascii=False)}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": 500,
+            "responseMimeType": "application/json",
+        },
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode(response.headers.get_content_charset() or "utf-8", errors="replace")
+        parsed = parse_search_filter_payload(json.loads(raw))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    if parsed is None:
+        return None
+    return normalize_search_filter(parsed)
+
+
+def _parse_amount(raw: object) -> int | None:
+    if raw is None:
+        return None
+    text = re.sub(r"[^\d]", "", str(raw))
+    if not text:
+        return None
+    return int(text)
+
+
+def filter_cltr_items(items: list[dict[str, object]], filters: dict[str, object]) -> list[dict[str, object]]:
+    sido = filters.get("sido") or []
+    sigungu = filters.get("sigungu") or []
+    prpt_div = set(filters.get("prptDivNm") or [])
+    dsps_mthod = set(filters.get("dspsMthodNm") or [])
+    usage_categories = set(filters.get("usageCategories") or [])
+    keywords = filters.get("keywords") or []
+    min_lowest = filters.get("minLowestBidPrice")
+    max_lowest = filters.get("maxLowestBidPrice")
+    min_appraisal = filters.get("minAppraisalPrice")
+    max_appraisal = filters.get("maxAppraisalPrice")
+    min_failed = filters.get("minFailedBidCount")
+    max_failed = filters.get("maxFailedBidCount")
+
+    result: list[dict[str, object]] = []
+    for item in items:
+        if sido and not any(s in str(item.get("lctnSdnm") or "") for s in sido):
+            continue
+        if sigungu and not any(s in str(item.get("lctnSggnm") or "") for s in sigungu):
+            continue
+        if prpt_div and item.get("prptDivNm") not in prpt_div:
+            continue
+        if dsps_mthod and item.get("dspsMthodNm") not in dsps_mthod:
+            continue
+        if usage_categories and not (
+            item.get("cltrUsgSclsCtgrNm") in usage_categories
+            or item.get("cltrUsgMclsCtgrNm") in usage_categories
+        ):
+            continue
+        if keywords and not all(k in str(item.get("onbidCltrNm") or "") for k in keywords):
+            continue
+        # 최저입찰가 0은 "비공개"다(known-pitfalls「가격 표시」). 가격 조건이 있는데 비공개면 제외한다.
+        if min_lowest is not None or max_lowest is not None:
+            lowest = _parse_amount(item.get("lowstBidPrcIndctCont"))
+            if not lowest:
+                continue
+            if min_lowest is not None and lowest < min_lowest:
+                continue
+            if max_lowest is not None and lowest > max_lowest:
+                continue
+        if min_appraisal is not None or max_appraisal is not None:
+            appraisal = _parse_amount(item.get("apslEvlAmt"))
+            if not appraisal:
+                continue
+            if min_appraisal is not None and appraisal < min_appraisal:
+                continue
+            if max_appraisal is not None and appraisal > max_appraisal:
+                continue
+        if min_failed is not None or max_failed is not None:
+            failed_raw = item.get("usbdNft")
+            failed = failed_raw if isinstance(failed_raw, int) else _parse_amount(failed_raw)
+            if failed is None:
+                continue
+            if min_failed is not None and failed < min_failed:
+                continue
+            if max_failed is not None and failed > max_failed:
+                continue
+        result.append(item)
+    return result
+
+
+def refresh_top_items_live(
+    items: list[dict[str, object]],
+    service_key: str,
+    limit: int = SEARCH_LIVE_REFRESH_LIMIT,
+) -> list[dict[str, object]]:
+    """검색 결과 상위 `limit`건만 item_bid_detail로 다시 조회해 마감일시 등을 덮어쓴다.
+
+    나머지(limit 밖)는 캐시 값 그대로 둔다 — 전부 실시간 조회하면 느리다(하이브리드 캐시 설계).
+    """
+    if not service_key:
+        return items
+    refreshed: list[dict[str, object]] = []
+    for index, item in enumerate(items):
+        if index >= limit:
+            refreshed.append(item)
+            continue
+        cltr_mng_no = api_cltr_mng_no(str(item.get("cltrMngNo") or ""))
+        pbct_cdtn_no = str(item.get("pbctCdtnNo") or "")
+        if not cltr_mng_no or not pbct_cdtn_no:
+            refreshed.append(item)
+            continue
+        result = call_public_data(
+            "item_bid_detail",
+            {"cltrMngNo": cltr_mng_no, "pbctCdtnNo": pbct_cdtn_no},
+            service_key,
+        )
+        live_items = result.get("items", [])
+        if not result.get("ok") or not live_items:
+            refreshed.append({**item, "liveRefreshed": False})
+            continue
+        live = live_items[0]
+        merged = dict(item)
+        for field in ("cltrBidBgngDt", "cltrBidEndDt", "usbdNft"):
+            if live.get(field) is not None:
+                merged[field] = live[field]
+        merged["liveRefreshed"] = True
+        refreshed.append(merged)
+    return refreshed
+
+
 class Handler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         parsed = urllib.parse.urlparse(path)
@@ -4538,6 +4917,41 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(400, {"ok": False, "error": str(exc)})
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": f"질문 처리 중 오류가 발생했습니다: {exc}"})
+            return
+        if parsed.path == "/api/search":
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                raw_body = self.rfile.read(length) if length > 0 else b""
+                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                query = str(payload.get("query") or "").strip()[:200]
+                if not query:
+                    self.send_json(400, {"ok": False, "error": "검색어를 입력하세요."})
+                    return
+                filters = gemini_parse_search_query(query)
+                if filters is None:
+                    self.send_json(502, {
+                        "ok": False,
+                        "error": "자연어 질의를 해석하지 못했습니다. AI 코치 인증키(GEMINI_API_KEY) 설정을 확인하세요.",
+                    })
+                    return
+                cache = load_cltr_cache()
+                if not cache.get("items"):
+                    cache = refresh_cltr_cache(force=True)
+                matched = filter_cltr_items(cache.get("items", []), filters)
+                matched = refresh_top_items_live(matched, public_data_service_key())
+                self.send_json(200, {
+                    "ok": True,
+                    "query": query,
+                    "filters": filters,
+                    "cacheFetchedAt": cache.get("fetchedAt", ""),
+                    "cacheRefreshError": cache.get("refreshError", ""),
+                    "count": len(matched),
+                    "items": matched[:50],
+                })
+            except (ValueError, urllib.error.URLError, TimeoutError) as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            except Exception as exc:
+                self.send_json(500, {"ok": False, "error": f"검색 처리 중 오류가 발생했습니다: {exc}"})
             return
         self.send_json(404, {"ok": False, "error": "not found"})
 
