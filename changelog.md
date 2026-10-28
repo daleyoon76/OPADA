@@ -202,3 +202,10 @@
   - 프롬프트에 공고문 본문이 들어가지 않는다. 서류 이름 4개(`requiredDocs: docs[:4]`)만 보낸다.
 - **AI 물건 검색의 재료를 확인했다.** `PUBLIC_DATA_ENDPOINTS` 의 `notice_list`·`real_estate_list` 가 선언만 되어 있고 호출되지 않는다. 그 API 로 물건 2,697건(62개 필드)을 실제로 받은 기록이 있다.
 - **캠코 접촉 경로를 조사했다(`4a84b48`)**. 캠코가 2025년 11월에 민간 경·공매 정보플랫폼 9개사와 공매데이터 개방 업무협약을 맺은 선례를 확인했다. 상세: `team-reports/2026-10-23-kamco-contact-paths/README.md`
+
+## 2026-10-27~28
+
+- **AI 물건 검색 1차 구현 — 자연어 질의를 구조화 필터로 바꿔 거른다(`293dec1`·`2b65cdd`)**
+  - `parse_search_query()`가 질의를 `sido`·`usageCategories`·`maxLowestBidPrice`·`minFailedBidCount` 등으로 바꾸고, `/api/search` 가 그 필터로 물건 목록을 거른다. LLM 호출 순서는 기존 AI 코치와 같다(vertex 우선 → gemini 보조).
+  - 라이브 질의 「서울에서 1억 아래 상가, 두 번 이상 유찰」로 검증했다. 필터 파싱 정확 · 19건 매칭 · 하이브리드 캐시(`cacheFetchedAt`) 생성 · 상위 결과 일부 `liveRefreshed: true`.
+  - UI는 아직 붙이지 않았다. `tests/test_search_filter.py` 24/24 통과(순수 함수만 검증).
