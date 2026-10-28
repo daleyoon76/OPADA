@@ -225,6 +225,39 @@ def test_cltr_cache_is_stale() -> None:
     check("S16 fetchedAtEpoch 없으면 낡음으로 본다", server.cltr_cache_is_stale(missing) is True)
 
 
+def test_normalize_accepts_single_string_for_list_fields() -> None:
+    # 2026-10-28 라이브: LLM이 "dspsMthodNm": "임대" · "prptDivNm": "압류재산"처럼 문자열 하나를 돌려줬다.
+    filters = server.normalize_search_filter(
+        {"prptDivNm": "압류재산", "dspsMthodNm": "임대", "usageCategories": "오피스텔", "sido": "부산광역시"}
+    )
+    check("S17 재산유형 문자열 하나도 받음", filters["prptDivNm"] == ["압류재산"], str(filters))
+    check("S18 처분방식 문자열 하나도 받음", filters["dspsMthodNm"] == ["임대"], str(filters))
+    check("S19 용도 문자열 하나도 받음", filters["usageCategories"] == ["오피스텔"], str(filters))
+    check("S20 시도 문자열 하나도 받음", filters["sido"] == ["부산광역시"], str(filters))
+    check("S21 닫힌 목록 밖 문자열은 여전히 버림", server.normalize_search_filter({"dspsMthodNm": "경매"})["dspsMthodNm"] == [])
+
+
+def test_filter_region_matches_renamed_sido() -> None:
+    # 목록 API는 개편된 시도 이름을 쓴다(2026-10-28 캐시 실측).
+    items = [
+        make_item(onbidCltrno=1, lctnSdnm="강원특별자치도"),
+        make_item(onbidCltrno=2, lctnSdnm="전북특별자치도"),
+        make_item(onbidCltrno=3, lctnSdnm="전남광주통합특별시"),
+        make_item(onbidCltrno=4, lctnSdnm="경상남도"),
+        make_item(onbidCltrno=5, lctnSdnm="경상북도"),
+    ]
+
+    def ids(sido: list[str]) -> list[object]:
+        return [i["onbidCltrno"] for i in server.filter_cltr_items(items, server.normalize_search_filter({"sido": sido}))]
+
+    check("S22 강원도 → 강원특별자치도", ids(["강원도"]) == [1], str(ids(["강원도"])))
+    check("S23 전라북도 → 전북특별자치도", ids(["전라북도"]) == [2], str(ids(["전라북도"])))
+    check("S24 전라남도 → 전남광주통합특별시", ids(["전라남도"]) == [3], str(ids(["전라남도"])))
+    check("S25 광주광역시 → 전남광주통합특별시", ids(["광주광역시"]) == [3], str(ids(["광주광역시"])))
+    check("S26 경남은 경상북도를 붙잡지 않음", ids(["경남"]) == [4], str(ids(["경남"])))
+    check("S27 표에 없는 이름은 그대로 부분일치", ids(["전남광주통합특별시"]) == [3], str(ids(["전남광주통합특별시"])))
+
+
 def main() -> int:
     tests = (
         test_normalize_drops_values_outside_closed_list,
@@ -241,6 +274,8 @@ def main() -> int:
         test_filter_combined_scenario_from_spec,
         test_filter_empty_filters_returns_all,
         test_cltr_cache_is_stale,
+        test_normalize_accepts_single_string_for_list_fields,
+        test_filter_region_matches_renamed_sido,
     )
     for test in tests:
         test()

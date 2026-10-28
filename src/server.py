@@ -4644,6 +4644,9 @@ def parse_search_filter_payload(payload: object) -> dict[str, object] | None:
 
 
 def _clamp_enum_list(raw: object, allowed: tuple[str, ...], limit: int = 8) -> list[str]:
+    # LLM이 schema의 배열 대신 문자열 하나("임대")를 돌려주는 일이 실측으로 있다(2026-10-28 라이브 질의 10건 중 4건).
+    if isinstance(raw, str):
+        raw = [raw]
     if not isinstance(raw, list):
         return []
     allowed_set = set(allowed)
@@ -4657,6 +4660,8 @@ def _clamp_enum_list(raw: object, allowed: tuple[str, ...], limit: int = 8) -> l
 
 
 def _clamp_free_text_list(raw: object, limit: int = 8, max_len: int = 40) -> list[str]:
+    if isinstance(raw, str):
+        raw = [raw]
     if not isinstance(raw, list):
         return []
     out: list[str] = []
@@ -4793,8 +4798,25 @@ def _parse_amount(raw: object) -> int | None:
     return int(text)
 
 
+# 사용자가 쓰는 시도 이름 → 목록 API의 lctnSdnm에 부분일치로 들어 있는 토큰. 목록 API는 개편된 이름을 쓴다
+# (2026-10-28 캐시 6,321건 실측: 강원특별자치도 · 전북특별자치도 · 전남광주통합특별시). 표에 없는 값은 그대로 쓴다.
+SIDO_MATCH_TOKENS = {
+    "서울특별시": "서울", "부산광역시": "부산", "대구광역시": "대구", "인천광역시": "인천",
+    "광주광역시": "광주", "대전광역시": "대전", "울산광역시": "울산", "세종특별자치시": "세종",
+    "경기도": "경기", "강원도": "강원", "강원특별자치도": "강원",
+    "충청북도": "충청북", "충북": "충청북", "충청남도": "충청남", "충남": "충청남",
+    "전라북도": "전북", "전북특별자치도": "전북", "전라남도": "전남",
+    "경상북도": "경상북", "경북": "경상북", "경상남도": "경상남", "경남": "경상남",
+    "제주도": "제주", "제주특별자치도": "제주",
+}
+
+
+def sido_match_token(value: str) -> str:
+    return SIDO_MATCH_TOKENS.get(value.strip(), value.strip())
+
+
 def filter_cltr_items(items: list[dict[str, object]], filters: dict[str, object]) -> list[dict[str, object]]:
-    sido = filters.get("sido") or []
+    sido = [sido_match_token(s) for s in filters.get("sido") or []]
     sigungu = filters.get("sigungu") or []
     prpt_div = set(filters.get("prptDivNm") or [])
     dsps_mthod = set(filters.get("dspsMthodNm") or [])
@@ -4981,9 +5003,8 @@ class Handler(SimpleHTTPRequestHandler):
                         "error": "자연어 질의를 해석하지 못했습니다. AI 코치 인증키(GEMINI_API_KEY) 설정을 확인하세요.",
                     })
                     return
-                cache = load_cltr_cache()
-                if not cache.get("items"):
-                    cache = refresh_cltr_cache(force=True)
+                # 24시간이 지났거나 비어 있으면 새로 받는다(하이브리드 캐시의 하루 1회 갱신).
+                cache = refresh_cltr_cache()
                 matched = filter_cltr_items(cache.get("items", []), filters)
                 matched = refresh_top_items_live(matched, public_data_service_key())
                 self.send_json(200, {
