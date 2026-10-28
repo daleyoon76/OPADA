@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" as="style" crossorigin="anonymous" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-    <link rel="stylesheet" href="./styles.css?v=20261019-uiux-r7">
+    <link rel="stylesheet" href="./styles.css?v=20261028-item-search">
   </head>
   <body>
     <header class="app-header">
@@ -107,6 +107,22 @@
               <ol id="pipeline" class="pipeline"></ol>
             </section>
           </div>
+
+          <section class="panel item-search" aria-labelledby="item-search-title">
+            <div class="section-title">
+              <div>
+                <p class="eyebrow">Step 1-2 · 선택</p>
+                <h2 id="item-search-title">URL이 없으면 조건으로 물건을 찾아보세요</h2>
+              </div>
+            </div>
+            <label for="item-search-query">찾는 물건 조건</label>
+            <div class="item-search-row">
+              <input id="item-search-query" type="text" maxlength="200" placeholder="예: 서울에서 1억 아래 상가, 두 번 이상 유찰">
+              <button id="item-search-run" class="secondary" type="button">물건 찾기</button>
+            </div>
+            <p class="field-help">문장을 지역·용도·가격·유찰 횟수 조건으로 바꿔 공공데이터 물건 목록에서 찾습니다. 입찰 기간이 끝나지 않은 물건만 보여 드립니다.</p>
+            <div id="item-search-result" class="item-search-result" aria-live="polite"></div>
+          </section>
         </div>
 
         <div class="wizard-step" id="wizard-step-result" data-wizard-step="result">
@@ -218,6 +234,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20261019-uiux-r7"></script>
+    <script src="./app.js?v=20261028-item-search"></script>
   </body>
 </html>

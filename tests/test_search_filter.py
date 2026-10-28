@@ -258,6 +258,114 @@ def test_filter_region_matches_renamed_sido() -> None:
     check("S27 표에 없는 이름은 그대로 부분일치", ids(["전남광주통합특별시"]) == [3], str(ids(["전남광주통합특별시"])))
 
 
+def test_split_open_bid_items_drops_closed_and_counts() -> None:
+    # 2026-10-28 동원님 결정: 입찰 기간이 끝난 물건(수의계약가능 · 입찰마감)은 결과에서 빼고 건수만 알린다.
+    now = "202610281600"
+    items = [
+        make_item(onbidCltrno=1, pbctStatNm="입찰진행중", cltrBidEndDt="202610301600"),
+        make_item(onbidCltrno=2, pbctStatNm="입찰준비중", cltrBidEndDt="202611101600"),
+        make_item(onbidCltrno=3, pbctStatNm="수의계약가능", cltrBidEndDt="202610221600"),
+        make_item(onbidCltrno=4, pbctStatNm="입찰마감", cltrBidEndDt="202610281500"),
+        # 상태는 열려 있지만 캐시가 낡아 그 사이 마감된 물건
+        make_item(onbidCltrno=5, pbctStatNm="입찰진행중", cltrBidEndDt="202610281559"),
+        # 마감이 지금과 같은 분이면 아직 남긴다
+        make_item(onbidCltrno=6, pbctStatNm="입찰진행중", cltrBidEndDt="202610281600"),
+    ]
+    kept, excluded = server.split_open_bid_items(items, now)
+    ids = [i["onbidCltrno"] for i in kept]
+    check("S28 입찰 가능한 물건만 남김", ids == [1, 2, 6], str(ids))
+    check("S29 뺀 건수는 3", excluded == 3, str(excluded))
+    check("S30 수의계약가능은 마감일이 미래여도 뺌",
+          server.split_open_bid_items([make_item(pbctStatNm="수의계약가능", cltrBidEndDt="202612311600")], now)[1] == 1)
+    check("S31 마감일시가 없으면 상태만으로 판정",
+          len(server.split_open_bid_items([make_item(pbctStatNm="입찰진행중", cltrBidEndDt=None)], now)[0]) == 1)
+
+
+def test_search_item_detail_url() -> None:
+    item = make_item(onbidCltrno=1147301, pbctCdtnNo=6247576, onbidPbancNo=909691, pbctNo=10110341)
+    url = server.search_item_detail_url(item)
+    check(
+        "S32 물건상세 URL은 네 번호를 모두 담음",
+        url == "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do"
+        "?onbidCltrno=1147301&pbctCdtnNo=6247576&onbidPbancNo=909691&pbctNo=10110341",
+        url,
+    )
+    for key in ("onbidCltrno", "pbctCdtnNo", "onbidPbancNo", "pbctNo"):
+        ids = {"onbidCltrno": 1147301, "pbctCdtnNo": 6247576, "onbidPbancNo": 909691, "pbctNo": 10110341}
+        missing = make_item(**{**ids, key: None})
+        check(f"S33 {key} 없으면 빈 문자열", server.search_item_detail_url(missing) == "", server.search_item_detail_url(missing))
+
+
+def test_refresh_top_items_live_keeps_list_failed_count() -> None:
+    # 2026-10-28 실측: 입찰정보 API는 유찰이 19번 넘은 물건에도 usbdNft 0을 줬다. 목록 값을 지킨다.
+    # 실제 HTTP 대신 call_public_data 를 이 테스트에서만 바꿔 끼운다(연기).
+    calls: list[dict[str, str]] = []
+
+    def fake_call(name: str, params: dict[str, str], key: str) -> dict[str, object]:
+        calls.append(params)
+        return {"ok": True, "items": [{"usbdNft": 0, "cltrBidBgngDt": "202611200900", "cltrBidEndDt": "202611271700"}]}
+
+    original = server.call_public_data
+    server.call_public_data = fake_call
+    try:
+        items = [make_item(onbidCltrno=i, usbdNft=19, cltrBidEndDt="202611261700") for i in range(3)]
+        out = server.refresh_top_items_live(items, "key", limit=2)
+    finally:
+        server.call_public_data = original
+    check("S34 유찰 횟수는 목록 값 그대로", [i["usbdNft"] for i in out] == [19, 19, 19], str([i["usbdNft"] for i in out]))
+    check("S35 마감일시는 실시간 값으로", [i["cltrBidEndDt"] for i in out[:2]] == ["202611271700"] * 2, str(out[:2]))
+    check("S36 limit 밖은 손대지 않음", out[2]["cltrBidEndDt"] == "202611261700" and "liveRefreshed" not in out[2], str(out[2]))
+    check("S37 다시 확인한 물건에 표지", [i.get("liveRefreshed") for i in out[:2]] == [True, True], str(out[:2]))
+    check("S38 호출은 limit 만큼", len(calls) == 2, str(calls))
+
+
+def test_refresh_error_hides_raw_exception() -> None:
+    # reviewer r1 P1-1: 목록 갱신 실패 원문(urlopen 오류)이 cacheRefreshError 로 화면에 나가지 않는다.
+    import tempfile
+    import urllib.error
+
+    def failing_fetch(key: str) -> list[dict[str, object]]:
+        raise urllib.error.URLError("nodename nor servname provided")
+
+    original_path, original_fetch, original_key = server.CLTR_CACHE_PATH, server.fetch_all_cltr_items, server.public_data_service_key
+    with tempfile.TemporaryDirectory() as tmp:
+        server.CLTR_CACHE_PATH = Path(tmp) / "missing.json"
+        server.fetch_all_cltr_items = failing_fetch
+        server.public_data_service_key = lambda: "key"
+        try:
+            cache = server.refresh_cltr_cache()
+        finally:
+            server.CLTR_CACHE_PATH, server.fetch_all_cltr_items, server.public_data_service_key = (
+                original_path, original_fetch, original_key,
+            )
+    error = str(cache.get("refreshError") or "")
+    check("S39 갱신 실패를 알림", bool(error), str(cache))
+    check("S40 원문을 싣지 않음", "urlopen" not in error and "nodename" not in error, error)
+    check("S41 빈 캐시는 fetchedAt 이 빈 값", cache.get("fetchedAt") == "" and cache.get("items") == [], str(cache))
+
+
+def test_kst_now_digits_ignores_server_timezone() -> None:
+    # reviewer r1: 마감일시는 KST 다. 서버 TZ 가 UTC 여도 같은 값을 줘야 한다.
+    import os
+    import time
+
+    # 프로세스 TZ 를 UTC 로 바꿔야 「localtime 으로 되돌림」 변이가 KST 기계에서도 붉어진다(reviewer r2 ①).
+    original_time, original_tz = time.time, os.environ.get("TZ")
+    os.environ["TZ"] = "UTC"
+    time.tzset()
+    time.time = lambda: 0.0  # 1970-01-01 00:00 UTC = 09:00 KST
+    try:
+        value = server.kst_now_digits()
+    finally:
+        time.time = original_time
+        if original_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original_tz
+        time.tzset()
+    check("S42 KST 로 계산", value == "197001010900", value)
+
+
 def main() -> int:
     tests = (
         test_normalize_drops_values_outside_closed_list,
@@ -276,6 +384,11 @@ def main() -> int:
         test_cltr_cache_is_stale,
         test_normalize_accepts_single_string_for_list_fields,
         test_filter_region_matches_renamed_sido,
+        test_split_open_bid_items_drops_closed_and_counts,
+        test_search_item_detail_url,
+        test_refresh_top_items_live_keeps_list_failed_count,
+        test_refresh_error_hides_raw_exception,
+        test_kst_now_digits_ignores_server_timezone,
     )
     for test in tests:
         test()

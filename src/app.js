@@ -3696,6 +3696,159 @@ async function runAnalysis() {
   }
 }
 
+// 조건으로 물건 찾기(/api/search). 결과의 「이 물건 분석하기」는 물건상세 URL을 입력칸에 넣고 기존 분석을 시작한다.
+// 입찰 기간이 끝난 물건(수의계약가능 등)은 서버가 빼고 건수만 준다(2026-10-28 동원님 결정).
+const ITEM_SEARCH_SHOWN = 10;
+const ITEM_SEARCH_SYSTEM_FAILURE_MESSAGE = "검색 조건을 지금 해석하지 못했습니다. 잠시 뒤 다시 시도하거나 문장을 바꿔 보십시오.";
+let itemSearchRequestId = 0;
+
+function formatSearchWon(raw) {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  const value = Number(digits);
+  return digits && value > 0 ? `${value.toLocaleString("ko-KR")}원` : "";
+}
+
+function formatSearchDateTime(raw) {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  if (digits.length < 12) return "";
+  return `${digits.slice(0, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 8)} ${digits.slice(8, 10)}:${digits.slice(10, 12)}`;
+}
+
+function describeSearchFilters(filters) {
+  const f = filters || {};
+  const chips = [];
+  const list = (value) => (Array.isArray(value) ? value.filter(Boolean) : []);
+  if (list(f.sido).length) chips.push(list(f.sido).join("·"));
+  if (list(f.sigungu).length) chips.push(list(f.sigungu).join("·"));
+  if (list(f.prptDivNm).length) chips.push(list(f.prptDivNm).join("·"));
+  if (list(f.dspsMthodNm).length) chips.push(list(f.dspsMthodNm).join("·"));
+  if (list(f.usageCategories).length) chips.push(list(f.usageCategories).join("·"));
+  if (f.minLowestBidPrice != null) chips.push(`최저입찰가 ${formatSearchWon(f.minLowestBidPrice) || "0원"} 이상`);
+  if (f.maxLowestBidPrice != null) chips.push(`최저입찰가 ${formatSearchWon(f.maxLowestBidPrice) || "0원"} 이하`);
+  if (f.minAppraisalPrice != null) chips.push(`감정가 ${formatSearchWon(f.minAppraisalPrice) || "0원"} 이상`);
+  if (f.maxAppraisalPrice != null) chips.push(`감정가 ${formatSearchWon(f.maxAppraisalPrice) || "0원"} 이하`);
+  if (f.minFailedBidCount != null) chips.push(`유찰 ${f.minFailedBidCount}회 이상`);
+  if (f.maxFailedBidCount != null) chips.push(`유찰 ${f.maxFailedBidCount}회 이하`);
+  list(f.keywords).forEach((word) => chips.push(`물건명에 「${word}」`));
+  return chips;
+}
+
+function renderItemSearchResult(payload) {
+  const chips = describeSearchFilters(payload.filters);
+  const count = Number(payload.count) || 0;
+  const excluded = Number(payload.excludedClosedCount) || 0;
+  const items = Array.isArray(payload.items) ? payload.items.slice(0, ITEM_SEARCH_SHOWN) : [];
+  const meta = [`목록 기준 ${escapeHtml(payload.cacheFetchedAt || "확인 불가")}`, `입찰 가능한 물건 ${count.toLocaleString("ko-KR")}건`];
+  if (excluded) meta.push(`입찰 기간이 끝난 수의계약 가능 물건 등 ${excluded.toLocaleString("ko-KR")}건은 뺐습니다`);
+  const parts = [
+    `<p class="item-search-understood">이렇게 이해했습니다: ${
+      chips.length ? chips.map((chip) => `<span class="item-search-chip">${escapeHtml(chip)}</span>`).join(" ") : "조건을 찾지 못해 전체 목록에서 찾았습니다"
+    }</p>`,
+    `<p class="item-search-meta">${meta.join(" · ")}</p>`,
+  ];
+  if (payload.cacheRefreshError) parts.push(`<p class="item-search-meta">${escapeHtml(payload.cacheRefreshError)}</p>`);
+  if (!items.length && !payload.cacheFetchedAt) {
+    // 목록을 한 번도 받지 못한 상태다. 「조건을 넓히라」는 안내는 원인과 맞지 않는다(reviewer r1 P1-1 ⑵).
+    byId("item-search-result").innerHTML = `<p class="small-text">지금 물건 목록을 받지 못했습니다. 잠시 뒤 다시 시도하십시오.</p>`;
+    return;
+  }
+  if (!items.length) {
+    parts.push(`<p class="small-text">조건에 맞는 입찰 가능한 물건이 없습니다. 조건을 넓혀 다시 찾아보십시오.</p>`);
+  } else {
+    parts.push(
+      `<ol class="item-search-list">${items
+        .map((item) => {
+          const place = [item.lctnSdnm, item.lctnSggnm, item.lctnEmdNm].filter(Boolean).join(" ");
+          const usage = item.cltrUsgSclsCtgrNm || item.cltrUsgMclsCtgrNm || "";
+          const price = formatSearchWon(item.lowstBidPrcIndctCont) || "비공개";
+          const failed = Number(item.usbdNft) || 0;
+          const end = formatSearchDateTime(item.cltrBidEndDt);
+          const checked = item.liveRefreshed === true ? "입찰기간은 방금 온비드 기준으로 다시 확인했습니다" : "목록 기준 시각의 값입니다";
+          const facts = [
+            [item.prptDivNm, item.dspsMthodNm, usage].filter(Boolean).join(" · "),
+            `최저입찰가 ${price}`,
+            `유찰 ${failed}회`,
+            end ? `입찰 마감 ${end}` : "",
+          ].filter(Boolean);
+          const actions = item.detailUrl
+            ? `<button type="button" class="primary small-button" data-search-analyze="${escapeHtml(item.detailUrl)}">이 물건 분석하기</button>
+               <a class="item-search-link" href="${escapeHtml(item.detailUrl)}" target="_blank" rel="noreferrer">온비드에서 보기 ↗</a>`
+            : `<span class="small-text">물건 번호가 부족해 바로 분석할 수 없습니다.</span>`;
+          return `<li class="item-search-item">
+            <p class="item-search-name">${escapeHtml(item.onbidCltrNm || "물건명 없음")}</p>
+            <p class="item-search-place">${escapeHtml(place)}</p>
+            <p class="item-search-facts">${facts.map((fact) => escapeHtml(fact)).join(" · ")}</p>
+            <p class="item-search-checked">${escapeHtml(checked)}</p>
+            <div class="item-search-actions">${actions}</div>
+          </li>`;
+        })
+        .join("")}</ol>`,
+    );
+    if (count > items.length) {
+      parts.push(`<p class="item-search-meta">위 ${items.length}건만 보여 드립니다. 조건을 더 좁히면 원하는 물건을 찾기 쉽습니다.</p>`);
+    }
+  }
+  byId("item-search-result").innerHTML = parts.join("");
+  // 분석이 도는 중에 결과가 도착했으면 새 버튼도 같은 잠금 상태로 둔다(reviewer r1 P2-2).
+  const busy = byId("notice-url").disabled;
+  document.querySelectorAll("[data-search-analyze]").forEach((button) => {
+    button.disabled = busy;
+  });
+}
+
+async function runItemSearch() {
+  const button = byId("item-search-run");
+  // Enter 는 버튼 잠금을 거치지 않는다. 요청 중이면 다시 보내지 않는다(reviewer r1 P2-1).
+  // 요청 번호를 올리기 전에 막아야 한다. 뒤에서 막으면 진행 중인 응답이 낡은 것으로 버려지고 버튼이 풀리지 않는다.
+  if (button.disabled) return;
+  const query = byId("item-search-query").value.trim();
+  const result = byId("item-search-result");
+  if (!query) {
+    result.innerHTML = `<p class="small-text">찾는 물건 조건을 입력하십시오.</p>`;
+    return;
+  }
+  const requestId = ++itemSearchRequestId;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  result.innerHTML = `<p class="small-text">물건 목록에서 찾는 중입니다. 그날 첫 검색은 목록을 새로 받느라 1분 정도 걸릴 수 있습니다.</p>`;
+  try {
+    const response = await window.fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    });
+    const payload = await response.json();
+    if (requestId !== itemSearchRequestId) return;
+    if (!payload.ok) {
+      // 502(조건 해석 실패) · 5xx 원문에는 설정 이름이 들어 있다. 화면에는 다시 시도하라는 문장만 보인다(I5와 같은 방식).
+      const systemFailure = response.status >= 500 || !payload.error;
+      if (systemFailure) console.warn("물건 찾기 실패", response.status, payload.error);
+      result.innerHTML = `<p class="small-text">${escapeHtml(systemFailure ? ITEM_SEARCH_SYSTEM_FAILURE_MESSAGE : payload.error)}</p>`;
+      return;
+    }
+    renderItemSearchResult(payload);
+  } catch (error) {
+    if (requestId !== itemSearchRequestId) return;
+    console.warn("물건 찾기 실패", error);
+    result.innerHTML = `<p class="small-text">${escapeHtml(ITEM_SEARCH_SYSTEM_FAILURE_MESSAGE)}</p>`;
+  } finally {
+    if (requestId === itemSearchRequestId) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+function startAnalysisFromSearch(url) {
+  const input = byId("notice-url");
+  if (!url || input.disabled) return;
+  input.value = url;
+  // 직접 입력한 것과 같은 초기화(분석 상태 · 잘못된 입력 표시)를 거친 뒤 분석한다.
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.scrollIntoView({ block: "center", behavior: "smooth" });
+  runAnalysis();
+}
+
 function focusNoticeUrlAsInvalid() {
   const input = byId("notice-url");
   input.setAttribute("aria-invalid", "true");
@@ -3719,6 +3872,9 @@ function toAnalysisErrorMessage(error) {
 function setAnalysisInputsBusy(busy) {
   byId("notice-url").disabled = busy;
   byId("load-sample").disabled = busy;
+  document.querySelectorAll("[data-search-analyze]").forEach((button) => {
+    button.disabled = busy;
+  });
   const analyzeButton = byId("analyze");
   analyzeButton.disabled = busy;
   if (busy) analyzeButton.setAttribute("aria-busy", "true");
@@ -3835,6 +3991,17 @@ function init() {
   byId("wizard-back-result").addEventListener("click", () => setInputStep("url"));
 
   byId("analyze").addEventListener("click", runAnalysis);
+  byId("item-search-run").addEventListener("click", runItemSearch);
+  byId("item-search-query").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      runItemSearch();
+    }
+  });
+  byId("item-search-result").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-search-analyze]");
+    if (button) startAnalysisFromSearch(button.dataset.searchAnalyze);
+  });
   byId("prepare").addEventListener("click", () => {
     if (!isAnalysisReady()) return;
     boardGenerated = true;

@@ -3330,3 +3330,109 @@ html {
   border-left-color: var(--line);
   background: #ffffff;
 }
+
+/* 조건으로 물건 찾기(Step 1-2 · 선택) — 2026-10-28 */
+.item-search {
+  margin-top: 18px;
+}
+
+.item-search-row {
+  display: flex;
+  gap: 8px;
+}
+
+#item-search-query {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fffcf8;
+  color: var(--ink);
+  padding: 11px 12px;
+  font: inherit;
+}
+
+.item-search-result:empty {
+  display: none;
+}
+
+.item-search-result {
+  margin-top: 14px;
+}
+
+.item-search-understood {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.item-search-chip {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--soft-amber);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.item-search-meta {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.item-search-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item-search-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fffcf8;
+  padding: 12px 14px;
+}
+
+.item-search-item p {
+  margin: 0;
+}
+
+.item-search-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.item-search-place,
+.item-search-checked {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.item-search-facts {
+  margin-top: 4px !important;
+  font-size: 13px;
+}
+
+.item-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.item-search-link {
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .item-search-row {
+    flex-direction: column;
+  }
+}

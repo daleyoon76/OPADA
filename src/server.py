@@ -4598,7 +4598,9 @@ def refresh_cltr_cache(force: bool = False) -> dict[str, object]:
     try:
         items = fetch_all_cltr_items(service_key)
     except (urllib.error.URLError, TimeoutError) as exc:
-        cache["refreshError"] = f"목록 갱신 중 오류가 발생해 기존 캐시를 그대로 씁니다: {exc}"
+        # 원문(urlopen 오류)은 화면에 내보내지 않고 서버 로그로만 남긴다(app.js I5 관례 · 2026-10-28 reviewer r1 P1-1).
+        print(f"[cltr-cache] 목록 갱신 실패: {exc}", file=sys.stderr)
+        cache["refreshError"] = "목록을 새로 받지 못해 이전에 받은 목록으로 찾았습니다."
         return cache
     if not items:
         cache["refreshError"] = "목록 API 응답이 비어 있어 기존 캐시를 그대로 씁니다."
@@ -4876,6 +4878,47 @@ def filter_cltr_items(items: list[dict[str, object]], filters: dict[str, object]
     return result
 
 
+# 검색 결과에 남기는 입찰 상태. 「수의계약가능」(유찰 뒤 기관에 직접 계약을 신청하는 상태)과 「입찰마감」은
+# 입찰 기간이 끝난 물건이라 뺀다(2026-10-28 동원님 결정: 기본 제외 + 제외 건수 표시). 준비 보드는 입찰 절차를 돕는다.
+SEARCH_OPEN_BID_STATUSES = ("입찰준비중", "입찰진행중")
+
+
+def kst_now_digits() -> str:
+    """현재 시각을 마감일시와 같은 'YYYYMMDDHHMM' KST 로 준다. 서버 TZ 에 기대지 않는다(reviewer r1)."""
+    return time.strftime("%Y%m%d%H%M", time.gmtime(time.time() + 9 * 3600))
+
+
+def split_open_bid_items(items: list[dict[str, object]], now: str) -> tuple[list[dict[str, object]], int]:
+    """입찰 가능한 물건만 남기고 뺀 건수를 함께 돌려준다. `now`는 'YYYYMMDDHHMM'이다.
+
+    상태가 열려 있어도 마감일시가 지났으면 뺀다. 캐시는 최대 24시간 낡을 수 있어 그 사이에 마감된 물건이 있다.
+    """
+    kept: list[dict[str, object]] = []
+    excluded = 0
+    for item in items:
+        status = str(item.get("pbctStatNm") or "")
+        end = re.sub(r"\D", "", str(item.get("cltrBidEndDt") or ""))
+        if status not in SEARCH_OPEN_BID_STATUSES or (len(end) >= 12 and end[:12] < now):
+            excluded += 1
+            continue
+        kept.append(item)
+    return kept, excluded
+
+
+ONBID_ITEM_DETAIL_URL = "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do"
+
+
+def search_item_detail_url(item: dict[str, object]) -> str:
+    """검색 결과 물건의 온비드 물건상세 URL. 화면이 이 URL로 기존 분석 흐름을 시작한다.
+
+    물건상세는 pbctCdtnNo 가 없으면 온비드가 500 을 준다(known-pitfalls.md:62-65). 넷 중 하나라도 없으면 빈 문자열이다.
+    """
+    params = {key: str(item.get(key) or "").strip() for key in ("onbidCltrno", "pbctCdtnNo", "onbidPbancNo", "pbctNo")}
+    if not all(params.values()):
+        return ""
+    return f"{ONBID_ITEM_DETAIL_URL}?{urllib.parse.urlencode(params)}"
+
+
 def refresh_top_items_live(
     items: list[dict[str, object]],
     service_key: str,
@@ -4908,7 +4951,9 @@ def refresh_top_items_live(
             continue
         live = live_items[0]
         merged = dict(item)
-        for field in ("cltrBidBgngDt", "cltrBidEndDt", "usbdNft"):
+        # usbdNft 는 덮어쓰지 않는다. 이 API의 usbdNft 는 회차 기록에 유찰이 19번 넘게 있는 물건에도 0을 준다
+        # (2026-10-28 실측 · 목록 API 값은 19). 덮어쓰면 「유찰 2회 이상」 결과에 「유찰 0회」가 보인다.
+        for field in ("cltrBidBgngDt", "cltrBidEndDt"):
             if live.get(field) is not None:
                 merged[field] = live[field]
         merged["liveRefreshed"] = True
@@ -5006,7 +5051,11 @@ class Handler(SimpleHTTPRequestHandler):
                 # 24시간이 지났거나 비어 있으면 새로 받는다(하이브리드 캐시의 하루 1회 갱신).
                 cache = refresh_cltr_cache()
                 matched = filter_cltr_items(cache.get("items", []), filters)
+                matched, excluded_closed = split_open_bid_items(matched, kst_now_digits())
                 matched = refresh_top_items_live(matched, public_data_service_key())
+                # 실시간 재확인으로 마감일시가 앞당겨졌을 수 있다. 덮어쓴 값으로 한 번 더 거른다.
+                matched, excluded_after_refresh = split_open_bid_items(matched, kst_now_digits())
+                excluded_closed += excluded_after_refresh
                 self.send_json(200, {
                     "ok": True,
                     "query": query,
@@ -5014,7 +5063,8 @@ class Handler(SimpleHTTPRequestHandler):
                     "cacheFetchedAt": cache.get("fetchedAt", ""),
                     "cacheRefreshError": cache.get("refreshError", ""),
                     "count": len(matched),
-                    "items": matched[:50],
+                    "excludedClosedCount": excluded_closed,
+                    "items": [{**item, "detailUrl": search_item_detail_url(item)} for item in matched[:50]],
                 })
             except (ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self.send_json(400, {"ok": False, "error": str(exc)})
