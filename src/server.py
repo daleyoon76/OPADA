@@ -4702,6 +4702,48 @@ def normalize_search_filter(raw: dict[str, object] | None) -> dict[str, object]:
     }
 
 
+def vertex_parse_search_query(query: str) -> dict[str, object] | None:
+    config = vertex_config()
+    if not config["project"]:
+        return None
+    token = vertex_access_token()
+    if not token:
+        return None
+    location = config["location"]
+    host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+    endpoint = (
+        f"https://{host}/v1/projects/{urllib.parse.quote(config['project'], safe='')}"
+        f"/locations/{urllib.parse.quote(location, safe='')}/publishers/google/models/"
+        f"{urllib.parse.quote(config['model'], safe='')}:generateContent"
+    )
+    prompt = build_search_filter_prompt(query)
+    request_body = {
+        "contents": [{"role": "user", "parts": [{"text": json.dumps(prompt, ensure_ascii=False)}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": 500,
+            "responseMimeType": "application/json",
+        },
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(request_body, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {token}",
+        },
+        method="POST",
+    )
+    try:
+        raw = vertex_read(request, timeout=20)
+        parsed = parse_search_filter_payload(json.loads(raw))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    if parsed is None:
+        return None
+    return normalize_search_filter(parsed)
+
+
 def gemini_parse_search_query(query: str) -> dict[str, object] | None:
     api_key = gemini_api_key()
     if not api_key:
@@ -4735,6 +4777,11 @@ def gemini_parse_search_query(query: str) -> dict[str, object] | None:
     if parsed is None:
         return None
     return normalize_search_filter(parsed)
+
+
+def parse_search_query(query: str) -> dict[str, object] | None:
+    """자연어 검색 질의를 구조화 필터로 바꾼다. AI 코치와 같은 순서(vertex 우선)로 시도한다."""
+    return vertex_parse_search_query(query) or gemini_parse_search_query(query)
 
 
 def _parse_amount(raw: object) -> int | None:
@@ -4927,7 +4974,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if not query:
                     self.send_json(400, {"ok": False, "error": "검색어를 입력하세요."})
                     return
-                filters = gemini_parse_search_query(query)
+                filters = parse_search_query(query)
                 if filters is None:
                     self.send_json(502, {
                         "ok": False,
