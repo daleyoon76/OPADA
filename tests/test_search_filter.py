@@ -403,7 +403,9 @@ def test_search_route_orders_before_live_refresh() -> None:
     block = route[start:route.index("self.send_json(404", start)]
     code = "\n".join(line.split("#")[0] for line in block.splitlines())
     pos = [code.find(name) for name in ("split_open_bid_items(", "order_search_items(", "refresh_top_items_live(")]
-    check("S47 라우트: split → order → 재확인 순서로 한 번", -1 not in pos and pos[0] < pos[1] < pos[2] and code.count("order_search_items(") == 1, str(pos))
+    # 결과를 matched 에 다시 담는지도 본다. 결과를 버리거나 다른 변수에 담는 변이가 살아남았다(reviewer r4 P2-1).
+    assigned = "matched = order_search_items(matched)" in [line.strip() for line in code.splitlines()]
+    check("S47 라우트: split → order → 재확인 순서로 한 번", -1 not in pos and pos[0] < pos[1] < pos[2] and code.count("order_search_items(") == 1 and assigned, str(pos))
 
 
 def main() -> int:
