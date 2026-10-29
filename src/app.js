@@ -3764,6 +3764,9 @@ function renderItemSearchResult(payload) {
           const failed = Number(item.usbdNft) || 0;
           const end = formatSearchDateTime(item.cltrBidEndDt);
           const checked = item.liveRefreshed === true ? "입찰기간은 방금 온비드 기준으로 다시 확인했습니다" : "목록 기준 시각의 값입니다";
+          const conflict = item.nameUsageConflict
+            ? `<p class="item-search-conflict">물건명에 「${escapeHtml(item.nameUsageConflict)}」가 있습니다. 용도는 온비드 분류(${escapeHtml(usage)})이니 원문에서 실제 용도를 확인하십시오.</p>`
+            : "";
           const facts = [
             [item.prptDivNm, item.dspsMthodNm, usage].filter(Boolean).join(" · "),
             `최저입찰가 ${price}`,
@@ -3779,6 +3782,7 @@ function renderItemSearchResult(payload) {
             <p class="item-search-place">${escapeHtml(place)}</p>
             <p class="item-search-facts">${facts.map((fact) => escapeHtml(fact)).join(" · ")}</p>
             <p class="item-search-checked">${escapeHtml(checked)}</p>
+            ${conflict}
             <div class="item-search-actions">${actions}</div>
           </li>`;
         })
@@ -3810,6 +3814,8 @@ async function runItemSearch() {
   const requestId = ++itemSearchRequestId;
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
+  button.classList.add("is-busy");
+  button.textContent = "찾는 중…";
   result.innerHTML = `<p class="small-text">물건 목록에서 찾는 중입니다. 그날 첫 검색은 목록을 새로 받느라 1분 정도 걸릴 수 있습니다.</p>`;
   try {
     const response = await window.fetch("/api/search", {
@@ -3835,6 +3841,8 @@ async function runItemSearch() {
     if (requestId === itemSearchRequestId) {
       button.disabled = false;
       button.removeAttribute("aria-busy");
+      button.classList.remove("is-busy");
+      button.textContent = "물건 찾기";
     }
   }
 }

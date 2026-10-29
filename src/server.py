@@ -4905,6 +4905,26 @@ def split_open_bid_items(items: list[dict[str, object]], now: str) -> tuple[list
     return kept, excluded
 
 
+# 주거용 소분류인데 물건명에 상가류 낱말이 있는 물건. 온비드 분류를 뒤집지 않고 표지만 붙여 결과 뒤로 보낸다
+# (2026-10-28 동원님 제보: 「서울 아파트 실거주」 결과에 「(유)갈현상가 제818호」 · 분류는 주거용건물>아파트).
+SEARCH_RESIDENTIAL_USAGES = ("아파트", "다세대주택", "연립주택", "단독주택", "다가구주택", "빌라", "도시형생활주택", "기타주거용건물")
+SEARCH_COMMERCIAL_NAME_WORDS = ("상가", "점포", "근린", "사무실", "창고", "공장")
+
+
+def search_usage_name_conflict(item: dict[str, object]) -> str:
+    """주거용으로 분류됐는데 물건명에 든 상가류 낱말. 없으면 빈 문자열이다."""
+    if str(item.get("cltrUsgSclsCtgrNm") or "") not in SEARCH_RESIDENTIAL_USAGES:
+        return ""
+    name = str(item.get("onbidCltrNm") or "")
+    return next((word for word in SEARCH_COMMERCIAL_NAME_WORDS if word in name), "")
+
+
+def order_search_items(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    """분류와 물건명이 어긋나는 물건에 nameUsageConflict 를 달고 결과 뒤로 보낸다. 나머지 순서는 그대로다."""
+    marked = [{**item, "nameUsageConflict": search_usage_name_conflict(item)} for item in items]
+    return [item for item in marked if not item["nameUsageConflict"]] + [item for item in marked if item["nameUsageConflict"]]
+
+
 ONBID_ITEM_DETAIL_URL = "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do"
 
 
@@ -5052,6 +5072,8 @@ class Handler(SimpleHTTPRequestHandler):
                 cache = refresh_cltr_cache()
                 matched = filter_cltr_items(cache.get("items", []), filters)
                 matched, excluded_closed = split_open_bid_items(matched, kst_now_digits())
+                # 실시간 재확인(상위 5건)이 어긋난 물건보다 먼저 쓰이도록 재확인 전에 정렬한다.
+                matched = order_search_items(matched)
                 matched = refresh_top_items_live(matched, public_data_service_key())
                 # 실시간 재확인으로 마감일시가 앞당겨졌을 수 있다. 덮어쓴 값으로 한 번 더 거른다.
                 matched, excluded_after_refresh = split_open_bid_items(matched, kst_now_digits())

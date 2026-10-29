@@ -366,6 +366,21 @@ def test_kst_now_digits_ignores_server_timezone() -> None:
     check("S42 KST 로 계산", value == "197001010900", value)
 
 
+def test_order_search_items_marks_name_usage_conflict() -> None:
+    # 2026-10-28 동원님 제보: 「서울 아파트 실거주」 결과에 분류가 아파트인 「(유)갈현상가 제818호」가 섞였다.
+    items = [
+        make_item(onbidCltrno=1, cltrUsgSclsCtgrNm="아파트", onbidCltrNm="서울특별시 은평구 갈현동 548 (유)갈현상가 제8층 제818호"),
+        make_item(onbidCltrno=2, cltrUsgSclsCtgrNm="아파트", onbidCltrNm="서울특별시 금천구 독산동 1147 금천롯데캐슬골드파크1차 제102동"),
+        make_item(onbidCltrno=3, cltrUsgSclsCtgrNm="근린생활시설", onbidCltrNm="서울특별시 어느 상가 1층"),
+        make_item(onbidCltrno=4, cltrUsgSclsCtgrNm="다세대주택", onbidCltrNm="서울특별시 어느 빌라 지하 점포"),
+    ]
+    out = server.order_search_items(items)
+    check("S43 어긋난 물건은 뒤로, 나머지 순서 유지", [i["onbidCltrno"] for i in out] == [2, 3, 1, 4], str([i["onbidCltrno"] for i in out]))
+    check("S44 표지는 걸린 낱말", [i["nameUsageConflict"] for i in out] == ["", "", "상가", "점포"], str([i["nameUsageConflict"] for i in out]))
+    check("S45 상업용 분류의 상가는 표지 없음", server.search_usage_name_conflict(items[2]) == "")
+    check("S46 아무것도 빼지 않음", len(out) == len(items))
+
+
 def main() -> int:
     tests = (
         test_normalize_drops_values_outside_closed_list,
@@ -389,6 +404,7 @@ def main() -> int:
         test_refresh_top_items_live_keeps_list_failed_count,
         test_refresh_error_hides_raw_exception,
         test_kst_now_digits_ignores_server_timezone,
+        test_order_search_items_marks_name_usage_conflict,
     )
     for test in tests:
         test()
