@@ -379,6 +379,31 @@ def test_order_search_items_marks_name_usage_conflict() -> None:
     check("S44 표지는 걸린 낱말", [i["nameUsageConflict"] for i in out] == ["", "", "상가", "점포"], str([i["nameUsageConflict"] for i in out]))
     check("S45 상업용 분류의 상가는 표지 없음", server.search_usage_name_conflict(items[2]) == "")
     check("S46 아무것도 빼지 않음", len(out) == len(items))
+    # 낱말 · 주거 소분류마다 리터럴 기대값으로 단정한다. 상수를 순회해 기대값을 만들면 상수와 함께 움직인다(reviewer r3 P2-2).
+    for case_id, usage, name, expected in (
+        ("S48", "아파트", "어느 아파트 근린생활동 101호", "근린"),
+        ("S49", "아파트", "어느 아파트 관리사무실", "사무실"),
+        ("S50", "아파트", "어느 아파트 지하 창고", "창고"),
+        ("S51", "단독주택", "어느 마을 주택 및 공장", "공장"),
+        ("S52", "연립주택", "어느 연립 1층 상가", "상가"),
+        ("S53", "도시형생활주택", "어느 도시형 1층 점포", "점포"),
+        ("S54", "기타주거용건물", "어느 주거용 건물 1층 상가", "상가"),
+        ("S55", "다가구주택", "어느 다가구 1층 점포", "점포"),
+        ("S56", "빌라", "어느 빌라 1층 상가", "상가"),
+    ):
+        got = server.search_usage_name_conflict(make_item(cltrUsgSclsCtgrNm=usage, onbidCltrNm=name))
+        check(f"{case_id} {usage} · {expected}", got == expected, got)
+
+
+def test_search_route_orders_before_live_refresh() -> None:
+    # 라우트가 첫 split 뒤 · 실시간 재확인 앞에서 정렬을 한 번 부르는지 본다(reviewer r3 P2-1).
+    # 창은 /api/search 블록으로 좁히고 주석은 지운다. 이 검사는 호출 인자는 보지 않는다.
+    route = Path(server.__file__).read_text(encoding="utf-8")
+    start = route.index('if parsed.path == "/api/search":')
+    block = route[start:route.index("self.send_json(404", start)]
+    code = "\n".join(line.split("#")[0] for line in block.splitlines())
+    pos = [code.find(name) for name in ("split_open_bid_items(", "order_search_items(", "refresh_top_items_live(")]
+    check("S47 라우트: split → order → 재확인 순서로 한 번", -1 not in pos and pos[0] < pos[1] < pos[2] and code.count("order_search_items(") == 1, str(pos))
 
 
 def main() -> int:
@@ -405,6 +430,7 @@ def main() -> int:
         test_refresh_error_hides_raw_exception,
         test_kst_now_digits_ignores_server_timezone,
         test_order_search_items_marks_name_usage_conflict,
+        test_search_route_orders_before_live_refresh,
     )
     for test in tests:
         test()
