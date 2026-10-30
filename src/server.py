@@ -5094,7 +5094,10 @@ class Handler(SimpleHTTPRequestHandler):
                     "items": [{**item, "detailUrl": search_item_detail_url(item)} for item in matched[:50]],
                 })
             except (ValueError, urllib.error.URLError, TimeoutError) as exc:
-                self.send_json(400, {"ok": False, "error": str(exc)})
+                # 원문은 서버 로그로만 남긴다. 화면에서 닿는 입력 경로는 찾지 못했지만(reviewer r1 P2-4)
+                # 통로 자체를 막아 원문 노출 가능성을 없앤다.
+                print(f"[api-search] 요청 처리 실패: {exc}", file=sys.stderr)
+                self.send_json(400, {"ok": False, "error": "요청을 처리하지 못했습니다."})
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": f"검색 처리 중 오류가 발생했습니다: {exc}"})
             return

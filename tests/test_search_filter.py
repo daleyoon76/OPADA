@@ -424,6 +424,16 @@ def test_search_route_orders_before_live_refresh() -> None:
     check("S47 라우트: split → order → 재확인 순서로 한 번", -1 not in pos and pos[0] < pos[1] < pos[2] and code.count("order_search_items(") == 1 and assigned, str(pos))
 
 
+def test_search_route_hides_exception_text() -> None:
+    # reviewer r1 P2-4: /api/search 블록의 400 응답이 예외 원문(str(exc))을 그대로 보내지 않는지 본다.
+    # /api/analyze · /api/ask 는 이번 처방 범위 밖이라 str(exc) 가 남아 있어도 된다.
+    route = Path(server.__file__).read_text(encoding="utf-8")
+    start = route.index('if parsed.path == "/api/search":')
+    block = route[start:route.index("self.send_json(404", start)]
+    code = "\n".join(line.split("#")[0] for line in block.splitlines())
+    check("S59 /api/search 400 은 str(exc) 를 보내지 않음", "self.send_json(400" in code and "str(exc)" not in code, code)
+
+
 def main() -> int:
     tests = (
         test_normalize_drops_values_outside_closed_list,
@@ -450,6 +460,7 @@ def main() -> int:
         test_kst_now_digits_ignores_server_timezone,
         test_order_search_items_marks_name_usage_conflict,
         test_search_route_orders_before_live_refresh,
+        test_search_route_hides_exception_text,
     )
     for test in tests:
         test()
