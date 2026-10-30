@@ -3700,6 +3700,9 @@ async function runAnalysis() {
 // 입찰 기간이 끝난 물건(수의계약가능 등)은 서버가 빼고 건수만 준다(2026-10-28 동원님 결정).
 const ITEM_SEARCH_SHOWN = 10;
 const ITEM_SEARCH_SYSTEM_FAILURE_MESSAGE = "검색 조건을 지금 해석하지 못했습니다. 잠시 뒤 다시 시도하거나 문장을 바꿔 보십시오.";
+// 첫 검색 실측 69.9초(2026-10-28)보다 넉넉하게 잡는다(reviewer r2 ②).
+const ITEM_SEARCH_TIMEOUT_MS = 120000;
+const ITEM_SEARCH_TIMEOUT_MESSAGE = "시간이 오래 걸립니다. 다시 시도해 주세요.";
 let itemSearchRequestId = 0;
 
 function formatSearchWon(raw) {
@@ -3818,11 +3821,15 @@ async function runItemSearch() {
   button.dataset.label = button.textContent;
   button.textContent = "찾는 중…";
   result.innerHTML = `<p class="small-text">물건 목록에서 찾는 중입니다. 그날 첫 검색은 목록을 새로 받느라 1분 정도 걸릴 수 있습니다.</p>`;
+  // 서버가 끝내 응답하지 않는 경로를 클라이언트 시한으로 끊는다(reviewer r2 ②). 첫 검색 실측 69.9초보다 넉넉하게 둔다.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ITEM_SEARCH_TIMEOUT_MS);
   try {
     const response = await window.fetch("/api/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query }),
+      signal: controller.signal,
     });
     const payload = await response.json();
     if (requestId !== itemSearchRequestId) return;
@@ -3836,9 +3843,15 @@ async function runItemSearch() {
     renderItemSearchResult(payload);
   } catch (error) {
     if (requestId !== itemSearchRequestId) return;
+    if (error && error.name === "AbortError") {
+      console.warn("물건 찾기 시한 초과", error);
+      result.innerHTML = `<p class="small-text">${escapeHtml(ITEM_SEARCH_TIMEOUT_MESSAGE)}</p>`;
+      return;
+    }
     console.warn("물건 찾기 실패", error);
     result.innerHTML = `<p class="small-text">${escapeHtml(ITEM_SEARCH_SYSTEM_FAILURE_MESSAGE)}</p>`;
   } finally {
+    clearTimeout(timeoutId);
     if (requestId === itemSearchRequestId) {
       button.disabled = false;
       button.removeAttribute("aria-busy");
