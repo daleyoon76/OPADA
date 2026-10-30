@@ -1814,3 +1814,67 @@ test("E2E 미분류 4단계 음성 — 첨부를 다 읽었으면 읽지 못한 
   await page.locator("#doc-checklist-details > summary").click();
   await expect(page.locator("#doc-checklist .attachment-unread")).toHaveCount(0);
 });
+
+// 2026-10-30 · 물건 찾기 — 검색 중 busy 상태(찾는 중… 펄스)와 상가 표지 렌더링(reviewer r3 검증 누락 이월).
+test("물건 찾기 — 검색 중에는 버튼이 찾는 중… 으로 잠기고, 응답에 상가 표지가 있으면 결과에 그려진다", async ({ page }) => {
+  let resolveSearch;
+  await page.route("**/api/search", async (route) => {
+    await new Promise((resolve) => {
+      resolveSearch = resolve;
+    });
+    await route.fulfill({
+      json: {
+        ok: true,
+        query: "서울 아파트 실거주",
+        filters: {},
+        cacheFetchedAt: "2026-10-28 15:40:01",
+        cacheRefreshError: "",
+        cacheRefreshErrorReason: "",
+        count: 1,
+        excludedClosedCount: 0,
+        items: [
+          {
+            onbidCltrNm: "(유)갈현상가 제818호",
+            lctnSdnm: "서울특별시",
+            lctnSggnm: "은평구",
+            lctnEmdNm: "갈현동",
+            cltrUsgSclsCtgrNm: "아파트",
+            prptDivNm: "압류재산",
+            dspsMthodNm: "매각",
+            lowstBidPrcIndctCont: "100000000",
+            usbdNft: 1,
+            cltrBidEndDt: "202611271700",
+            liveRefreshed: false,
+            nameUsageConflict: "상가",
+            detailUrl: "https://www.onbid.co.kr/op/cltrpbancinf/cltrdtl/CltrDtlController/mvmnCltrDtl.do?onbidCltrno=1",
+          },
+        ],
+      },
+    });
+  });
+
+  await page.goto("/");
+  // item-search 패널은 1-2(URL) 단계에 있다. 1p(유형/목적)를 지나야 보인다(analyzeWith 와 같은 마법사 흐름).
+  await page.locator("#profile-next").click();
+  const button = page.locator("#item-search-run");
+  await page.locator("#item-search-query").fill("서울 아파트 실거주");
+  await button.click();
+
+  // 응답이 오기 전: 버튼이 잠기고 펄스 클래스가 붙는다.
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveClass(/is-busy/);
+  await expect(button).toHaveText("찾는 중…");
+  await expect(button).toHaveAttribute("aria-busy", "true");
+
+  resolveSearch();
+
+  // 응답이 온 뒤: 버튼이 풀리고 원래 글자로 돌아간다.
+  await expect(button).toBeEnabled();
+  await expect(button).not.toHaveClass(/is-busy/);
+  await expect(button).toHaveText("물건 찾기");
+
+  // 상가 표지 — 걸린 낱말과 원문 확인 안내가 결과에 그려진다.
+  const result = page.locator("#item-search-result");
+  await expect(result).toContainText("「상가」 낱말이 들어 있습니다");
+  await expect(result).toContainText("원문에서 실제 용도를 확인하십시오");
+});
