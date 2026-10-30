@@ -342,6 +342,22 @@ def test_refresh_error_hides_raw_exception() -> None:
     check("S39 갱신 실패를 알림", bool(error), str(cache))
     check("S40 원문을 싣지 않음", "urlopen" not in error and "nodename" not in error, error)
     check("S41 빈 캐시는 fetchedAt 이 빈 값", cache.get("fetchedAt") == "" and cache.get("items") == [], str(cache))
+    check("S57 네트워크 실패 이유가 실린다", cache.get("refreshErrorReason") == "network", str(cache))
+
+
+def test_refresh_error_reason_no_key() -> None:
+    # reviewer r2 ③: 인증키가 없으면 화면이 "키 없음"을 "네트워크 실패"와 구분할 수 있는 이유가 실려야 한다.
+    import tempfile
+
+    original_path, original_key = server.CLTR_CACHE_PATH, server.public_data_service_key
+    with tempfile.TemporaryDirectory() as tmp:
+        server.CLTR_CACHE_PATH = Path(tmp) / "missing.json"
+        server.public_data_service_key = lambda: ""
+        try:
+            cache = server.refresh_cltr_cache()
+        finally:
+            server.CLTR_CACHE_PATH, server.public_data_service_key = original_path, original_key
+    check("S58 인증키 없음 이유가 실린다", cache.get("refreshErrorReason") == "no_key", str(cache))
 
 
 def test_kst_now_digits_ignores_server_timezone() -> None:
@@ -430,6 +446,7 @@ def main() -> int:
         test_search_item_detail_url,
         test_refresh_top_items_live_keeps_list_failed_count,
         test_refresh_error_hides_raw_exception,
+        test_refresh_error_reason_no_key,
         test_kst_now_digits_ignores_server_timezone,
         test_order_search_items_marks_name_usage_conflict,
         test_search_route_orders_before_live_refresh,

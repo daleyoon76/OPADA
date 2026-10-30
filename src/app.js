@@ -3703,6 +3703,11 @@ const ITEM_SEARCH_SYSTEM_FAILURE_MESSAGE = "검색 조건을 지금 해석하지
 // 첫 검색 실측 69.9초(2026-10-28)보다 넉넉하게 잡는다(reviewer r2 ②).
 const ITEM_SEARCH_TIMEOUT_MS = 120000;
 const ITEM_SEARCH_TIMEOUT_MESSAGE = "시간이 오래 걸립니다. 다시 시도해 주세요.";
+// 캐시가 비어 목록을 보여줄 수 없을 때, 원인(cacheRefreshErrorReason)에 따라 다른 문장을 고른다(reviewer r2 ③).
+const ITEM_SEARCH_EMPTY_CACHE_MESSAGES = {
+  no_key: "공공데이터 인증키가 설정되지 않아 물건 목록을 받지 못했습니다. 관리자에게 알려주십시오.",
+};
+const ITEM_SEARCH_EMPTY_CACHE_DEFAULT_MESSAGE = "지금 물건 목록을 받지 못했습니다. 잠시 뒤 다시 시도하십시오.";
 let itemSearchRequestId = 0;
 
 function formatSearchWon(raw) {
@@ -3752,7 +3757,8 @@ function renderItemSearchResult(payload) {
   if (payload.cacheRefreshError) parts.push(`<p class="item-search-meta">${escapeHtml(payload.cacheRefreshError)}</p>`);
   if (!items.length && !payload.cacheFetchedAt) {
     // 목록을 한 번도 받지 못한 상태다. 「조건을 넓히라」는 안내는 원인과 맞지 않는다(reviewer r1 P1-1 ⑵).
-    byId("item-search-result").innerHTML = `<p class="small-text">지금 물건 목록을 받지 못했습니다. 잠시 뒤 다시 시도하십시오.</p>`;
+    const message = ITEM_SEARCH_EMPTY_CACHE_MESSAGES[payload.cacheRefreshErrorReason] || ITEM_SEARCH_EMPTY_CACHE_DEFAULT_MESSAGE;
+    byId("item-search-result").innerHTML = `<p class="small-text">${escapeHtml(message)}</p>`;
     return;
   }
   if (!items.length) {

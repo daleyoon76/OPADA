@@ -4594,6 +4594,8 @@ def refresh_cltr_cache(force: bool = False) -> dict[str, object]:
     service_key = public_data_service_key()
     if not service_key:
         cache["refreshError"] = "공공데이터 인증키가 없어 목록을 새로 받지 못했습니다. 기존 캐시를 그대로 씁니다."
+        # 화면이 빈 캐시에서도 원인을 구분해 보여줄 수 있도록 이유를 함께 준다(reviewer r2 ③).
+        cache["refreshErrorReason"] = "no_key"
         return cache
     try:
         items = fetch_all_cltr_items(service_key)
@@ -4601,9 +4603,11 @@ def refresh_cltr_cache(force: bool = False) -> dict[str, object]:
         # 원문(urlopen 오류)은 화면에 내보내지 않고 서버 로그로만 남긴다(app.js I5 관례 · 2026-10-28 reviewer r1 P1-1).
         print(f"[cltr-cache] 목록 갱신 실패: {exc}", file=sys.stderr)
         cache["refreshError"] = "목록을 새로 받지 못해 이전에 받은 목록으로 찾았습니다."
+        cache["refreshErrorReason"] = "network"
         return cache
     if not items:
         cache["refreshError"] = "목록 API 응답이 비어 있어 기존 캐시를 그대로 씁니다."
+        cache["refreshErrorReason"] = "empty"
         return cache
     return save_cltr_cache(items)
 
@@ -5084,6 +5088,7 @@ class Handler(SimpleHTTPRequestHandler):
                     "filters": filters,
                     "cacheFetchedAt": cache.get("fetchedAt", ""),
                     "cacheRefreshError": cache.get("refreshError", ""),
+                    "cacheRefreshErrorReason": cache.get("refreshErrorReason", ""),
                     "count": len(matched),
                     "excludedClosedCount": excluded_closed,
                     "items": [{**item, "detailUrl": search_item_detail_url(item)} for item in matched[:50]],
