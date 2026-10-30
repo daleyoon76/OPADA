@@ -3755,6 +3755,12 @@ function renderItemSearchResult(payload) {
     `<p class="item-search-meta">${meta.join(" · ")}</p>`,
   ];
   if (payload.cacheRefreshError) parts.push(`<p class="item-search-meta">${escapeHtml(payload.cacheRefreshError)}</p>`);
+  // 처분방식을 가리지 않은 질의는 매각·임대가 함께 나올 수 있다. 결과를 거르지 않고 안내만 한다
+  // (reviewer r1 「프로필 목적과 결과 처분방식이 달라도 걸러지지 않는다」 이월).
+  const dispositionKinds = new Set(items.map((item) => item.dspsMthodNm).filter(Boolean));
+  if (dispositionKinds.size > 1) {
+    parts.push(`<p class="item-search-meta">「${[...dispositionKinds].join("·")}」이 모두 포함된 결과입니다. 처분방식을 원문에서 확인하십시오.</p>`);
+  }
   if (!items.length && !payload.cacheFetchedAt) {
     // 목록을 한 번도 받지 못한 상태다. 「조건을 넓히라」는 안내는 원인과 맞지 않는다(reviewer r1 P1-1 ⑵).
     const message = ITEM_SEARCH_EMPTY_CACHE_MESSAGES[payload.cacheRefreshErrorReason] || ITEM_SEARCH_EMPTY_CACHE_DEFAULT_MESSAGE;
