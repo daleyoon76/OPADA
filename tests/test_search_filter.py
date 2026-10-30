@@ -279,6 +279,12 @@ def test_split_open_bid_items_drops_closed_and_counts() -> None:
           server.split_open_bid_items([make_item(pbctStatNm="수의계약가능", cltrBidEndDt="202612311600")], now)[1] == 1)
     check("S31 마감일시가 없으면 상태만으로 판정",
           len(server.split_open_bid_items([make_item(pbctStatNm="입찰진행중", cltrBidEndDt=None)], now)[0]) == 1)
+    # 8자리(2자리 연도) 등 불완전한 형식은 지난 날짜인지 판정할 수 없어 fail closed 로 뺀다
+    # (reviewer r1 「8자리 · 2자리 연도」 지적 · S31 과 달리 "있지만 짧은" 값은 의심해 뺀다).
+    check("S60 8자리 마감일시는 fail closed 로 뺌",
+          server.split_open_bid_items([make_item(pbctStatNm="입찰진행중", cltrBidEndDt="26103016")], now)[1] == 1)
+    check("S31 음성 대조 — 완전히 없는 것과 불완전한 것은 다르게 처리됨",
+          server.split_open_bid_items([make_item(pbctStatNm="입찰진행중", cltrBidEndDt=None)], now)[1] == 0)
 
 
 def test_search_item_detail_url() -> None:

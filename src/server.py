@@ -4902,7 +4902,10 @@ def split_open_bid_items(items: list[dict[str, object]], now: str) -> tuple[list
     for item in items:
         status = str(item.get("pbctStatNm") or "")
         end = re.sub(r"\D", "", str(item.get("cltrBidEndDt") or ""))
-        if status not in SEARCH_OPEN_BID_STATUSES or (len(end) >= 12 and end[:12] < now):
+        # 마감일시가 전혀 없으면(end == "") 상태만으로 판정한다(S31). 그러나 8자리 등
+        # 불완전한 형식으로 "있는" 값은 지난 날짜인지 판정할 수 없으므로 fail closed 로 뺀다
+        # (reviewer r1 「8자리 · 2자리 연도」 지적 · 2026-10-30 판단, handoff.md 참고).
+        if status not in SEARCH_OPEN_BID_STATUSES or (end and len(end) < 12) or (len(end) >= 12 and end[:12] < now):
             excluded += 1
             continue
         kept.append(item)
