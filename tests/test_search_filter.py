@@ -417,13 +417,28 @@ def test_order_search_items_marks_name_usage_conflict() -> None:
         check(f"{case_id} {usage} · {expected}", got == expected, got)
 
 
+def _search_route_block() -> str:
+    """/api/search 라우트 블록 소스만 주석 없이 떼어낸다.
+
+    창 끝은 다음 라우트 분기(`if parsed.path ==`)와 404 송신 중 더 앞의 것이다. 지금은
+    /api/search 가 마지막 라우트라 둘이 같은 자리에 걸리지만, 라우트가 하나 더 붙으면
+    404 송신이 멀어지므로 창이 조용히 넓어진다(reviewer r4 사소-1).
+    """
+    route = Path(server.__file__).read_text(encoding="utf-8")
+    marker = 'if parsed.path == "/api/search":'
+    start = route.index(marker)
+    next_route = route.find("if parsed.path ==", start + len(marker))
+    next_404 = route.find("self.send_json(404", start)
+    candidates = [pos for pos in (next_route, next_404) if pos != -1]
+    end = min(candidates)
+    block = route[start:end]
+    return "\n".join(line.split("#")[0] for line in block.splitlines())
+
+
 def test_search_route_orders_before_live_refresh() -> None:
     # 라우트가 첫 split 뒤 · 실시간 재확인 앞에서 정렬을 한 번 부르는지 본다(reviewer r3 P2-1).
     # 창은 /api/search 블록으로 좁히고 주석은 지운다. 이 검사는 호출 인자는 보지 않는다.
-    route = Path(server.__file__).read_text(encoding="utf-8")
-    start = route.index('if parsed.path == "/api/search":')
-    block = route[start:route.index("self.send_json(404", start)]
-    code = "\n".join(line.split("#")[0] for line in block.splitlines())
+    code = _search_route_block()
     pos = [code.find(name) for name in ("split_open_bid_items(", "order_search_items(", "refresh_top_items_live(")]
     # 결과를 matched 에 다시 담는지도 본다. 결과를 버리거나 다른 변수에 담는 변이가 살아남았다(reviewer r4 P2-1).
     assigned = "matched = order_search_items(matched)" in [line.strip() for line in code.splitlines()]
@@ -433,10 +448,7 @@ def test_search_route_orders_before_live_refresh() -> None:
 def test_search_route_hides_exception_text() -> None:
     # reviewer r1 P2-4: /api/search 블록의 400 응답이 예외 원문(str(exc))을 그대로 보내지 않는지 본다.
     # /api/analyze · /api/ask 는 이번 처방 범위 밖이라 str(exc) 가 남아 있어도 된다.
-    route = Path(server.__file__).read_text(encoding="utf-8")
-    start = route.index('if parsed.path == "/api/search":')
-    block = route[start:route.index("self.send_json(404", start)]
-    code = "\n".join(line.split("#")[0] for line in block.splitlines())
+    code = _search_route_block()
     check("S59 /api/search 400 은 str(exc) 를 보내지 않음", "self.send_json(400" in code and "str(exc)" not in code, code)
 
 
